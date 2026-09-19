@@ -35,7 +35,7 @@ describe("bug: Claude → OpenAI bridge data loss", () => {
     expect(json, "thinking content lost via OpenAI bridge").toContain("secret reasoning");
   });
 
-  // FIXED (F17, T1.2 M9) — was: tool_result image parts fell into
+  // FIXED (F17 + official f4f06f29) — was: tool_result image parts fell into
   // JSON.stringify(block.content), leaking raw base64 as prompt text
   // (request/claude-to-openai.js, TOOL_RESULT case).
   it("tool_result with image block is not turned into raw JSON / dropped", () => {
@@ -51,10 +51,13 @@ describe("bug: Claude → OpenAI bridge data loss", () => {
         ] },
       ],
     });
-    const toolMsg = out.messages.find((m) => m.role === "tool");
-    // Now kept as canonical image_url parts with a data: URI
-    expect(Array.isArray(toolMsg?.content), "content must be parts, not raw JSON").toBe(true);
-    const img = toolMsg.content.find((p) => p.type === "image_url");
+    const toolIdx = out.messages.findIndex((m) => m.role === "tool");
+    const toolMsg = out.messages[toolIdx];
+    // The tool role is text-only upstream; the image follows in a user turn as a
+    // canonical image_url data-URI part (official f4f06f29).
+    expect(typeof toolMsg?.content, "tool content must be text, not raw JSON").toBe("string");
+    expect(toolMsg.content).not.toContain("ZZZ");
+    const img = out.messages[toolIdx + 1].content.find((p) => p.type === "image_url");
     expect(img?.image_url?.url).toBe("data:image/png;base64,ZZZ");
   });
 

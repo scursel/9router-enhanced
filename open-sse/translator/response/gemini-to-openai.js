@@ -33,9 +33,9 @@ function emitFunctionCall(functionCall, state, thoughtSignature = null) {
   }
   const toolCallIndex = state.functionIndex++;
   const callId = functionCall.id || `${fcName}-${Date.now()}-${toolCallIndex}`;
-  // Official: persist Gemini thoughtSignature scoped by session for replay.
+  // Official: persist Gemini thoughtSignature scoped by session + model family for replay.
   if (thoughtSignature) {
-    storeGeminiThoughtSignature(callId, thoughtSignature, state.sessionId);
+    storeGeminiThoughtSignature(callId, thoughtSignature, state.sessionId, state.model);
   }
   const toolCall = {
     id: callId,
@@ -65,7 +65,7 @@ export function geminiToOpenAIResponse(chunk, state) {
   // Initialize state
   if (!state.messageId) {
     state.messageId = response.responseId || `msg_${Date.now()}`;
-    state.model = response.modelVersion || "gemini";
+    state.model = response.modelVersion || state.model || "gemini";
     state.functionIndex = 0;
     state.geminiToolCallCount = 0;
     results.push(buildChunk(chunkMeta(state), { role: ROLE.ASSISTANT }, null));

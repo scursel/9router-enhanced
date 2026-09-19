@@ -47,14 +47,16 @@ export function getQuotaCooldown(backoffLevel = 0) {
  * Config-driven: matches ERROR_RULES top-to-bottom (text rules first, then status)
  *
  * Classification (RH2 fix), in priority order:
- *  1. Request-caused statuses (REQUEST_ERROR_STATUSES: 400/406/413/422) →
- *     shouldFallback:false, cooldownMs:0 — deterministic client errors: every
- *     account returns the same error, so fallback would only self-DoS the combo.
- *  2. Auth statuses (401) → same non-locking answer: credential refresh is
- *     decided upstream (chatCore refresh flow), not by locking the account here.
+ *  1. Auth statuses (401) → shouldFallback:false, cooldownMs:0: credential
+ *     refresh is decided upstream (chatCore refresh flow), not by locking here.
+ *  2. Request-caused statuses (REQUEST_ERROR_STATUSES: 400/406/413/422) → same
+ *     non-locking answer — deterministic client errors: every account returns
+ *     the same error, so fallback would only self-DoS the combo. Exception:
+ *     rate-limit / quota / capacity wording, which is account state.
  *  3. Everything else keeps the historical ERROR_RULES behaviour: rate/quota/
  *     upstream/transient → shouldFallback:true with a cooldown (429 backoff,
- *     5xx and unmatched → transient; 404 stays per-model 2-min lock by design).
+ *     5xx and unmatched → transient; 404 stays per-model 2-min lock by design;
+ *     any other unmatched 4xx is request-scoped → no fallback, no lock).
  *
  * @param {number} status - HTTP status code
  * @param {string} errorText - Error message text
@@ -66,13 +68,21 @@ export function checkFallbackError(status, errorText, backoffLevel = 0) {
   // Checked before text rules because the HTTP status is the authoritative
   // origin signal (text substrings are heuristics that can co-occur with 4xx).
   const code = Number.isFinite(Number(status)) ? Number(status) : null;
-  if (code !== null && (REQUEST_ERROR_STATUSES.has(code) || AUTH_ERROR_STATUSES.has(code))) {
+  if (code !== null && AUTH_ERROR_STATUSES.has(code)) {
     return { shouldFallback: false, cooldownMs: 0 };
   }
 
   const lowerError = errorText
     ? (typeof errorText === "string" ? errorText : JSON.stringify(errorText)).toLowerCase()
     : "";
+
+  if (code !== null && REQUEST_ERROR_STATUSES.has(code)) {
+    // Rate-limit / quota / capacity wording describes the account or upstream,
+    // not the request, even when a provider reports it under a 4xx (official
+    // 20a43f5a). Only those backoff rules may override the request-status gate.
+    const accountRule = ERROR_RULES.find(r => r.backoff && r.text && lowerError.includes(r.text));
+    if (!accountRule) return { shouldFallback: false, cooldownMs: 0 };
+  }
 
   for (const rule of ERROR_RULES) {
     // Text-based rule: match substring in error message
@@ -92,6 +102,21 @@ export function checkFallbackError(status, errorText, backoffLevel = 0) {
       }
       return { shouldFallback: true, cooldownMs: rule.cooldownMs };
     }
+  }
+
+  // Request-scoped client errors that matched no rule above: a 400 caused by the
+  // request itself (context overflow, malformed body, unsupported parameter) says
+  // nothing about the credential, so cooling the account down only removes a
+  // healthy connection from rotation. With a single connection it is worse: every
+  // later request in the window fails with a copy of this very error
+  // ("all 1 accounts locked for <model> | lastError=[400]: ..."), which hides the
+  // real cause from the caller and makes unrelated sessions look like they hit the
+  // same limit. Hand the upstream error back for this request instead.
+  // Account-scoped statuses keep their rules above (402/403/404/429; 401 is left
+  // to the refresh flow at the top), and the text rules still win for
+  // rate-limit / quota / capacity wording.
+  if (status >= 400 && status < 500 && status !== 401 && status !== 402 && status !== 403 && status !== 429) {
+    return { shouldFallback: false, cooldownMs: 0 };
   }
 
   // Default: transient cooldown for any unmatched error

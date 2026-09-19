@@ -151,7 +151,10 @@ export default function QuotaTable({
       <div className="space-y-px">
         {currentPageRows.map((quota) => {
           const isUnlimited = quota.unlimited === true;
-          const colors = getColorClasses(quota.remaining);
+          const isCreditBalance = quota.isCreditBalance === true;
+          const colors = isCreditBalance
+            ? { text: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500", bgLight: "bg-blue-500/10", emoji: "💰" }
+            : getColorClasses(quota.remaining);
           const countdown = formatResetTime(quota.resetAt);
           const resetDisplay = formatResetTimeDisplay(quota.resetAt);
           // recurring defaults true: a missing flag means the quota
@@ -160,6 +163,11 @@ export default function QuotaTable({
           const recurring = quota.recurring !== false;
           const countdownLabel = recurring ? `in ${countdown}` : `expires in ${countdown}`;
           const usedTotal = formatQuotaUsage(quota);
+          const creditBalance = isCreditBalance
+            ? (quota.currency
+              ? quota.total.toLocaleString("pt-BR", { style: "currency", currency: quota.currency })
+              : quota.total.toFixed(2))
+            : null;
 
           return (
             <div
@@ -176,7 +184,7 @@ export default function QuotaTable({
 
               {/* Progress + used/total */}
               <div className={`min-w-0 flex-1 ${compact ? "space-y-1" : "space-y-1.5"}`}>
-                {!isUnlimited && (
+                {!isUnlimited && !isCreditBalance && (
                 <div className={`${compact ? "h-1" : "h-1.5"} rounded-full overflow-hidden border ${colors.bgLight} ${
                   quota.remaining === 0 ? "border-black/10 dark:border-white/10" : "border-transparent"
                 }`}>
@@ -190,12 +198,12 @@ export default function QuotaTable({
                 <div className={`flex items-center justify-between gap-1 min-w-0 ${compact ? "text-[10px]" : "text-xs"}`}>
                   <span
                     className="text-text-muted truncate"
-                    title={usedTotal}
+                    title={isCreditBalance ? `Credit balance: ${creditBalance}` : usedTotal}
                   >
-                    {usedTotal}
+                    {isCreditBalance ? `Credit: ${creditBalance}` : usedTotal}
                   </span>
-                  <span className={`font-medium ${isUnlimited ? "text-green-600 dark:text-green-400" : colors.text} shrink-0`}>
-                    {isUnlimited ? "Unlimited" : `${quota.remaining}%`}
+                  <span className={`font-medium ${isUnlimited ? "text-green-600 dark:text-green-400" : isCreditBalance ? "text-blue-600 dark:text-blue-400" : colors.text} shrink-0`}>
+                    {isUnlimited ? "Unlimited" : isCreditBalance ? "" : `${quota.remaining}%`}
                   </span>
                 </div>
               </div>

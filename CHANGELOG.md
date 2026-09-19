@@ -1,3 +1,21 @@
+# v0.5.81-enhanced.1 (2026-09-19 — upstream sync)
+
+Brings the official v0.5.81 line into the fork (see its section below). Where both
+sides had solved the same problem, the better implementation was kept:
+
+## Adopted from upstream
+- **Translator**: Claude `tool_result` images on the OpenAI pivot now follow the tool messages in a user turn (tagged with the call id) instead of riding inside the `tool` message as parts — the OpenAI tool role is text-only and rejects images. The fork's `[tool_error]` marker, dropped-type warning and default MIME are kept.
+- **Model catalog**: modalities are keyed by provider + model (`CATALOG_VERSION` 2) instead of model id alone; the fork's `costs` / `lifecycle` sections ride along in the same file.
+- **Accounts**: rate-limit / quota / capacity wording now wins even under a 400/422 (account state, not a request error), and any other unmatched 4xx is treated as request-scoped. 401 stays with the fork's refresh flow.
+- **Command Code quota**: billing calls are scoped to the org from `/alpha/whoami` (Teams pools), auth failures get an explicit message, and brand plan names (GOAT, Max 10×/20×) come from the official table.
+
+## Kept from the fork
+- **Command Code quota**: separate monthly / purchased / free rows with the renewal date; the official collector's `individual-pro` cap of $30 contradicts the published pricing ($80) and was not taken.
+- **Usage**: DeepSeek credit balances (official `isCreditBalance`) render with the fork's pt-BR currency formatting.
+
+## Tests
+- Four Command Code translator tests are red on the pristine official v0.5.81 tree too; catalogued in `known-fails.txt` rather than masked.
+
 # v0.5.75-enhanced.2 (2026-09-19 — audit & hardening release)
 
 ## Features — combo statistics (OmniRoute-inspired)
@@ -81,6 +99,26 @@
 ## Tests
 - Repaired suites asserting contracts the code no longer has (Kiro top-level `systemPrompt`, Windsurf endpoint, `got-scraping` transport, DNS `lookup` with `all: true`, Antigravity 429 attempts, HTTP/2 Cursor catalog, module-relative paths in the security audit) and converted four `node:test` files to Vitest so they are collected at all.
 - Regression baseline regenerated: `verify-no-regression.mjs` derived the test path from a hardcoded `/app/` prefix and reported every failure as new in any other checkout.
+
+# v0.5.81 (2026-09-18)
+
+## Features
+- **Xiaomi MiMo**: merge MiMo Desktop support into `xiaomi-mimo` with dual auth (API key + Desktop/OAuth session), Preview models support, and encrypted-callback OAuth flow
+- **Claude Code**: add 1M-context toggle (`[1m]` marker) and drive `CLAUDE_CODE_AUTO_COMPACT_WINDOW` directly from the dashboard
+- **Models**: add DeepSeek-V4.1-Flash to DeepSeek provider, CodeBuddy-Intl, and Ollama (`deepseek-v4.1-flash:cloud`); enable `low`..`max` reasoning effort levels and vision capability for DeepSeek-V4.*
+- **i18n**: integrate Persian (fa) translation
+
+## Fixes
+- **OpenCode / OpenCode Go**: resolve 403 `FreeTierError` and 429 rate limits with canonical session format, valid User-Agent, and stable upstream session reuse; force stream and declare `forceStream` for free-tier SSE aggregation; cloak decoy tools, normalize Muse Free tool choice, and strip prior reasoning items on Responses models; route Union Alpha via Messages API
+- **Kiro**: preserve underscores in tool names (`mcp__server__tool`) and restore client tool names in responses; use neutral placeholder for tool-result-only turns; forward tool-result images
+- **Stream**: report aborts after HTTP 200 in-band (per-format error frames) instead of closing silently
+- **Command Code**: preserve images and `reasoning_effort` on `/alpha/generate`; retry transient stream errors and avoid fake stop chunks; add Quota Tracker support
+- **Zed**: harden OAuth lifecycle (preserve `systemId`, renew proxy timeout), support live model resolution, and lower display priority in OAuth list
+- **Antigravity**: scope cached thought signatures to model family; strip Claude Code billing headers from system prompts; sanitize Hermes system identity
+- **Codex**: route bare `codex-auto-review` requests to the Codex provider (#4135)
+- **Auth**: do not cool down an account for request-scoped 4xx errors
+- **Usage**: improve DeepSeek credit balance display as currency credit instead of 0/total quota bar
+- **Model Catalog**: scope synced catalog to gateways and declare vision capabilities for DeepSeek V4.1-Flash IDs
 
 # v0.5.75 (2026-09-10)
 

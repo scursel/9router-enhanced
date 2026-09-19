@@ -7,6 +7,8 @@ export function commandCodeMonthlyTotal(planId) {
     "individual-go": 10,
     "individual-goat": 70,
     "individual-pro": 80,
+    "individual-pro-v1": 80,
+    "individual-provider": 15,
     "individual-max": 150,
     "individual-max-10x": 150,
     "individual-ultra": 300,
@@ -16,6 +18,22 @@ export function commandCodeMonthlyTotal(planId) {
   };
   return num(totals[String(planId || "").toLowerCase()], 0);
 }
+
+// Display names for plan ids whose brand spelling the generic title-casing below
+// would get wrong (GOAT, Max 10×/20×). Taken from the official collector.
+const PLAN_NAMES = {
+  "individual-go": "Go",
+  "individual-goat": "GOAT",
+  "individual-pro": "Pro",
+  "individual-pro-v1": "Pro",
+  "individual-provider": "Provider",
+  "individual-max": "Max",
+  "individual-max-10x": "Max 10×",
+  "individual-ultra": "Ultra",
+  "individual-max-20x": "Max 20×",
+  "teams-pro": "Teams Pro",
+  "team-pro": "Teams Pro",
+};
 
 export function parseCommandCode(body, subscriptionBody = null) {
   const credits = body?.credits || {};
@@ -57,14 +75,14 @@ export function parseCommandCode(body, subscriptionBody = null) {
   }
   if (!Object.keys(quotas).length) return null;
   const planId = String(subscription.planId || "");
-  const plan = planId
+  const plan = PLAN_NAMES[planId.toLowerCase()] || (planId
     ? planId
         .replace(/^individual-/, "")
         .replace(/^teams-/, "Teams ")
         .replace(/(^|[- ])\w/g, (match) => match.toUpperCase().replace("-", " "))
     : limits.limited === false
       ? "Pay as you go"
-      : "Subscription";
+      : "Subscription");
   return { plan, quotas };
 }
 
@@ -73,13 +91,27 @@ export async function getCommandCodeUsage(apiKey, proxyOptions) {
     return { message: "CommandCode API key not available.", quotas: {} };
   }
 
+  const base = "https://api.commandcode.ai";
+  // Billing is scoped to an org: without the orgId a Teams member reads their
+  // personal (empty) wallet instead of the team pool. whoami is best-effort —
+  // only an auth failure there is conclusive (official collector behaviour).
+  const whoami = await getJson(`${base}/alpha/whoami?limits=1`, apiKey, proxyOptions);
+  if (whoami.status === 401 || whoami.status === 403) return authError();
+  const orgId = whoami.ok ? whoami.body?.org?.id : null;
+  const scoped = (route) => (orgId ? `${base}${route}?orgId=${encodeURIComponent(orgId)}` : `${base}${route}`);
+
   const [creditsRes, subRes] = await Promise.all([
-    getJson("https://api.commandcode.ai/alpha/billing/credits", apiKey, proxyOptions),
-    getJson("https://api.commandcode.ai/alpha/billing/subscriptions", apiKey, proxyOptions),
+    getJson(scoped("/alpha/billing/credits"), apiKey, proxyOptions),
+    getJson(scoped("/alpha/billing/subscriptions"), apiKey, proxyOptions),
   ]);
 
+  if (creditsRes.status === 401 || creditsRes.status === 403) return authError();
   if (!creditsRes.ok) return quotaError(creditsRes, "CommandCode");
 
   const parsed = parseCommandCode(creditsRes.body, subRes.ok ? subRes.body : null);
   return parsed || { message: "CommandCode connected. No quota data was returned.", quotas: {} };
+}
+
+function authError() {
+  return { message: "CommandCode authentication failed. Check the API key.", quotas: {} };
 }

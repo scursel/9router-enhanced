@@ -82,14 +82,13 @@ Grouped per CLI/provider test file. Each row is an `it.fails` case.
 | Claude image `source.type="url"` dropped (only base64) | `request/claude-to-openai.js:133-141` |
 | `thinking`/`redacted_thinking` dropped via bridge | `request/claude-to-openai.js:128` (F17 added one aggregated `console.warn` per request; the blocks themselves are still lost) |
 
-Fixed (F17 / T1.2 M9 — flipped to regular `it` in `bugs-openai-bridge.test.js`):
-`tool_result` image block → canonical `image_url` data-URI parts (was raw JSON/base64 text);
+Fixed (F17 / T1.2 M9, image shape from official f4f06f29 — regular `it` in both files):
+`tool_result` image block → the tool message keeps only text (the OpenAI tool role is
+text-only) and the image follows in the next user turn as a canonical `image_url`
+data-URI part tagged `[Image from tool result <id>]` (was raw JSON/base64 text);
 `tool_result.is_error` → folded into the tool message text as an explicit `"[tool_error] "`
 marker (OpenAI leg has no error channel; `claude-to-kiro` keeps it structurally as
-`status:"error"`). Caveat: the duplicate legacy `it.fails("tool_result image block is
-preserved")` in `bugs-claudeCode-context.test.js` asserts a string shape and still passes
-as expected-fail — flip it when that file is next touched (its `.not.toMatch(/^\[/)` now
-type-errors on the array receiver).
+`status:"error"`).
 
 **OpenAI → Claude (`bugs-toClaude-context.test.js`)**
 | Bug | Source |

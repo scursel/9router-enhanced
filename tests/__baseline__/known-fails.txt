@@ -51,3 +51,12 @@ tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (c
 tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (cursor.js) isAgentCapableRequest accepts request with tools declared
 tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (cursor.js) isAgentCapableRequest rejects missing messages
 tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (cursor.js) isAgentCapableRequest rejects non-text (image) content
+
+# Red in the official v0.5.81 tree itself (verified on a pristine upstream/master
+# worktree): 13b468b8/092c84ea changed the Command Code image block shape and
+# made stream errors throw, without updating these assertions. Not a merge
+# regression; drop them once upstream fixes its tests.
+tests/translator/bugs-gemini-cursor-commandcode.test.js :: OpenAI → CommandCode image content is preserved as native CommandCode image blocks
+tests/unit/commandcode-to-openai.test.js :: commandcode-to-openai — error event stringifies object errors so client sees readable message
+tests/unit/openai-to-commandcode.test.js :: openaiToCommandCodeRequest — native image blocks maps OpenAI image_url data URI to CommandCode {type:image,image,mimeType}
+tests/unit/openai-to-commandcode.test.js :: openaiToCommandCodeRequest — native image blocks maps Claude/OpenAI base64 image source to a data-URI image block

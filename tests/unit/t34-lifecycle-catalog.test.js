@@ -20,6 +20,7 @@ const scratch = vi.hoisted(() => {
 import {
   CATALOG_FILE,
   CATALOG_RAW_FILE,
+  CATALOG_VERSION,
   __setCatalogCacheForTests,
   getCatalogLifecycle,
   invalidateCatalog,
@@ -158,7 +159,7 @@ describe("sync -> file -> getCatalogLifecycle round trip", () => {
     expect(result?.status).toBe("updated");
 
     const file = JSON.parse(fs.readFileSync(CATALOG_FILE, "utf8"));
-    expect(file.v).toBe(1); // file format unchanged: new sibling section only
+    expect(file.v).toBe(CATALOG_VERSION); // lifecycle is a sibling section; the version tracks the modality-key schema
     expect(file.lifecycle.claude["claude-3-opus"]).toBe("EOL");
     expect(file.lifecycle.openai["gpt-4o"]).toBe("deprecated");
 

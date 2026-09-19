@@ -21,6 +21,7 @@ import { getXiaomiMimoUsage as getMimoDesktopUsage } from "./usage/xiaomi-mimo.j
 import { getXiaomiMimoUsage as getMimoBalanceUsage } from "./usage/xiaomiMimo.js";
 import { resolveQoderCredentials } from "./qoderModels.js";
 import { getGlmUsage } from "./usage/glm.js";
+import { getCommandCodeUsage } from "./usage/commandcode.js";
 import {
   getIflowUsage,
   getOllamaUsage,
@@ -28,7 +29,6 @@ import {
   getQoderUsage,
 } from "./usage/misc.js";
 import { getOpenRouterUsage } from "./usage/openrouter.js";
-import { getCommandCodeUsage } from "./usage/commandcode.js";
 import { getClinePassUsage } from "./usage/clinepass.js";
 import { getAlibabaTokenPlanUsage } from "./usage/alibabaTokenPlan.js";
 import { normalizeXaiUsage } from "./usage/xaiNormalize.js";

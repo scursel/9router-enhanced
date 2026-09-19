@@ -55,29 +55,37 @@ describe("claude→openai tool_result lossless (M9)", () => {
     expect(json).toContain("call_1");
   });
 
-  it("image-only tool_result becomes an image_url data-URI part, not JSON-stringified base64", () => {
+  // The OpenAI tool role is text-only (images there are a 400 upstream), so
+  // tool-result images follow the tool messages in a user turn, tagged with the
+  // call id they came from (official f4f06f29 — adopted over the fork's
+  // image-parts-in-tool-content variant).
+  it("image-only tool_result moves the image to the following user turn as a data-URI part", () => {
     const out = T(toolResultPair({
       type: "tool_result", tool_use_id: "call_1", content: [
         { type: "image", source: { type: "base64", media_type: "image/png", data: "ZZZ" } },
       ],
     }));
-    const tool = out.messages.find((m) => m.role === "tool");
-    expect(Array.isArray(tool.content), "content must be parts, not a JSON string").toBe(true);
-    const img = tool.content.find((p) => p.type === "image_url");
+    const toolIdx = out.messages.findIndex((m) => m.role === "tool");
+    const tool = out.messages[toolIdx];
+    expect(typeof tool.content, "tool content stays text").toBe("string");
+    expect(tool.content).not.toContain("ZZZ");
+    const user = out.messages[toolIdx + 1];
+    expect(user.role).toBe("user");
+    expect(JSON.stringify(user.content)).toContain("call_1");
+    const img = user.content.find((p) => p.type === "image_url");
     expect(img?.image_url?.url).toBe("data:image/png;base64,ZZZ");
   });
 
-  it("text+image tool_result keeps both as parts (image no longer silently dropped)", () => {
+  it("text+image tool_result keeps the text on the tool message and the image in the user turn", () => {
     const out = T(toolResultPair({
       type: "tool_result", tool_use_id: "call_1", content: [
         { type: "text", text: "see below" },
         { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "QQQ" } },
       ],
     }));
-    const tool = out.messages.find((m) => m.role === "tool");
-    expect(Array.isArray(tool.content)).toBe(true);
-    expect(tool.content.some((p) => p.type === "text" && p.text.includes("see below"))).toBe(true);
-    const img = tool.content.find((p) => p.type === "image_url");
+    const toolIdx = out.messages.findIndex((m) => m.role === "tool");
+    expect(out.messages[toolIdx].content).toBe("see below");
+    const img = out.messages[toolIdx + 1].content.find((p) => p.type === "image_url");
     expect(img?.image_url?.url).toBe("data:image/jpeg;base64,QQQ");
   });
 

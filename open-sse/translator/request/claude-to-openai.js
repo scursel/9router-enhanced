@@ -212,49 +212,39 @@ function convertClaudeMessage(msg, droppedTypes) {
 
         case CLAUDE_BLOCK.TOOL_RESULT: {
           let resultContent = "";
+          const resultImages = [];
           if (typeof block.content === "string") {
             resultContent = block.content;
           } else if (Array.isArray(block.content)) {
-            const text = block.content
-              .filter(c => c.type === CLAUDE_BLOCK.TEXT)
-              .map(c => c.text)
-              .join("\n");
-            // base64 images become canonical image_url data-URI parts (T1.2 M9):
-            // the old JSON.stringify(block.content) fallback leaked raw base64 into
-            // the prompt as text and the text-only join dropped images silently.
-            const imageParts = block.content
-              .filter(c => c.type === CLAUDE_BLOCK.IMAGE && c.source?.type === "base64")
-              .map(c => ({
-                type: OPENAI_BLOCK.IMAGE_URL,
-                image_url: { url: encodeDataUri(c.source.media_type || DEFAULT_IMAGE_MIME, c.source.data) }
-              }));
-            if (imageParts.length > 0) {
-              resultContent = [
-                ...(text ? [{ type: OPENAI_BLOCK.TEXT, text }] : []),
-                ...imageParts,
-              ];
-            } else {
-              resultContent = text || JSON.stringify(block.content);
+            for (const c of block.content) {
+              if (c?.type === CLAUDE_BLOCK.IMAGE && c.source?.type === "base64") {
+                resultImages.push({
+                  type: OPENAI_BLOCK.IMAGE_URL,
+                  image_url: { url: encodeDataUri(c.source.media_type || DEFAULT_IMAGE_MIME, c.source.data) }
+                });
+              }
             }
+            const textOnly = block.content.filter(c => c?.type === CLAUDE_BLOCK.TEXT);
+            resultContent = textOnly.map(c => c.text).join("\n")
+              || (resultImages.length ? "" : JSON.stringify(block.content));
           } else if (block.content) {
             resultContent = JSON.stringify(block.content);
           }
 
-          if (block.is_error === true) {
-            if (Array.isArray(resultContent)) {
-              const firstText = resultContent.find(p => p.type === OPENAI_BLOCK.TEXT);
-              if (firstText) firstText.text = TOOL_ERROR_MARKER + firstText.text;
-              else resultContent.unshift({ type: OPENAI_BLOCK.TEXT, text: TOOL_ERROR_MARKER.trimEnd() });
-            } else {
-              resultContent = TOOL_ERROR_MARKER + resultContent;
-            }
-          }
+          if (block.is_error === true) resultContent = TOOL_ERROR_MARKER + resultContent;
 
           toolResults.push({
             role: ROLE.TOOL,
             tool_call_id: block.tool_use_id,
             content: resultContent
           });
+          // The OpenAI tool role is text-only, so a screenshot or any other image a
+          // tool returned would otherwise vanish. Hand it to the model in the user
+          // turn that follows the tool messages, tagged with the call it came from.
+          if (resultImages.length) {
+            parts.push({ type: OPENAI_BLOCK.TEXT, text: `[Image from tool result ${block.tool_use_id}]` });
+            parts.push(...resultImages);
+          }
           break;
         }
 
