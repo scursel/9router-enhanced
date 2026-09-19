@@ -416,9 +416,21 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       const { shouldFallback, cooldownMs } = checkFallbackError(result.status, errorText);
 
       if (!shouldFallback) {
-        log.warn("COMBO", `Model ${modelStr} failed (no fallback)`, { status: result.status });
+        // Account-level policy (unchanged): a request-shaped 4xx (400/406/413/422)
+        // or a 401 must not lock/cool any account — every account of the same
+        // provider would answer the same, and locking them turns one 400 into a
+        // self-inflicted combo-wide 503 (RH2).
+        // Combo routing, however, is TARGET-level orchestration: a 4xx from ONE
+        // upstream (e.g. "Model is unavailable", "insufficient credits") must not
+        // take the whole combo down while other members can still serve. Fall
+        // through to the next member; the final block pairs the last failure's
+        // status with its message and appends the tried-trail.
+        log.warn("COMBO", `Model ${modelStr} failed (no account fallback); trying next member`, { status: result.status });
+        lastError = errorText || String(result.status);
+        lastStatus = result.status;
+        failures.push(`${modelStr}:${result.status}`);
         recordAttemptFailure(attemptUsage, result.status);
-        return result;
+        continue;
       }
 
       // For transient errors (503/502/504), wait for cooldown before falling through
