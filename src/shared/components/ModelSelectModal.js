@@ -116,70 +116,42 @@ export default function ModelSelectModal({
 
   const cursorModels = useLiveProviderModels(isOpen, cursorConnectionIds, "Cursor");
 
-  const fetchCombos = async () => {
-    try {
-      const res = await fetch("/api/combos");
-      if (!res.ok) throw new Error(`Failed to fetch combos: ${res.status}`);
-      const data = await res.json();
-      setCombos(data.combos || []);
-    } catch (error) {
-      console.error("Error fetching combos:", error);
-      setCombos([]);
-    }
-  };
-
+  // Bolt optimization: Consolidate 4 separate metadata fetches into a single concurrent Promise.all
+  // call when modal opens. This parallelizes the HTTP requests and triggers a single batched state update,
+  // preventing 4+ sequential cascading re-renders when opening the modal.
   useEffect(() => {
-    if (isOpen) fetchCombos();
+    if (!isOpen) return;
+    let cancelled = false;
+
+    const fetchModalData = async () => {
+      const [combosRes, nodesRes, customRes, disabledRes] = await Promise.allSettled([
+        fetch("/api/combos").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
+        fetch("/api/provider-nodes").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
+        fetch("/api/models/custom").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
+        fetch("/api/models/disabled").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
+      ]);
+
+      if (cancelled) return;
+
+      if (combosRes.status === "fulfilled") setCombos(combosRes.value.combos || []);
+      else setCombos([]);
+
+      if (nodesRes.status === "fulfilled") setProviderNodes(nodesRes.value.nodes || []);
+      else setProviderNodes([]);
+
+      if (customRes.status === "fulfilled") setCustomModels(customRes.value.models || []);
+      else setCustomModels([]);
+
+      if (disabledRes.status === "fulfilled") setDisabledModels(disabledRes.value.disabled || {});
+      else setDisabledModels({});
+    };
+
+    fetchModalData();
+
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
-
-  const fetchProviderNodes = async () => {
-    try {
-      const res = await fetch("/api/provider-nodes");
-      if (!res.ok) throw new Error(`Failed to fetch provider nodes: ${res.status}`);
-      const data = await res.json();
-      setProviderNodes(data.nodes || []);
-    } catch (error) {
-      console.error("Error fetching provider nodes:", error);
-      setProviderNodes([]);
-    }
-  };
-
-  useEffect(() => {
-    if (isOpen) fetchProviderNodes();
-  }, [isOpen]);
-
-  const fetchCustomModels = async () => {
-    try {
-      const res = await fetch("/api/models/custom");
-      if (!res.ok) throw new Error(`Failed to fetch custom models: ${res.status}`);
-      const data = await res.json();
-      setCustomModels(data.models || []);
-    } catch (error) {
-      console.error("Error fetching custom models:", error);
-      setCustomModels([]);
-    }
-  };
-
-  useEffect(() => {
-    if (isOpen) fetchCustomModels();
-  }, [isOpen]);
-
-  const fetchDisabledModels = async () => {
-    try {
-      const res = await fetch("/api/models/disabled");
-      if (!res.ok) throw new Error(`Failed to fetch disabled models: ${res.status}`);
-      const data = await res.json();
-      setDisabledModels(data.disabled || {});
-    } catch (error) {
-      console.error("Error fetching disabled models:", error);
-      setDisabledModels({});
-    }
-  };
-
-  useEffect(() => {
-    if (isOpen) fetchDisabledModels();
-  }, [isOpen]);
-
   const allProviders = useMemo(() => ({ ...OAUTH_PROVIDERS, ...FREE_PROVIDERS, ...FREE_TIER_PROVIDERS, ...APIKEY_PROVIDERS }), []);
 
   // Group models by provider with priority order
@@ -428,23 +400,22 @@ export default function ModelSelectModal({
   }, [filteredActiveProviders, modelAliases, allProviders, providerNodes, customModels, disabledModels, kindFilter, activeProviders, cursorModels]);
 
   // Filter combos by search query (and hide combos when kindFilter is set — combos are LLM-only by design)
+  // Filter combos by search query (and hide combos when kindFilter is set — combos are LLM-only by design)
   const filteredCombos = useMemo(() => {
     if (kindFilter || capFilter) return [];
     if (!searchQuery.trim()) return combos;
     const query = searchQuery.toLowerCase();
     return combos.filter(c => c.name.toLowerCase().includes(query));
-  }, [combos, searchQuery, kindFilter]);
-
-  // Sort models alphabetically, with added models floated to top
-  const sortModels = (models) => {
-    const added = models.filter(m => addedModelValues.includes(m.value)).sort((a, b) => a.name.localeCompare(b.name));
-    const rest = models.filter(m => !addedModelValues.includes(m.value)).sort((a, b) => a.name.localeCompare(b.name));
-    return [...added, ...rest];
-  };
-
+  }, [combos, searchQuery, kindFilter, capFilter]);
   // Filter models by search query
   const filteredGroups = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
+
+    const sortModels = (models) => {
+      const added = models.filter(m => addedModelValues.includes(m.value)).sort((a, b) => a.name.localeCompare(b.name));
+      const rest = models.filter(m => !addedModelValues.includes(m.value)).sort((a, b) => a.name.localeCompare(b.name));
+      return [...added, ...rest];
+    };
 
     const filtered = {};
     Object.entries(groupedModels).forEach(([providerId, group]) => {
@@ -472,8 +443,7 @@ export default function ModelSelectModal({
     });
 
     return filtered;
-  }, [groupedModels, searchQuery, addedModelValues]);
-
+  }, [groupedModels, searchQuery, addedModelValues, capFilter, getCaps]);
   const handleSelect = (model) => {
     const value = model?.value || model?.name || model;
     const isAdded = addedModelValues.includes(value);
