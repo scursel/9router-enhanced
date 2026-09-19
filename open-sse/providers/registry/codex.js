@@ -65,6 +65,13 @@ export default {
     { id: "gpt-5.4-mini-review", name: "GPT 5.4 Mini Review", upstreamModelId: "gpt-5.4-mini", quotaFamily: "review" },
     { id: "gpt-5.3-codex-spark", name: "GPT 5.3 Codex Spark" },
     { id: "gpt-5.3-codex-spark-review", name: "GPT 5.3 Codex Spark Review", upstreamModelId: "gpt-5.3-codex-spark", quotaFamily: "review" },
+    // Codex advertises 272K for these but accepts ~900K (920,043 input tokens OK,
+    // 1,000,043 rejected, live 2026-09-04). Opt-in ids: a larger advertised window
+    // makes clients compact later, which spends more subscription usage.
+    { id: "gpt-6-astra-900k", name: "GPT 6.0 Astra (900K)", upstreamModelId: "gpt-6-astra" },
+    { id: "gpt-5.6-sol-900k", name: "GPT 5.6 Sol (900K)", upstreamModelId: "gpt-5.6-sol" },
+    { id: "gpt-5.6-terra-900k", name: "GPT 5.6 Terra (900K)", upstreamModelId: "gpt-5.6-terra" },
+    { id: "gpt-5.6-luna-900k", name: "GPT 5.6 Luna (900K)", upstreamModelId: "gpt-5.6-luna" },
     // Codex CLI's auto-review virtual model. Unlike the "-review" variants above it is not derived
     // from a base model, so it is forwarded verbatim instead of having "-review" stripped (#1398).
     { id: "codex-auto-review", name: "Codex Auto Review", upstreamModelId: "codex-auto-review", quotaFamily: "review" },

@@ -151,6 +151,8 @@ const KIRO_GPT_5_6_CAPABILITIES = { vision: true, reasoning: true, search: true,
 // (lower than OpenAI API's 1.05M). Sol differs from Terra/Luna. #2720
 const CODEX_GPT_56_SOL_CAPS  = { vision: true, reasoning: true, search: true, thinkingFormat: "openai", contextWindow: 372000, maxOutput: 128000 };
 const CODEX_GPT_56_DEFAULT_CAPS = { vision: true, reasoning: true, search: true, thinkingFormat: "openai", contextWindow: 272000, maxOutput: 128000 };
+// Opt-in "-900k" ids (registry/codex.js): the window Codex actually accepts.
+const CODEX_900K_CAPS = { vision: true, reasoning: true, search: true, thinkingFormat: "openai", contextWindow: 900000, maxOutput: 128000 };
 
 /**
  * Provider-specific capability overrides. Keyed by provider alias/id.
@@ -171,6 +173,10 @@ export const PROVIDER_CAPABILITIES = {
     "gpt-5.6-terra-review":      CODEX_GPT_56_DEFAULT_CAPS,
     "gpt-5.6-luna":              CODEX_GPT_56_DEFAULT_CAPS,
     "gpt-5.6-luna-review":       CODEX_GPT_56_DEFAULT_CAPS,
+    "gpt-6-astra-900k":          CODEX_900K_CAPS,
+    "gpt-5.6-sol-900k":          CODEX_900K_CAPS,
+    "gpt-5.6-terra-900k":        CODEX_900K_CAPS,
+    "gpt-5.6-luna-900k":         CODEX_900K_CAPS,
   },
   "kiro": {
     "gpt-5.6-sol": KIRO_GPT_5_6_CAPABILITIES,

@@ -3,6 +3,9 @@
 Brings the official v0.5.81 line into the fork (see its section below). Where both
 sides had solved the same problem, the better implementation was kept:
 
+## Features
+- **Codex**: opt-in 900K context variants — `cx/gpt-5.6-sol-900k`, `-terra-900k`, `-luna-900k` and `cx/gpt-6-astra-900k`. Codex advertises 272K for these models but accepts ~900K (920,043 input tokens OK, 1,000,043 rejected, live 2026-09-04). The variants advertise 900K in `/v1/models` (and so lift any combo built from them) and go upstream as the base id. The base ids keep 272K: a larger advertised window makes clients compact later and spend more subscription usage.
+
 ## Adopted from upstream
 - **Translator**: Claude `tool_result` images on the OpenAI pivot now follow the tool messages in a user turn (tagged with the call id) instead of riding inside the `tool` message as parts — the OpenAI tool role is text-only and rejects images. The fork's `[tool_error]` marker, dropped-type warning and default MIME are kept.
 - **Model catalog**: modalities are keyed by provider + model (`CATALOG_VERSION` 2) instead of model id alone; the fork's `costs` / `lifecycle` sections ride along in the same file.
