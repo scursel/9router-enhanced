@@ -189,6 +189,7 @@ function parseProviderErrorMessage(bodyText, fallback) {
       || parsed?.message
       || parsed?.error
       || parsed?.detail?.message
+      || parsed?.detail?.error
       || parsed?.detail;
     if (typeof message === "string" && message.trim()) return message.trim();
     if (message) return JSON.stringify(message);
@@ -633,6 +634,22 @@ export function buildGenericProbes(connection) {
 }
 
 /**
+ * Turn a thrown fetch into something actionable. Node's undici reports every
+ * transport failure as a bare "fetch failed" and hides the real reason in
+ * `cause`, which left a dead host (huggingface's retired api-inference) showing
+ * the user nothing at all.
+ */
+function describeFetchFailure(err, url) {
+  let host = String(url);
+  try {
+    host = new URL(url).host;
+  } catch { /* keep the raw string */ }
+  const cause = err?.cause;
+  const reason = cause?.code || cause?.message || err?.message || "network error";
+  return `Unreachable: ${host} (${reason})`;
+}
+
+/**
  * Run the generic probes in order. Returns the first decisive verdict; when
  * every probe is inconclusive, returns the last real error instead of a
  * "not supported" placeholder.
@@ -656,7 +673,7 @@ async function probeGenericProvider(connection, effectiveProxy = null) {
     try {
       res = await send(probe, probe.body);
     } catch (err) {
-      failures.push({ probe: probe.name, error: err.message });
+      failures.push({ probe: probe.name, error: describeFetchFailure(err, probe.url) });
       continue;
     }
 
@@ -670,7 +687,7 @@ async function probeGenericProvider(connection, effectiveProxy = null) {
       try {
         res = await send(probe, probe.retryBody);
       } catch (err) {
-        failures.push({ probe: probe.name, error: err.message });
+        failures.push({ probe: probe.name, error: describeFetchFailure(err, probe.url) });
         continue;
       }
       if (res.ok) return { valid: true, error: null };

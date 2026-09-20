@@ -188,6 +188,30 @@ describe("generic provider probe fallback", () => {
       }));
     });
 
+    it("names the unreachable host instead of a bare 'fetch failed'", async () => {
+      mocks.getProviderConnectionById.mockResolvedValue(connectionFor("huggingface"));
+      const cause = Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" });
+      global.fetch = vi.fn().mockRejectedValue(Object.assign(new TypeError("fetch failed"), { cause }));
+
+      const result = await testSingleConnection("huggingface-conn");
+
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("api-inference.huggingface.co");
+      expect(result.error).toContain("ENOTFOUND");
+      expect(result.error).not.toBe("fetch failed");
+    });
+
+    it("unwraps a FastAPI detail.error message", async () => {
+      mocks.getProviderConnectionById.mockResolvedValue(connectionFor("tavily"));
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce(jsonRes({ detail: [{ msg: "Field required" }] }, 422))
+        .mockResolvedValueOnce(jsonRes({ detail: { error: "This request exceeds your plan's set usage limit." } }, 432));
+
+      const result = await testSingleConnection("tavily-conn");
+
+      expect(result.error).toBe("This request exceeds your plan's set usage limit.");
+    });
+
     it("reports 'could not verify' instead of guessing when only a placeholder body is rejected", async () => {
       mocks.getProviderConnectionById.mockResolvedValue(connectionFor("elevenlabs"));
       global.fetch = vi.fn().mockImplementation(() => jsonRes({ detail: "voice_id is required" }, 422));
