@@ -501,12 +501,39 @@ async function fetchWithConnectionProxy(url, options = {}, effectiveProxy = null
 // the ordered fallback below and the first decisive answer wins.
 // ---------------------------------------------------------------------------
 
-// Media/search configs, in probe order. One is enough: every kind on a provider
+// Media/search configs, in probe order, each with the smallest body that
+// satisfies its field validation. One kind is enough: every kind on a provider
 // shares the same credential, so a second probe would only repeat the answer.
-const MEDIA_CONFIG_KEYS = [
-  "embeddingConfig", "sttConfig", "ttsConfig", "imageConfig",
-  "imageToTextConfig", "videoConfig", "musicConfig", "searchConfig", "fetchConfig",
-];
+//
+// The two-step matters. An empty body is tried first because auth-first APIs
+// reject it for free; but FastAPI-style APIs validate the body *before* the
+// credential and answer 422 for an empty body — with a wrong key too. Taking
+// that 422 as proof of a valid credential marked dead connections "active"
+// (verified against Tavily: a bogus key returns 422, not 401). So a body
+// rejection triggers one retry with the shaped body below, and only the retry's
+// answer decides. The retry does reach the real endpoint, which is why it stays
+// minimal — and why `transport.usage` (free, auth-first) is probed before it.
+const MEDIA_CONFIG_BODIES = {
+  embeddingConfig: { input: "ping" },
+  sttConfig: null, // multipart upload in reality — no JSON body can satisfy it
+  ttsConfig: { text: "ping" },
+  imageConfig: { prompt: "ping" },
+  imageToTextConfig: { prompt: "ping" },
+  videoConfig: { prompt: "ping" },
+  musicConfig: { prompt: "ping" },
+  searchConfig: { query: "ping" },
+  fetchConfig: { url: "https://example.com" },
+};
+
+// Statuses that mean "the request never got past validation", so the body is
+// the problem and not the credential.
+const BODY_REJECTED_STATUSES = new Set([400, 422]);
+
+// "Credentials are fine, the account cannot spend" — 402 (payment required) and
+// 432 (Tavily's plan-limit status). Same treatment the explicit Grok CLI 402 case
+// already gets: keep the connection active and surface the reason as a warning
+// instead of calling a working key broken.
+const QUOTA_EXHAUSTED_STATUSES = new Set([402, 432]);
 
 // Mirrors open-sse/handlers/sttCore.js buildAuthHeaders so a probe authenticates
 // exactly like the real request would.
@@ -561,7 +588,17 @@ export function buildGenericProbes(connection) {
     probes.push({ name: "transport.validateUrl", method: "GET", url: transport.validateUrl, headers: bearer });
   }
 
-  // 3. Registry-declared transport endpoint. The minimal body keeps the probe
+  // 3. Registry-declared usage/quota endpoint. These exist to report quota, so
+  //    they are auth-first and cost nothing — the cheapest decisive probe there
+  //    is, and it runs before anything that can spend quota.
+  const usageUrl = typeof transport.usage?.url === "string"
+    ? transport.usage.url
+    : Array.isArray(transport.usage?.urls) ? transport.usage.urls[0] : null;
+  if (usageUrl) {
+    probes.push({ name: "transport.usage", method: "GET", url: usageUrl, headers: bearer });
+  }
+
+  // 4. Registry-declared transport endpoint. The minimal body keeps the probe
   //    cheap — providers answer 400/422 without running any inference.
   if (transport.baseUrl) {
     probes.push({
@@ -574,9 +611,9 @@ export function buildGenericProbes(connection) {
     });
   }
 
-  // 4. Media/search providers: hit the first declared kind endpoint with an empty
-  //    body, which every media API rejects before doing any billable work.
-  for (const key of MEDIA_CONFIG_KEYS) {
+  // 5. Media/search providers: first the empty body (free when auth runs first),
+  //    then the kind-shaped body when the endpoint rejects the empty one.
+  for (const [key, probeBody] of Object.entries(MEDIA_CONFIG_BODIES)) {
     const cfg = media[key];
     if (!cfg?.baseUrl) continue;
     probes.push({
@@ -585,6 +622,8 @@ export function buildGenericProbes(connection) {
       url: cfg.baseUrl,
       headers: { "Content-Type": "application/json", ...buildMediaAuthHeaders(cfg, token) },
       body: "{}",
+      minimalBody: true,
+      ...(probeBody ? { retryBody: JSON.stringify(probeBody) } : {}),
       acceptedStatuses: (status) => status !== 401 && status !== 403,
     });
     break;
@@ -606,20 +645,36 @@ async function probeGenericProvider(connection, effectiveProxy = null) {
 
   const failures = [];
 
+  const send = async (probe, body) => fetchWithConnectionProxy(probe.url, {
+    method: probe.method,
+    headers: probe.headers,
+    ...(body ? { body } : {}),
+  }, effectiveProxy);
+
   for (const probe of probes) {
     let res;
     try {
-      res = await fetchWithConnectionProxy(probe.url, {
-        method: probe.method,
-        headers: probe.headers,
-        ...(probe.body ? { body: probe.body } : {}),
-      }, effectiveProxy);
+      res = await send(probe, probe.body);
     } catch (err) {
       failures.push({ probe: probe.name, error: err.message });
       continue;
     }
 
     if (res.ok) return { valid: true, error: null };
+
+    // The endpoint rejected the body, so it never judged the credential — with a
+    // wrong key it answers exactly the same way. Retry once with the kind-shaped
+    // body and let that answer decide.
+    if (probe.retryBody && BODY_REJECTED_STATUSES.has(res.status)) {
+      await res.text().catch(() => "");
+      try {
+        res = await send(probe, probe.retryBody);
+      } catch (err) {
+        failures.push({ probe: probe.name, error: err.message });
+        continue;
+      }
+      if (res.ok) return { valid: true, error: null };
+    }
 
     // A rejected credential is decisive: no other probe can succeed with it.
     if (res.status === 401 || res.status === 403) {
@@ -631,12 +686,28 @@ async function probeGenericProvider(connection, effectiveProxy = null) {
       };
     }
 
-    if (probe.acceptedStatuses?.(res.status)) return { valid: true, error: null };
+    // Out of quota, not out of credentials: the key authenticated the request.
+    // `warning` carries the message itself — testSingleConnection stores
+    // `result.warning || result.error` as lastError, so a boolean here would
+    // persist `true` instead of the reason (the Grok CLI 402 path does the same).
+    if (QUOTA_EXHAUSTED_STATUSES.has(res.status)) {
+      const bodyText = await res.text().catch(() => "");
+      const message = parseProviderErrorMessage(bodyText, `Quota exhausted (HTTP ${res.status})`);
+      return { valid: true, error: message, warning: message, status: res.status };
+    }
+
+    // Without a shaped retry body a 400/422 stays inconclusive: it may have been
+    // rejected before the credential was ever read. Probes that send a real,
+    // well-formed body (the chat probe) keep the existing convention that a 400
+    // there means the request was understood — and therefore authenticated.
+    const inconclusive = probe.minimalBody && BODY_REJECTED_STATUSES.has(res.status);
+    if (!inconclusive && probe.acceptedStatuses?.(res.status)) return { valid: true, error: null };
 
     const bodyText = await res.text().catch(() => "");
     failures.push({
       probe: probe.name,
       status: res.status,
+      inconclusive,
       error: parseProviderErrorMessage(bodyText, `API returned ${res.status}`),
     });
   }
@@ -644,7 +715,9 @@ async function probeGenericProvider(connection, effectiveProxy = null) {
   const last = failures[failures.length - 1];
   return {
     valid: false,
-    error: last?.error || "Provider test failed",
+    error: last?.inconclusive
+      ? `Could not verify credentials — ${last.error}`
+      : last?.error || "Provider test failed",
     status: last?.status ?? null,
     probesTried: probes.map((probe) => probe.name),
   };

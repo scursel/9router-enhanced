@@ -84,8 +84,10 @@ describe("generic provider probe fallback", () => {
       // ElevenLabs authenticates with xi-api-key, not a bearer token.
       expect(probes[0].headers["xi-api-key"]).toBe("sk-test");
       expect(probes[0].headers.Authorization).toBeUndefined();
-      // An empty body makes the endpoint reject before any billable work.
+      // An empty body first, plus the shaped body used only if that is rejected.
       expect(probes[0].body).toBe("{}");
+      expect(probes[0].minimalBody).toBe(true);
+      expect(JSON.parse(probes[0].retryBody)).toEqual({ text: "ping" });
     });
 
     it("probes a search provider through its search endpoint", () => {
@@ -94,6 +96,18 @@ describe("generic provider probe fallback", () => {
       expect(probes.map((probe) => probe.name)).toEqual(["searchConfig"]);
       expect(probes[0].url).toBe("https://api.tavily.com/search");
       expect(probes[0].headers.Authorization).toBe("Bearer sk-test");
+      expect(JSON.parse(probes[0].retryBody)).toEqual({ query: "ping" });
+    });
+
+    it("probes the free usage endpoint before anything that can spend quota", () => {
+      const probes = buildGenericProbes(connectionFor("qoder"));
+
+      expect(probes.map((probe) => probe.name)).toEqual(["transport.usage", "transport.baseUrl"]);
+      expect(probes[0].url).toBe("https://openapi.qoder.sh/api/v2/quota/usage");
+      expect(probes[0].method).toBe("GET");
+      // Order matters: the free quota read runs before the chat call.
+      expect(probes.findIndex((probe) => probe.name === "transport.usage"))
+        .toBeLessThan(probes.findIndex((probe) => probe.name === "transport.baseUrl"));
     });
 
     it("returns no probes for a provider the registry does not know", () => {
@@ -127,15 +141,62 @@ describe("generic provider probe fallback", () => {
       expect(global.fetch.mock.calls[1][0]).toBe("https://inference.dahl.global/v1/chat/completions");
     });
 
-    it("accepts a rejected body as proof the media credential was accepted", async () => {
+    it("retries with a shaped body when the endpoint validates the body before the key", async () => {
+      mocks.getProviderConnectionById.mockResolvedValue(connectionFor("tavily"));
+      // Tavily answers 422 for an empty body even with a wrong key, so the empty
+      // body proves nothing; the retry reaches auth and succeeds.
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce(jsonRes({ detail: [{ loc: ["body", "query"], msg: "Field required" }] }, 422))
+        .mockResolvedValueOnce(jsonRes({ results: [] }));
+
+      const result = await testSingleConnection("tavily-conn");
+
+      expect(result.valid).toBe(true);
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(global.fetch.mock.calls[1][1].body)).toEqual({ query: "ping" });
+    });
+
+    it("does not mark a connection active when the retry is rejected too", async () => {
+      mocks.getProviderConnectionById.mockResolvedValue(connectionFor("tavily"));
+      // A bogus Tavily key answers 422 for the empty body and 401 once the body
+      // is valid — the old probe read the first 422 as a valid credential.
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce(jsonRes({ detail: [{ msg: "Field required" }] }, 422))
+        .mockResolvedValueOnce(jsonRes({ detail: { error: "Unauthorized: missing or invalid API key." } }, 401));
+
+      const result = await testSingleConnection("tavily-conn");
+
+      expect(result.valid).toBe(false);
+      expect(result.error).toMatch(/invalid API key/i);
+      expect(mocks.updateProviderConnection).toHaveBeenCalledWith("tavily-conn", expect.objectContaining({ testStatus: "error" }));
+    });
+
+    it("keeps the connection active with a warning when the account is out of quota", async () => {
+      mocks.getProviderConnectionById.mockResolvedValue(connectionFor("tavily"));
+      // Tavily's real status when the plan limit is reached: the key is valid.
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce(jsonRes({ detail: [{ msg: "Field required" }] }, 422))
+        .mockResolvedValueOnce(jsonRes({ detail: { error: "This request exceeds your plan's set usage limit." } }, 432));
+
+      const result = await testSingleConnection("tavily-conn");
+
+      expect(result.valid).toBe(true);
+      expect(result.error).toMatch(/exceeds your plan/i);
+      expect(mocks.updateProviderConnection).toHaveBeenCalledWith("tavily-conn", expect.objectContaining({
+        testStatus: "active",
+        lastError: expect.stringMatching(/exceeds your plan/i),
+      }));
+    });
+
+    it("reports 'could not verify' instead of guessing when only a placeholder body is rejected", async () => {
       mocks.getProviderConnectionById.mockResolvedValue(connectionFor("elevenlabs"));
-      // A missing voice id is a 400/422 — the key itself was fine.
-      global.fetch = vi.fn().mockResolvedValue(jsonRes({ detail: "voice_id is required" }, 422));
+      global.fetch = vi.fn().mockImplementation(() => jsonRes({ detail: "voice_id is required" }, 422));
 
       const result = await testSingleConnection("elevenlabs-conn");
 
-      expect(result.valid).toBe(true);
-      expect(result.error).toBeNull();
+      expect(result.valid).toBe(false);
+      expect(result.error).toMatch(/Could not verify credentials/);
+      expect(result.error).not.toMatch(/not supported/);
     });
 
     it("reports the provider's own message when the credential is rejected", async () => {
