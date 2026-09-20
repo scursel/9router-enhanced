@@ -16,6 +16,7 @@ import { translate } from "@/i18n/runtime";
 import { fetchSuggestedModels } from "@/shared/utils/providerModelsFetcher";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
 import { collectImportableModels, connectionCanSyncCatalog, providerCanImportModels } from "@/shared/utils/importProviderModels";
+import { readModelTestResult } from "@/shared/utils/modelTestResult";
 import ModelRow from "./ModelRow";
 import CompatibleModelsSection from "./CompatibleModelsSection";
 import ImportModelsButtons from "./ImportModelsButtons";
@@ -70,6 +71,7 @@ export default function ProviderDetailPage() {
   const [headerImgError, setHeaderImgError] = useState(false);
   const [modelTestResults, setModelTestResults] = useState({});
   const [modelsTestError, setModelsTestError] = useState("");
+  const [modelsTestNote, setModelsTestNote] = useState("");
   const [testingModelIds, setTestingModelIds] = useState(() => new Set());
   const [showAddCustomModel, setShowAddCustomModel] = useState(false);
   const [selectedConnectionIds, setSelectedConnectionIds] = useState([]);
@@ -1380,11 +1382,14 @@ export default function ProviderDetailPage() {
         body: JSON.stringify({ model: `${providerStorageAlias}/${modelId}` }),
       });
       const data = await res.json();
-      setModelTestResults((prev) => ({ ...prev, [modelId]: data.ok ? "ok" : "error" }));
-      setModelsTestError(data.ok ? "" : (data.error || "Model not reachable"));
+      const { status, message } = readModelTestResult(data);
+      setModelTestResults((prev) => ({ ...prev, [modelId]: status }));
+      setModelsTestError(status === "error" ? message : "");
+      setModelsTestNote(status === "ok" ? message : "");
     } catch {
       setModelTestResults((prev) => ({ ...prev, [modelId]: "error" }));
       setModelsTestError("Network error");
+      setModelsTestNote("");
     } finally {
       setTestingModelIds((prev) => { const n = new Set(prev); n.delete(modelId); return n; });
     }
@@ -2100,6 +2105,11 @@ export default function ProviderDetailPage() {
             );
           })()}
         </div>
+        {!!modelsTestNote && (
+          <div className="mb-3">
+            <p className="text-xs text-amber-500 break-words">{modelsTestNote}</p>
+          </div>
+        )}
         {!!modelsTestError && (
           <div className="mb-3">
             <p className="text-xs text-red-500 break-words">{modelsTestError}</p>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { readModelTestResult } from "@/shared/utils/modelTestResult";
 import PropTypes from "prop-types";
 import { Button, Modal, Toggle } from "@/shared/components";
 import { CAPACITY_META } from "@/shared/constants/models";
@@ -12,11 +13,12 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
   const [caps, setCaps] = useState(defaultCaps);
   const [testStatus, setTestStatus] = useState(null); // null | "testing" | "ok" | "error"
   const [testError, setTestError] = useState("");
+  const [testNote, setTestNote] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Reset state when modal opens
   useEffect(() => {
-    if (isOpen) { setModelId(""); setCaps(defaultCaps()); setTestStatus(null); setTestError(""); }
+    if (isOpen) { setModelId(""); setCaps(defaultCaps()); setTestStatus(null); setTestError(""); setTestNote(""); }
   }, [isOpen]);
 
   // Strip provider's own alias prefix (e.g. "cc/model" -> "model" for cc provider)
@@ -30,6 +32,7 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
     if (!cleanId) return;
     setTestStatus("testing");
     setTestError("");
+    setTestNote("");
     try {
       const res = await fetch("/api/models/test", {
         method: "POST",
@@ -37,11 +40,14 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
         body: JSON.stringify({ model: `${providerAlias}/${cleanId}` }),
       });
       const data = await res.json();
-      setTestStatus(data.ok ? "ok" : "error");
-      setTestError(data.error || "");
+      const { status, message } = readModelTestResult(data);
+      setTestStatus(status);
+      setTestError(status === "error" ? message : "");
+      setTestNote(status === "ok" ? message : "");
     } catch (err) {
       setTestStatus("error");
       setTestError(err.message);
+      setTestNote("");
     }
   };
 
@@ -69,7 +75,7 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
             <input
               type="text"
               value={modelId}
-              onChange={(e) => { setModelId(e.target.value); setTestStatus(null); setTestError(""); }}
+              onChange={(e) => { setModelId(e.target.value); setTestStatus(null); setTestError(""); setTestNote(""); }}
               onKeyDown={handleKeyDown}
               placeholder="e.g. claude-opus-4-5"
               className="flex-1 px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
@@ -108,9 +114,12 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
 
         {/* Test result */}
         {testStatus === "ok" && (
-          <div className="flex items-center gap-2 text-sm text-green-600">
-            <span className="material-symbols-outlined text-base">check_circle</span>
-            Model is reachable
+          <div className="flex flex-col gap-1 text-sm text-green-600">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-base">check_circle</span>
+              Model is reachable
+            </div>
+            {testNote && <p className="text-xs text-amber-600">{testNote}</p>}
           </div>
         )}
         {testStatus === "error" && (

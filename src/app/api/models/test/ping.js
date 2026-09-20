@@ -5,6 +5,64 @@ import { UPDATER_CONFIG } from "@/shared/constants/config";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 
 const CLI_TOKEN_SALT = "9r-cli-auth";
+const PROBE_TIMEOUT_MS = 15000;
+
+// ---------------------------------------------------------------------------
+// Kind fallback chain
+//
+// A model is regularly registered under a kind its provider does not serve on
+// that route: an LLM listed on the embedding page, a chat model on the image
+// page, a gateway that only exposes chat. The upstream then answers
+// "does not support <capability>", which says nothing about whether the model
+// works — the probe just used the wrong route. Testing a model must stay a
+// normal call to the model, so every declared kind carries an ordered chain and
+// the first kind that really answers wins.
+//
+// Kinds without a dedicated probe here (tts, music, video, webSearch, webFetch,
+// imageToText) start at a chat call rather than guessing a route.
+// ---------------------------------------------------------------------------
+export const KIND_FALLBACK_CHAINS = {
+  llm: ["llm", "embedding", "image"],
+  embedding: ["embedding", "llm"],
+  image: ["image", "llm"],
+  stt: ["stt", "llm"],
+};
+
+const DEFAULT_KIND_CHAIN = ["llm", "embedding", "image"];
+
+// Own-property lookup: a `kind` of "constructor" or "toString" must not walk the
+// prototype chain and hand back a function where a chain array is expected.
+const PROBED_KINDS = new Set(Object.keys(KIND_FALLBACK_CHAINS));
+
+/**
+ * Ordered kinds to try for a declared kind, declared one first.
+ * Exported for unit tests.
+ */
+export function resolveKindChain(kind) {
+  const declared = String(kind || "llm").trim().toLowerCase();
+  const chain = PROBED_KINDS.has(declared) ? KIND_FALLBACK_CHAINS[declared] : DEFAULT_KIND_CHAIN;
+  const candidates = [...new Set([declared, ...chain])].filter((candidate) => PROBED_KINDS.has(candidate));
+  return candidates.length > 0 ? candidates : ["llm"];
+}
+
+// Capability/route mismatch wording. Only these failures justify spending
+// another upstream call on the next kind — auth, quota and server errors would
+// fail identically on every route, and retrying them just multiplies the noise.
+const CAPABILITY_MISMATCH_PATTERN =
+  /does not support|not supported|unsupported|no such (?:endpoint|route|api)|unknown (?:endpoint|route)|method not allowed/i;
+
+/**
+ * True when a failed probe means "wrong route for this model" rather than
+ * "this connection is broken". Exported for unit tests.
+ */
+export function isCapabilityMismatch(result) {
+  if (!result || result.ok) return false;
+  const status = Number(result.status);
+  if (status === 405) return true;
+  if (status === 401 || status === 403 || status === 429) return false;
+  if (status >= 500 && status <= 599) return false;
+  return CAPABILITY_MISMATCH_PATTERN.test(String(result.error || ""));
+}
 
 function createSilentWavFile() {
   const sampleRate = 16000;
@@ -61,7 +119,7 @@ export async function pingModelByKind(model, kind, baseUrl = `http://127.0.0.1:$
       method: "POST",
       headers,
       body: JSON.stringify({ model, input: "test" }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     const latencyMs = Date.now() - start;
     const rawText = await res.text().catch(() => "");
@@ -84,7 +142,7 @@ export async function pingModelByKind(model, kind, baseUrl = `http://127.0.0.1:$
       method: "POST",
       headers,
       body: JSON.stringify({ model, prompt: "test" }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     const latencyMs = Date.now() - start;
     const rawText = await res.text().catch(() => "");
@@ -113,7 +171,7 @@ export async function pingModelByKind(model, kind, baseUrl = `http://127.0.0.1:$
       method: "POST",
       headers: Object.fromEntries(Object.entries(headers).filter(([key]) => key.toLowerCase() !== "content-type")),
       body: form,
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     const latencyMs = Date.now() - start;
     const rawText = await res.text().catch(() => "");
@@ -145,7 +203,7 @@ export async function pingModelByKind(model, kind, baseUrl = `http://127.0.0.1:$
       stream: false,
       messages: [{ role: "user", content: "hi" }],
     }),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
   });
   const latencyMs = Date.now() - start;
 
@@ -214,4 +272,63 @@ export async function pingModelByKind(model, kind, baseUrl = `http://127.0.0.1:$
   }
 
   return { ok: true, latencyMs, error: null, status: res.status };
+}
+
+/**
+ * Test a model by trying the declared kind first and then each fallback kind
+ * from `resolveKindChain`, stopping at the first decisive answer.
+ *
+ * A kind that is merely not served on that route (see `isCapabilityMismatch`)
+ * is not a verdict on the model, so the next kind runs. Any other failure —
+ * bad key, quota, upstream 5xx, empty completion — is decisive and returned as
+ * is, exactly like a single-kind probe.
+ *
+ * The returned object extends the `pingModelByKind` shape with `kind` (the kind
+ * that produced the result), `declaredKind`, and `attempts` (one entry per probe
+ * tried) so the dashboard can explain what actually happened.
+ */
+export async function pingModelWithFallback(model, kind, baseUrl) {
+  const chain = resolveKindChain(kind);
+  const declaredKind = chain[0];
+  const attempts = [];
+  let firstFailure = null;
+
+  for (const candidate of chain) {
+    const result = await pingModelByKind(model, candidate, baseUrl);
+    attempts.push({
+      kind: candidate,
+      ok: result.ok,
+      status: result.status ?? null,
+      latencyMs: result.latencyMs ?? null,
+      error: result.error ?? null,
+    });
+
+    if (result.ok) {
+      return {
+        ...result,
+        kind: candidate,
+        declaredKind,
+        attempts,
+        ...(candidate === declaredKind
+          ? {}
+          : { note: `answered as ${candidate} (declared kind: ${declaredKind})` }),
+      };
+    }
+
+    if (!firstFailure) firstFailure = result;
+    if (!isCapabilityMismatch(result)) {
+      return { ...result, kind: candidate, declaredKind, attempts };
+    }
+  }
+
+  // Every kind was rejected as unsupported. The declared kind's message is the
+  // most representative one, so report that and list what else was tried.
+  const tried = chain.join(", ");
+  return {
+    ...firstFailure,
+    kind: declaredKind,
+    declaredKind,
+    attempts,
+    error: chain.length > 1 ? `${firstFailure.error} (tried: ${tried})` : firstFailure.error,
+  };
 }

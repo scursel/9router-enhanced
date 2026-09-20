@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   isOpenAICompatibleProvider: vi.fn(() => true),
   isAnthropicCompatibleProvider: vi.fn(() => false),
   pingModelByKind: vi.fn(),
+  pingModelWithFallback: vi.fn(),
 }));
 
 vi.mock("@/lib/localDb", () => ({
@@ -32,6 +33,7 @@ vi.mock("@/shared/constants/providers", async (importOriginal) => ({
 
 vi.mock("@/app/api/models/test/ping", () => ({
   pingModelByKind: mocks.pingModelByKind,
+  pingModelWithFallback: mocks.pingModelWithFallback,
 }));
 
 vi.mock("next/server", () => ({
@@ -62,6 +64,7 @@ describe("POST /api/providers/[id]/test-models self-fetch credentials (M2)", () 
     mocks.getConsistentMachineId.mockResolvedValue(CLI_TOKEN);
     mocks.getProviderModels.mockReturnValue([]);
     mocks.pingModelByKind.mockResolvedValue({ ok: true, latencyMs: 5, error: null, status: 200 });
+    mocks.pingModelWithFallback.mockResolvedValue({ ok: true, latencyMs: 5, error: null, status: 200, kind: "llm" });
   });
 
   afterEach(() => {
@@ -97,7 +100,7 @@ describe("POST /api/providers/[id]/test-models self-fetch credentials (M2)", () 
     expect(res.status).toBe(502);
     expect(body.error).toMatch(/401/);
     expect(body.error).not.toMatch(/No models configured/);
-    expect(mocks.pingModelByKind).not.toHaveBeenCalled();
+    expect(mocks.pingModelWithFallback).not.toHaveBeenCalled();
   });
 
   it("surfaces an explicit error when the /models self-fetch throws", async () => {

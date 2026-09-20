@@ -6,6 +6,7 @@ import { Card, Button, Modal } from "@/shared/components";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
 import { getProviderAlias } from "@/shared/constants/providers";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
+import { readModelTestResult } from "@/shared/utils/modelTestResult";
 
 // ── Lifecycle chip (T-D) ───────────────────────────────────────
 // models.dev `status`, surfaced by /v1/models as `lifecycle` metadata.
@@ -148,6 +149,7 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
   const [modelTestResults, setModelTestResults] = useState({});
   const [testingModelId, setTestingModelId] = useState(null);
   const [testError, setTestError] = useState("");
+  const [testNote, setTestNote] = useState("");
   const [showAddCustomModel, setShowAddCustomModel] = useState(false);
 
   const providerAlias = providerAliasOverride || getProviderAlias(providerId);
@@ -264,11 +266,14 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
         body: JSON.stringify({ model: `${providerAlias}/${modelId}`, kind: kindFilter }),
       });
       const data = await res.json();
-      setModelTestResults((prev) => ({ ...prev, [modelId]: data.ok ? "ok" : "error" }));
-      setTestError(data.ok ? "" : (data.error || "Model not reachable"));
+      const { status, message } = readModelTestResult(data);
+      setModelTestResults((prev) => ({ ...prev, [modelId]: status }));
+      setTestError(status === "error" ? message : "");
+      setTestNote(status === "ok" ? message : "");
     } catch {
       setModelTestResults((prev) => ({ ...prev, [modelId]: "error" }));
       setTestError("Network error");
+      setTestNote("");
     } finally { setTestingModelId(null); }
   };
 
@@ -296,6 +301,7 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Models{kindFilter ? ` — ${kindFilter.toUpperCase()}` : ""}</h2>
         </div>
+        {testNote && <p className="text-xs text-amber-500 mb-3 break-words">{testNote}</p>}
         {testError && <p className="text-xs text-red-500 mb-3 break-words">{testError}</p>}
 
         <div className="flex flex-wrap gap-3">
