@@ -1,3 +1,12 @@
+# v0.5.81-enhanced.2 (2026-09-20 — dashboard UI polish)
+
+Two externally-authored (Jules) PRs, merged after a two-axis code review; the review
+fixes were committed on the PR branches before the squash.
+
+## Fixes
+- **ModelSelectModal**: the four metadata fetches (combos, provider-nodes, custom models, disabled models) now run through a single `Promise.allSettled` effect — one batched state update on open, per-endpoint fallback (a failing endpoint degrades to its empty default without blocking the others), `console.error` per failed endpoint, and a `cancelled` cleanup so a closed modal never receives stale writes. Missing `useMemo` deps (`capFilter`, `getCaps`) added: setting only the capability filter previously left combos visible and model groups unfiltered until some other dependency changed. Both `react-hooks/exhaustive-deps` warnings on the file are gone (7 eslint problems → 1 pre-existing).
+- **Button**: keyboard `focus-visible` ring matching Input/Select/Toggle, `aria-busy` while loading, and Material Symbols ligature icons hidden from screen readers only when the button has a text label — icon-only buttons (e.g. the translator page's per-step load button) keep an accessible name. New source-level tripwire test `tests/unit/ui-button.test.js`, path anchored via `import.meta.url` (cwd-independent).
+
 # v0.5.81-enhanced.1 (2026-09-19 — upstream sync)
 
 Brings the official v0.5.81 line into the fork (see its section below). Where both
