@@ -5,6 +5,21 @@ import { fileURLToPath } from "url";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
+  // JSX lives in plain .js files across src/shared/components/ (Next.js style), and
+  // component tests under tests/ render JSX too. Vitest 4 transforms with oxc
+  // (rolldown) — esbuild options are ignored here. Plain JavaScript parses fine as
+  // a superset, so widening the transform is safe for the suite.
+  oxc: {
+    // Force the oxc parser to allow JSX syntax inside the matched .js files
+    // (vite derives `lang` from the extension otherwise and rejects JSX in .js).
+    lang: "jsx",
+    jsx: {
+      runtime: "automatic",
+      importSource: "react",
+    },
+    include: [/src\/shared\/components\/.*\.js$/, /tests\/.*\.test\.js$/],
+    exclude: [],
+  },
   test: {
     environment: "node",
     globals: true,
