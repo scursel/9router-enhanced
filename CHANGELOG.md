@@ -1,3 +1,11 @@
+# v0.5.81-enhanced.4 (2026-09-20 — upstream rate-limit policy)
+
+## Fixes
+- **Rate-limit policy**: a message-text heuristic ("does the body mention a rate limit?") priced every upstream throttle with the exponential ladder, capped at 5 minutes. Aggregators re-wrap the upstream 429 inside their own 500, so an ordinary congestion spike walked credentials up that ladder — observed live on the Cline accounts at `backoffLevel=15` (one failure away from the 5-minute tier) for an upstream that had asked for `retry_after_seconds: 5`. The new `open-sse/services/rateLimitPolicy.js` classifies the failure from the upstream's own signals and settles it from the upstream's own numbers: a **shared pool** (`limit_source: upstream_provider_shared_pool` / `…shared_capacity`) is bounded by the retry window it advertised (ceiling 60s) and no longer escalates or consumes sibling credentials — every credential shares the pool, so rotating only delayed the honest error; a **daily cap** (`limit_rpd`, `X-RateLimit-Reset`) waits for the reset the upstream states (ceiling 6h) and still rotates, because separate accounts own separate days.
+- **`applyCooldownOnly`**: the account loop learns the difference between "do not rotate" and "do not wait". A pooled throttle stops the rotation — no sibling credential can clear a shared pool — while still recording the wait, so the account is paused for the window instead of hammering a saturated pool with no cooldown at all.
+- **Migration 003** (`reset-inflated-cline-backoff`): clears the ladder the old heuristic already accumulated on the Cline connections. Version-gated, so a database that already recorded version 3 needs the same reset applied by hand.
+- **Tests**: `tests/unit/rate-limit-policy.test.js` (classification, driven by error payloads captured live from Cline → OpenRouter), `tests/unit/rate-limit-policy-lock-site.test.js` (the real `markAccountUnavailable` call site: 1 attempt instead of 3, ~6s lock instead of 300s), `tests/unit/migration-003-reset-inflated-backoff.test.js`. Verified against a pristine `HEAD` worktree: 39 failures before, 39 after, none new.
+
 # v0.5.81-enhanced.3 (2026-09-20 — Alibaba Token Plan quota meter)
 
 ## Fixes

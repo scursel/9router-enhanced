@@ -266,7 +266,7 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   const githubResetAtMs = githubMonthlyResetMs(status, errorText, provider);
 
   // Provider-specific precise cooldown (e.g. codex usage_limit_reached resets_at) overrides backoff
-  let shouldFallback, cooldownMs, newBackoffLevel;
+  let shouldFallback, cooldownMs, newBackoffLevel, applyCooldownOnly;
   if (githubResetAtMs) {
     shouldFallback = true;
     cooldownMs = githubResetAtMs - Date.now();
@@ -279,9 +279,17 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
       : Math.min(resetsAtMs - Date.now(), MAX_RATE_LIMIT_COOLDOWN_MS);
     newBackoffLevel = 0;
   } else {
-    ({ shouldFallback, cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel));
+    ({ shouldFallback, cooldownMs, newBackoffLevel, applyCooldownOnly } =
+      checkFallbackError(status, errorText, backoffLevel));
   }
-  if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
+  // `applyCooldownOnly`: the failure belongs to a resource every credential
+  // shares (an upstream pool), so rotating accounts cannot help — the caller
+  // must stop the loop and propagate the upstream error — but the wait the
+  // upstream asked for still has to be recorded, otherwise this account keeps
+  // hitting a saturated pool with no pause at all. Skipping the rotation while
+  // keeping the cooldown is the whole point of the distinction.
+  if (!shouldFallback && !applyCooldownOnly) return { shouldFallback: false, cooldownMs: 0 };
+  if (!(cooldownMs > 0)) return { shouldFallback, cooldownMs: 0 };
 
   const reason = typeof errorText === "string" ? errorText.slice(0, 200) : "Provider error";
   const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs);
@@ -303,7 +311,7 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
     console.error(`❌ ${provider} [${status}]: ${reason}`);
   }
 
-  return { shouldFallback: true, cooldownMs };
+  return { shouldFallback, cooldownMs };
 }
 
 /**

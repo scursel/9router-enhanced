@@ -1,4 +1,9 @@
 import { ERROR_RULES, BACKOFF_CONFIG, TRANSIENT_COOLDOWN_MS, ERROR_TYPES } from "../config/errorConfig.js";
+import {
+  FAILURE_CLASS,
+  classifyUpstreamFailure,
+  getPolicyFor
+} from "./rateLimitPolicy.js";
 
 /**
  * Statuses that errorConfig.js already models as client-side request failures
@@ -61,7 +66,10 @@ export function getQuotaCooldown(backoffLevel = 0) {
  * @param {number} status - HTTP status code
  * @param {string} errorText - Error message text
  * @param {number} backoffLevel - Current backoff level for exponential backoff
- * @returns {{ shouldFallback: boolean, cooldownMs: number, newBackoffLevel?: number }}
+ * @returns {{ shouldFallback: boolean, cooldownMs: number, newBackoffLevel?: number,
+ *            applyCooldownOnly?: boolean }} `applyCooldownOnly` asks the caller to
+ *   record the cooldown without rotating to another account: the failure was not
+ *   this credential's fault and every sibling would answer identically.
  */
 export function checkFallbackError(status, errorText, backoffLevel = 0) {
   // Request-caused error: propagate immediately, no account fallback, no lock.
@@ -82,6 +90,60 @@ export function checkFallbackError(status, errorText, backoffLevel = 0) {
     // 20a43f5a). Only those backoff rules may override the request-status gate.
     const accountRule = ERROR_RULES.find(r => r.backoff && r.text && lowerError.includes(r.text));
     if (!accountRule) return { shouldFallback: false, cooldownMs: 0 };
+  }
+
+  // Structured policy, applied before the text rules below.
+  //
+  // The rules loop answers "does the message mention a rate limit?" and pays for
+  // it with the exponential ladder (up to BACKOFF_CONFIG.max = 5 min). That is
+  // the right answer for a credential's own throttle and the wrong one for the
+  // two classes an aggregator makes unambiguous:
+  //
+  //   • shared_pool — the cap belongs to a pool every credential shares, so the
+  //     text heuristic matched and escalated for a condition no retry could
+  //     clear. Observed live: upstream asked for 5s, the account was locked for
+  //     300s, and rotating burned every candidate.
+  //   • daily_quota — the upstream states the exact instant the window reopens;
+  //     waiting longer than advertised is pure downtime.
+  //
+  // Both carry an explicit upstream window, so they are classified and settled
+  // here from the upstream's own numbers instead of a blind ladder.
+  const failure = classifyUpstreamFailure(code, errorText);
+  const isRateLimitClass =
+    failure.class === FAILURE_CLASS.accountRateLimit ||
+    failure.class === FAILURE_CLASS.dailyQuota;
+  const hintDerived =
+    (isRateLimitClass || failure.class === FAILURE_CLASS.sharedPool) && failure.retryHintMs !== null;
+  const structuredStandalone =
+    failure.class === FAILURE_CLASS.sharedPool || failure.class === FAILURE_CLASS.dailyQuota;
+
+  if (structuredStandalone || hintDerived) {
+    const policy = getPolicyFor(failure.class);
+    let cooldownMs = failure.cooldownMs ?? policy.defaultCooldownMs ?? policy.cooldownMs ?? 0;
+    cooldownMs = Math.min(cooldownMs, policy.maxCooldownMs);
+
+    if (!policy.rotateUseful) {
+      // Every credential hits this identically, so consuming the rest of the
+      // combo only delays the honest error: stop the account loop and propagate
+      // the upstream message. The cooldown is still recorded (`applyCooldownOnly`)
+      // because skipping the write entirely would leave the account hammering the
+      // same saturated pool with no wait at all — the caller must stop rotating
+      // AND the state must still respect the window.
+      return {
+        shouldFallback: false,
+        cooldownMs,
+        applyCooldownOnly: true,
+        newBackoffLevel: backoffLevel
+      };
+    }
+
+    // A throttle the upstream already bounded must not also inflate the ladder:
+    // keeping the level means one bad window no longer leaves the account one
+    // failure away from the maximum lock.
+    if (!policy.backoff) {
+      return { shouldFallback: true, cooldownMs, newBackoffLevel: backoffLevel };
+    }
+    return { shouldFallback: true, cooldownMs };
   }
 
   for (const rule of ERROR_RULES) {
