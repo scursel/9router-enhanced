@@ -1,3 +1,0 @@
-## 2025-05-20 - Global Button Focus States & ARIA Busy Feedback
-**Learning:** Shared UI primitive components like `Button.js` in Next.js/React design systems often miss standard keyboard `focus-visible` ring styles and `aria-busy` indicators. Adding these at the atomic component level improves keyboard navigation focus visibility and screen reader async operation feedback across the entire application without needing individual component retrofits.
-**Action:** Always verify that foundational design system components (`Button`, `Input`, `Toggle`, `Modal`) include explicit `focus-visible` styling and screen reader attributes (`aria-busy`, `aria-hidden` on icon ligatures) when building or modifying reusable UI components.

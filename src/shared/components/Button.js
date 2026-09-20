@@ -45,17 +45,17 @@ export default function Button({
       {...props}
     >
       {loading ? (
-        <span className="material-symbols-outlined animate-spin text-[18px]" aria-hidden="true">
+        <span className="material-symbols-outlined animate-spin text-[18px]" aria-hidden={children ? "true" : undefined}>
           progress_activity
         </span>
       ) : icon ? (
-        <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
+        <span className="material-symbols-outlined text-[18px]" aria-hidden={children ? "true" : undefined}>
           {icon}
         </span>
       ) : null}
       {children}
       {iconRight && !loading && (
-        <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
+        <span className="material-symbols-outlined text-[18px]" aria-hidden={children ? "true" : undefined}>
           {iconRight}
         </span>
       )}

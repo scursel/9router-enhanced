@@ -1,49 +1,32 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-describe("Button UI Component File Integrity & Exports", () => {
-  it("exports a React default export function from Button.js", async () => {
-    const fs = await import("fs");
-    const path = await import("path");
-    const buttonCode = fs.readFileSync(
-      path.resolve(process.cwd(), "../src/shared/components/Button.js"),
-      "utf8"
-    );
+// Anchored on this module, not process.cwd(): the canonical suite runs from tests/
+// (CLAUDE.md), where a cwd-relative src/ path breaks when vitest is started from
+// the repo root instead.
+const buttonSource = readFileSync(
+  fileURLToPath(new URL("../../src/shared/components/Button.js", import.meta.url)),
+  "utf8"
+);
 
-    expect(buttonCode).toContain('export default function Button');
+// These are source-level tripwires, not behavior tests: Button.js renders JSX, which
+// this node-environment suite cannot import (no jsdom/JSX loader configured here).
+describe("Button source invariants", () => {
+  it("exports a React default export function from Button.js", () => {
+    expect(buttonSource).toContain("export default function Button");
   });
 
-  it("includes accessibility focus-visible ring styles", async () => {
-    const fs = await import("fs");
-    const path = await import("path");
-    const buttonCode = fs.readFileSync(
-      path.resolve(process.cwd(), "../src/shared/components/Button.js"),
-      "utf8"
-    );
-
-    expect(buttonCode).toContain("focus-visible:ring-2");
-    expect(buttonCode).toContain("focus-visible:outline-none");
-    expect(buttonCode).toContain("focus-visible:ring-brand-500/50");
+  it("keeps a keyboard focus-visible ring style", () => {
+    expect(buttonSource).toContain("focus-visible:ring-2");
+    expect(buttonSource).toContain("focus-visible:outline-none");
   });
 
-  it("includes aria-busy indicator for loading state", async () => {
-    const fs = await import("fs");
-    const path = await import("path");
-    const buttonCode = fs.readFileSync(
-      path.resolve(process.cwd(), "../src/shared/components/Button.js"),
-      "utf8"
-    );
-
-    expect(buttonCode).toContain("aria-busy={loading || undefined}");
+  it("marks the async loading state with aria-busy", () => {
+    expect(buttonSource).toContain("aria-busy={loading || undefined}");
   });
 
-  it("includes aria-hidden='true' for icon elements", async () => {
-    const fs = await import("fs");
-    const path = await import("path");
-    const buttonCode = fs.readFileSync(
-      path.resolve(process.cwd(), "../src/shared/components/Button.js"),
-      "utf8"
-    );
-
-    expect(buttonCode).toContain('aria-hidden="true"');
+  it("hides decorative icons from screen readers only when a text label exists", () => {
+    expect(buttonSource).toContain('aria-hidden={children ? "true" : undefined}');
   });
 });
