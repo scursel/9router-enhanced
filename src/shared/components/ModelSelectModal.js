@@ -27,24 +27,30 @@ const NO_AUTH_PROVIDER_IDS = Object.keys(FREE_PROVIDERS).filter(id => FREE_PROVI
 // so fetching it here would only waste a /models round-trip.
 const LIVE_CATALOG_PROVIDERS = ["cursor"];
 
+// Stable identity for the "nothing live" state so callers that memoize on the
+// returned array keep a referentially stable value between renders.
+const EMPTY_LIVE_MODELS = [];
+
 // Fetch a provider's account-scoped catalog for every active connection and merge
 // the results. Entries collapse by model id on purpose: two connections of the
 // same provider produce the same picker value (`alias/id`), so keeping the first
 // avoids duplicate rows. There is no per-connection metadata to preserve beyond
 // {id,name}. Empty array means "nothing live" so callers keep the static fallback.
 function useLiveProviderModels(isOpen, connectionIds, label) {
-  const [models, setModels] = useState([]);
   const idsKey = (connectionIds ?? []).join("|");
+  // Fetched data is tagged with the key it was loaded for: a closed modal, an empty
+  // connection list or a changed connection set all fail the `liveData.key ===
+  // activeKey` guard below, so stale catalogs never render — no synchronous
+  // setState-in-effect reset is needed. Reopening with the same connections shows
+  // the previous catalog while the refresh is in flight instead of flashing empty.
+  const [liveData, setLiveData] = useState({ key: null, models: [] });
+  const activeKey = isOpen && idsKey ? idsKey : null;
 
   useEffect(() => {
-    const ids = idsKey ? idsKey.split("|") : [];
-    if (!isOpen || ids.length === 0) {
-      setModels([]);
-      return undefined;
-    }
+    if (!activeKey) return undefined;
 
     let cancelled = false;
-    Promise.all(ids.map(async (connectionId) => {
+    Promise.all(activeKey.split("|").map(async (connectionId) => {
       const response = await fetch(`/api/providers/${connectionId}/models`, { cache: "no-store" });
       if (!response.ok) return [];
       const data = await response.json();
@@ -53,22 +59,25 @@ function useLiveProviderModels(isOpen, connectionIds, label) {
       .then((modelLists) => {
         if (cancelled) return;
         const seen = new Set();
-        setModels(modelLists.flat().filter((model) => {
-          if (!model?.id || seen.has(model.id)) return false;
-          seen.add(model.id);
-          return true;
-        }));
+        setLiveData({
+          key: activeKey,
+          models: modelLists.flat().filter((model) => {
+            if (!model?.id || seen.has(model.id)) return false;
+            seen.add(model.id);
+            return true;
+          }),
+        });
       })
       .catch((error) => {
         // Do not hide the static fallback when the account catalog is unavailable.
         console.warn(`Unable to load ${label} models for selector:`, error);
-        if (!cancelled) setModels([]);
+        if (!cancelled) setLiveData({ key: activeKey, models: [] });
       });
 
     return () => { cancelled = true; };
-  }, [isOpen, idsKey, label]);
+  }, [activeKey, label]);
 
-  return models;
+  return activeKey && liveData.key === activeKey ? liveData.models : EMPTY_LIVE_MODELS;
 }
 
 export default function ModelSelectModal({
