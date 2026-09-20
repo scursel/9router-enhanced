@@ -1,3 +1,10 @@
+# v0.5.81-enhanced.3 (2026-09-20 — Alibaba Token Plan quota meter)
+
+## Fixes
+- **Alibaba Token Plan quota**: the locally metered weekly credit card read **11% remaining** while the vendor console read **39.7% remaining** (total 2,500) at the same instant — and reached 0% ten minutes later. Root cause: `estimateAlibabaCredits` charged cache-read tokens at the qwen3.8 list rate ($0.25/1M). On a 94.4% cache-hit workload that single term was 46% of a whole weekly plan; the rows the console counted as 1,507.5 credits were metered as 2,229.4. Cache reads are now free in the basket (`ALIBABA_TOKEN_PLAN_RATES`, measured 2026-09-20 20:53Z against the console), which puts the same rows at 1,138.7 credits. Per-model coefficient overrides (`ALIBABA_TOKEN_PLAN_MODEL_RATES`) ship empty on purpose: the vendor does not publish them and one console reading identifies one unknown — the basket is model-normalized, and pricing those rows with their own list prices lands under half the vendor's figure.
+- **Alibaba Token Plan window**: the 7-day window was anchored on the first request the router happened to see (it reported reset 09-27 19:03Z for a session that began 09-20 19:03Z) and could swallow traffic from the previous bucket that was still inside the SQL fetch. It now uses the vendor's fixed weekly bucket derived from one observed reset instant (`alitpResetAt` / `quotaResetAt` in `providerSpecificData`, or a fresh 429), projected forward in 7-day steps — 09-19 15:05Z → 09-26 15:05Z, matching the console.
+- **Tests**: `tests/unit/alibaba-token-plan-meter.test.js` gains the console-anchored regression (red on the pre-fix cache charge: 6 failures) plus bucket and per-model-override coverage.
+
 # v0.5.81-enhanced.2 (2026-09-20 — dashboard UI polish)
 
 Two externally-authored (Jules) PRs, merged after a two-axis code review; the review
