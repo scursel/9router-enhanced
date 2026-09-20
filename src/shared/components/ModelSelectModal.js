@@ -116,34 +116,38 @@ export default function ModelSelectModal({
 
   const cursorModels = useLiveProviderModels(isOpen, cursorConnectionIds, "Cursor");
 
-  // Bolt optimization: Consolidate 4 separate metadata fetches into a single concurrent Promise.all
-  // call when modal opens. This parallelizes the HTTP requests and triggers a single batched state update,
-  // preventing 4+ sequential cascading re-renders when opening the modal.
+  // Fetch all modal metadata concurrently when the modal opens. Results are applied
+  // per endpoint (one failing endpoint degrades to its fallback without blocking the
+  // others) and state updates land in a single batched render.
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
 
     const fetchModalData = async () => {
-      const [combosRes, nodesRes, customRes, disabledRes] = await Promise.allSettled([
-        fetch("/api/combos").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
-        fetch("/api/provider-nodes").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
-        fetch("/api/models/custom").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
-        fetch("/api/models/disabled").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
-      ]);
+      const endpoints = [
+        { url: "/api/combos", key: "combos", setter: setCombos, fallback: [] },
+        { url: "/api/provider-nodes", key: "nodes", setter: setProviderNodes, fallback: [] },
+        { url: "/api/models/custom", key: "models", setter: setCustomModels, fallback: [] },
+        { url: "/api/models/disabled", key: "disabled", setter: setDisabledModels, fallback: {} },
+      ];
+
+      const results = await Promise.allSettled(
+        endpoints.map(({ url }) =>
+          fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+        )
+      );
 
       if (cancelled) return;
 
-      if (combosRes.status === "fulfilled") setCombos(combosRes.value.combos || []);
-      else setCombos([]);
-
-      if (nodesRes.status === "fulfilled") setProviderNodes(nodesRes.value.nodes || []);
-      else setProviderNodes([]);
-
-      if (customRes.status === "fulfilled") setCustomModels(customRes.value.models || []);
-      else setCustomModels([]);
-
-      if (disabledRes.status === "fulfilled") setDisabledModels(disabledRes.value.disabled || {});
-      else setDisabledModels({});
+      results.forEach((result, i) => {
+        const { url, key, setter, fallback } = endpoints[i];
+        if (result.status === "fulfilled") {
+          setter(result.value[key] || fallback);
+        } else {
+          console.error(`Error fetching ${url}:`, result.reason);
+          setter(fallback);
+        }
+      });
     };
 
     fetchModalData();
@@ -399,7 +403,6 @@ export default function ModelSelectModal({
     return groups;
   }, [filteredActiveProviders, modelAliases, allProviders, providerNodes, customModels, disabledModels, kindFilter, activeProviders, cursorModels]);
 
-  // Filter combos by search query (and hide combos when kindFilter is set — combos are LLM-only by design)
   // Filter combos by search query (and hide combos when kindFilter is set — combos are LLM-only by design)
   const filteredCombos = useMemo(() => {
     if (kindFilter || capFilter) return [];
