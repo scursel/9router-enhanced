@@ -1,6 +1,61 @@
 import { getAdapter } from "@/lib/db/driver.js";
 import { num, localQuota } from "./quotaShared.js";
 
+const WEEK_MS = 7 * 86400 * 1000;
+
+/** Credits per dollar: the plan sells credits at $0.002 each. */
+export const ALIBABA_USD_PER_CREDIT = 0.002;
+
+/**
+ * Plan basket rates — USD per 1M tokens.
+ *
+ * CACHE READS ARE FREE on this plan. Charging them was measured wrong on
+ * 2026-09-20 against the vendor console: at 20:53Z the console read
+ * "7 Days Usage Limit … Remaining 39.7%" (1,507.5 of 2,500 credits used) while
+ * this meter — charging cache reads at the qwen3.8 list rate — already showed
+ * 10.8% remaining. One day of a 94.4% cache-hit workload cannot consume a whole
+ * 7-day plan, so the cache-read term was the bug. Same rows, cache reads at
+ * zero: 1,138.7 credits at that instant.
+ *
+ * These coefficients are a MODEL-NORMALIZED basket, NOT per-model list prices.
+ * The plan states credits are "dynamically determined by model type, token
+ * usage, thinking mode and tool calls", and the same reading proves it: pricing
+ * those rows with their own list prices (deepseek-v4.1-flash at $0.14/$0.28 per
+ * 1M, its share of the traffic) lands near 635 credits — less than half the
+ * vendor's 1,507.5. List prices are the wrong ruler here; the normalized basket
+ * is the closest single-coefficient fit to the console.
+ */
+export const ALIBABA_TOKEN_PLAN_RATES = {
+  uncachedInput: 2,
+  output: 6,
+  cacheRead: 0,
+};
+
+/**
+ * Per-model overrides of the basket rates above, keyed by lowercase model id.
+ *
+ * Intentionally EMPTY: the vendor does not publish its credit coefficients, and
+ * one console reading identifies exactly one unknown, so no per-model
+ * coefficient can be derived from it. Every model therefore uses the calibrated
+ * basket. Add an entry ONLY from a console measurement of that model in
+ * isolation — a guessed coefficient makes the meter look precise while being
+ * wrong, which is how the cache-read error survived this long.
+ */
+export const ALIBABA_TOKEN_PLAN_MODEL_RATES = {};
+
+export function getAlibabaModelRates(model, overrides = ALIBABA_TOKEN_PLAN_MODEL_RATES) {
+  const key = String(model || "").trim().toLowerCase();
+  const override = key ? overrides?.[key] : null;
+  return override ? { ...ALIBABA_TOKEN_PLAN_RATES, ...override } : ALIBABA_TOKEN_PLAN_RATES;
+}
+
+/** Timestamp of a usageHistory row, in ms, or NaN when unusable. */
+function recordTime(record) {
+  if (typeof record?.timestamp === "number") return record.timestamp;
+  if (record?.timestamp) return new Date(record.timestamp).getTime();
+  return NaN;
+}
+
 export function getAlibabaPlanLimits(limits = {}) {
   // Token Plan no longer ships a 5-hour window — quota is weekly only
   // (measured in credits). Lite = 2500 credits / 7d.
@@ -15,7 +70,7 @@ export function getAlibabaPlanLimits(limits = {}) {
   return plans[key] || plans.lite;
 }
 
-export function estimateAlibabaCredits(record) {
+export function estimateAlibabaCredits(record, rates = ALIBABA_TOKEN_PLAN_RATES) {
   let prompt = num(record?.promptTokens, 0);
   let completion = num(record?.completionTokens, 0);
   let cached = 0;
@@ -33,24 +88,72 @@ export function estimateAlibabaCredits(record) {
     cached = num(raw.cached_tokens ?? raw.cachedTokens, 0);
   }
   const uncached = Math.max(0, prompt - cached);
-  // qwen3.8 list USD / 1M × ~$0.002 per Token Plan credit.
-  const usd = uncached * 2e-6 + completion * 6e-6 + cached * 0.25e-6;
-  return usd / 0.002;
+  const basket = {
+    uncachedInput: num(rates?.uncachedInput, ALIBABA_TOKEN_PLAN_RATES.uncachedInput),
+    output: num(rates?.output, ALIBABA_TOKEN_PLAN_RATES.output),
+    cacheRead: num(rates?.cacheRead, ALIBABA_TOKEN_PLAN_RATES.cacheRead),
+  };
+  const usd =
+    (uncached * basket.uncachedInput +
+      completion * basket.output +
+      cached * basket.cacheRead) /
+    1e6;
+  return usd / ALIBABA_USD_PER_CREDIT;
+}
+
+/**
+ * The plan's 7-day counter resets on a FIXED weekly cadence — it is not a
+ * window anchored on the first request the router happens to see. On 2026-09-20
+ * the console read "Reset time 2026-09-26 15:05:00" while the local rows only
+ * began at 19:03Z that same day, so anchoring locally both moved the reset
+ * ~1.3 days late and let a previous bucket's traffic count in the new one.
+ *
+ * One observed instant projects every later bucket (reset + k·7d), which keeps
+ * the window correct week after week without the vendor exposing a quota API.
+ */
+export function resolveAlibabaWeeklyBucket(resetHint, now = Date.now()) {
+  // `new Date(null).getTime()` is 0, not NaN — a missing hint must return null
+  // (fall back to the anchored window), never an epoch-gridded bucket.
+  if (resetHint == null || resetHint === "" || typeof resetHint === "boolean") return null;
+  const hinted = typeof resetHint === "number" ? resetHint : new Date(resetHint).getTime();
+  if (!Number.isFinite(hinted) || hinted <= 0 || !Number.isFinite(now)) return null;
+  let end = hinted;
+  if (end <= now) end += (Math.floor((now - end) / WEEK_MS) + 1) * WEEK_MS;
+  // A hint far in the future (typo, or a reset read from a different plan)
+  // must still yield the bucket that CONTAINS now — never an empty future one,
+  // which would silently meter zero usage.
+  while (end - WEEK_MS > now) end -= WEEK_MS;
+  return { start: end - WEEK_MS, end };
+}
+
+/** Reset hint accepted from the connection's providerSpecificData. */
+function resetHintOf(limits) {
+  return limits?.alitpResetAt ?? limits?.quotaResetAt ?? limits?.resetAtHint ?? null;
+}
+
+/** Credits/tokens recorded inside a known weekly bucket. */
+export function alibabaBucketMeta(records, bucket, useCredits, now = Date.now()) {
+  let used = 0;
+  if (Array.isArray(records) && bucket) {
+    for (const record of records) {
+      const t = recordTime(record);
+      if (!Number.isFinite(t) || t < bucket.start || t >= bucket.end || t > now) continue;
+      used += useCredits
+        ? estimateAlibabaCredits(record, getAlibabaModelRates(record?.model))
+        : num(record?.promptTokens, 0) + num(record?.completionTokens, 0);
+    }
+  }
+  return { used, start: bucket?.start ?? null, end: bucket?.end ?? null };
 }
 
 export function alibabaWindowMeta(records, windowMs, now, useCredits) {
   const items = [];
   if (Array.isArray(records)) {
     for (const r of records) {
-      const t =
-        typeof r?.timestamp === "number"
-          ? r.timestamp
-          : r?.timestamp
-            ? new Date(r.timestamp).getTime()
-            : NaN;
+      const t = recordTime(r);
       if (!Number.isFinite(t) || t > now) continue;
       const amount = useCredits
-        ? estimateAlibabaCredits(r)
+        ? estimateAlibabaCredits(r, getAlibabaModelRates(r?.model))
         : num(r?.promptTokens, 0) + num(r?.completionTokens, 0);
       items.push({ t, amount });
     }
@@ -87,25 +190,28 @@ export function alibabaUntracked7d(limits, windowStart) {
 }
 
 export function calcSlidingWindowUsage(records, now = Date.now(), limits = {}) {
-  const sevenDayMs = 7 * 86400 * 1000;
-  const cutoff7d = now - sevenDayMs;
+  const cutoff7d = now - WEEK_MS;
   const useCredits = String(limits?.unit || "").toLowerCase() === "credits";
   const plan = getAlibabaPlanLimits(limits);
+  // A known vendor reset instant makes the weekly bucket exact; without one the
+  // meter falls back to the older anchored window (first record seen starts it).
+  const bucket = resolveAlibabaWeeklyBucket(resetHintOf(limits), now);
 
   let sevenDayUsed = 0;
   let sevenDayEnd = null;
   if (useCredits) {
-    const meta = alibabaWindowMeta(records, sevenDayMs, now, true);
+    const meta = bucket
+      ? alibabaBucketMeta(records, bucket, true, now)
+      : alibabaWindowMeta(records, WEEK_MS, now, true);
     sevenDayUsed = meta.used + alibabaUntracked7d(limits, meta.start);
+    sevenDayEnd = meta.end;
+  } else if (bucket) {
+    const meta = alibabaBucketMeta(records, bucket, false, now);
+    sevenDayUsed = meta.used;
     sevenDayEnd = meta.end;
   } else if (Array.isArray(records)) {
     for (const r of records) {
-      const t =
-        typeof r?.timestamp === "number"
-          ? r.timestamp
-          : r?.timestamp
-            ? new Date(r.timestamp).getTime()
-            : NaN;
+      const t = recordTime(r);
       if (!Number.isFinite(t) || t < cutoff7d || t > now) continue;
       sevenDayUsed += num(r?.promptTokens, 0) + num(r?.completionTokens, 0);
     }
@@ -163,7 +269,7 @@ export function alibabaQuotaExhaustion(lastError, lastErrorAt, now = Date.now())
         ? new Date(lastErrorAt).getTime()
         : NaN;
   if (!Number.isFinite(at) || at > now) return null;
-  if (now - at > 7 * 86400 * 1000) return null;
+  if (now - at > WEEK_MS) return null;
   return { at, resetAt: parseAlibabaResetAt(message, now) };
 }
 
@@ -175,12 +281,7 @@ export function applyAlibabaQuotaExhaustion(result, ctx = {}, records = [], now 
   if (
     Array.isArray(records) &&
     records.some((r) => {
-      const t =
-        typeof r?.timestamp === "number"
-          ? r.timestamp
-          : r?.timestamp
-            ? new Date(r.timestamp).getTime()
-            : NaN;
+      const t = recordTime(r);
       return (
         Number.isFinite(t) &&
         t > signal.at &&
@@ -211,8 +312,7 @@ function parseConnectionData(raw) {
 export async function getAlibabaTokenPlanUsage(ctx = {}, now = Date.now()) {
   let connId = String(ctx?.connectionId || ctx?.id || "").trim();
   const psd = ctx?.providerSpecificData || {};
-  const sevenDayMs = 7 * 86400 * 1000;
-  const cutoff7dIso = new Date(now - sevenDayMs).toISOString();
+  const cutoff7dIso = new Date(now - WEEK_MS).toISOString();
 
   let rows = [];
   let connData = null;
@@ -247,17 +347,19 @@ export async function getAlibabaTokenPlanUsage(ctx = {}, now = Date.now()) {
     console.warn("[LocalQuotaMeter] DB query error:", err);
   }
 
+  const lastError = ctx?.lastError ?? connData?.lastError;
+  const lastErrorAt = ctx?.lastErrorAt ?? connData?.lastErrorAt;
+  // The vendor's own reset instant is the only source of truth for the weekly
+  // bucket: it comes from providerSpecificData when someone read it off the
+  // console, or from a FRESH 429 (a stale one would project the wrong week, so
+  // it goes through the same freshness gate the exhaustion path uses).
+  const resetAtHint =
+    resetHintOf(psd) ?? alibabaQuotaExhaustion(lastError, lastErrorAt, now)?.resetAt ?? null;
+
   const result = calcSlidingWindowUsage(rows, now, {
     ...psd,
     unit: psd.unit || psd.quotaUnit || "credits",
+    resetAtHint,
   });
-  return applyAlibabaQuotaExhaustion(
-    result,
-    {
-      lastError: ctx?.lastError ?? connData?.lastError,
-      lastErrorAt: ctx?.lastErrorAt ?? connData?.lastErrorAt,
-    },
-    rows,
-    now,
-  );
+  return applyAlibabaQuotaExhaustion(result, { lastError, lastErrorAt }, rows, now);
 }

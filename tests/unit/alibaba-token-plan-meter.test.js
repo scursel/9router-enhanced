@@ -4,7 +4,10 @@ import {
   calcSlidingWindowUsage,
   getAlibabaPlanLimits,
   estimateAlibabaCredits,
+  getAlibabaModelRates,
   alibabaWindowMeta,
+  alibabaBucketMeta,
+  resolveAlibabaWeeklyBucket,
   alibabaUntracked7d,
   parseAlibabaResetAt,
   alibabaQuotaExhaustion,
@@ -51,12 +54,14 @@ describe("Alibaba Token Plan Local Usage Meter", () => {
       expect(estimateAlibabaCredits(record)).toBe(1300);
     });
 
-    it("handles cached tokens correctly from JSON string or object", () => {
+    it("handles cached tokens without charging for the cache read", () => {
       // 1,000,000 total prompt tokens, 800,000 cached => 200,000 uncached
       // uncached USD = 2e5 * 2e-6 = 0.4
-      // cached USD = 8e5 * 0.25e-6 = 0.2
+      // cached USD = 0 (cache reads are free on this plan — see the console
+      // regression below; charging 0.25e-6 here is the bug that read 11% of a
+      // 2,500-credit week as remaining while the console said 39.7%)
       // completion USD = 1e5 * 6e-6 = 0.6
-      // Total USD = 1.2 => credits = 1.2 / 0.002 = 600
+      // Total USD = 1.0 => credits = 1.0 / 0.002 = 500
       const record = {
         tokens: JSON.stringify({
           prompt_tokens: 1000000,
@@ -64,7 +69,181 @@ describe("Alibaba Token Plan Local Usage Meter", () => {
           cached_tokens: 800000,
         }),
       };
-      expect(estimateAlibabaCredits(record)).toBe(600);
+      expect(estimateAlibabaCredits(record)).toBe(500);
+    });
+
+    it("costs a fully cached prompt nothing no matter how large the cache read is", () => {
+      const record = {
+        tokens: { prompt_tokens: 16632320, completion_tokens: 0, cached_tokens: 16632320 },
+      };
+      expect(estimateAlibabaCredits(record)).toBe(0);
+    });
+
+    it("applies per-model overrides only to the model they are keyed by", () => {
+      const overrides = { "deepseek-v4.1-flash": { cacheRead: 0.25 } };
+      const record = {
+        tokens: { prompt_tokens: 1000000, completion_tokens: 0, cached_tokens: 1000000 },
+      };
+      expect(estimateAlibabaCredits({ ...record, model: "qwen3.8-max" }, undefined)).toBe(0);
+      expect(
+        estimateAlibabaCredits(
+          { ...record, model: "deepseek-v4.1-flash" },
+          getAlibabaModelRates("deepseek-v4.1-flash", overrides),
+        ),
+      ).toBe(125); // 1e6 * 0.25e-6 / 0.002
+      expect(getAlibabaModelRates("qwen3.8-max", overrides).cacheRead).toBe(0);
+    });
+  });
+
+  describe("resolveAlibabaWeeklyBucket (vendor reset cadence)", () => {
+    it("projects a past reset instant forward to the bucket that contains now", () => {
+      const now = Date.parse("2026-09-20T20:53:00Z");
+      // The console read "Reset time 2026-09-26 15:05:00" for a plan whose
+      // previous bucket therefore started 2026-09-19 15:05:00.
+      const bucket = resolveAlibabaWeeklyBucket("2026-09-26T15:05:00Z", now);
+      expect(bucket.start).toBe(Date.parse("2026-09-19T15:05:00Z"));
+      expect(bucket.end).toBe(Date.parse("2026-09-26T15:05:00Z"));
+    });
+
+    it("keeps rolling the same instant week after week", () => {
+      const bucket = resolveAlibabaWeeklyBucket(
+        "2026-09-26T15:05:00Z",
+        Date.parse("2026-10-10T00:00:00Z"),
+      );
+      expect(new Date(bucket.end).toISOString()).toBe("2026-10-10T15:05:00.000Z");
+      expect(new Date(bucket.start).toISOString()).toBe("2026-10-03T15:05:00.000Z");
+    });
+
+    it("rejects missing, zero and unparsable hints so the callers fall back", () => {
+      const now = Date.now();
+      for (const hint of [null, undefined, "", 0, false, "not-a-date"]) {
+        expect(resolveAlibabaWeeklyBucket(hint, now)).toBeNull();
+      }
+    });
+
+    it("still yields a bucket containing now when the hint is far in the future", () => {
+      const now = Date.parse("2026-09-20T20:53:00Z");
+      const bucket = resolveAlibabaWeeklyBucket("2026-11-01T00:00:00Z", now);
+      expect(bucket.start).toBeLessThanOrEqual(now);
+      expect(bucket.end).toBeGreaterThan(now);
+    });
+
+    it("counts only rows inside the bucket and never rows from the future", () => {
+      const bucket = { start: 1000, end: 2000 };
+      const meta = alibabaBucketMeta(
+        [
+          { timestamp: 999, promptTokens: 1000000, completionTokens: 0 }, // before
+          { timestamp: 1000, promptTokens: 1000000, completionTokens: 0 }, // counted
+          { timestamp: 1999, promptTokens: 1000000, completionTokens: 0 }, // after now
+          { timestamp: 2000, promptTokens: 1000000, completionTokens: 0 }, // half-open end
+        ],
+        bucket,
+        true,
+        1499,
+      );
+      expect(meta.used).toBe(1000);
+      expect(meta.start).toBe(1000);
+      expect(meta.end).toBe(2000);
+    });
+  });
+
+  describe("console-anchored calibration (2026-09-20)", () => {
+    // Real traffic of connection e9868390 (alitp-intl) at the instant the
+    // console was read, aggregated per model from ~/.9router/db/data.sqlite:
+    //   glm-5.3              12 req  504,042 prompt  358,912 cached  4,543 out
+    //   qwen3.8-max          20 req 2,164,862 prompt 2,125,824 cached 30,535 out
+    //   deepseek-v4.1-flash  77 req 6,861,697 prompt 6,240,640 cached 76,092 out
+    // Console at 20:53Z: "Remaining 39.7%", total 2,500 => 1,507.5 used.
+    const CONSOLE_USED = 0.603 * 2500;
+    const RESET_AT = "2026-09-26T15:05:00Z";
+    const NOW = Date.parse("2026-09-20T20:53:00Z");
+    const row = (t, model, prompt, cached, completion) => ({
+      timestamp: new Date(t).toISOString(),
+      model,
+      promptTokens: prompt,
+      completionTokens: completion,
+      tokens: JSON.stringify({
+        prompt_tokens: prompt,
+        completion_tokens: completion,
+        cached_tokens: cached,
+      }),
+    });
+    const rows = [
+      // Traffic from the PREVIOUS bucket (09-11, still inside the 7-day SQL
+      // fetch) must not be counted into the current bucket.
+      row("2026-09-11T16:15:15Z", "qwen3.8-max", 2190302, 2100000, 25278),
+      row("2026-09-20T19:03:09Z", "glm-5.3", 504042, 358912, 4543),
+      row("2026-09-20T19:34:29Z", "qwen3.8-max", 2164862, 2125824, 30535),
+      row("2026-09-20T20:51:22Z", "deepseek-v4.1-flash", 6861697, 6240640, 76092),
+    ];
+
+    it("lands far below exhaustion where the cache-charged meter read 11% left", () => {
+      const result = calcSlidingWindowUsage(rows, NOW, {
+        unit: "credits",
+        plan: "Lite",
+        alitpResetAt: RESET_AT,
+      });
+      const quota = result.quotas["Créditos 7d (estimado)"];
+      expect(quota.total).toBe(2500);
+      expect(quota.used).toBeCloseTo(1138.7, 1);
+      // Pre-fix this was 2,229.4 used (10.8% left, and 0% ten minutes later).
+      expect(quota.used).toBeLessThan(2500);
+      expect(quota.remainingPercentage).toBeGreaterThan(30);
+      // The reset is the vendor's weekly instant, not first-request + 7d.
+      expect(quota.resetAt).toBe("2026-09-26T15:05:00.000Z");
+    });
+
+    it("matches the console exactly once the window carries its measured offset", () => {
+      // The console counts drawdown this router cannot see (foreign clients on
+      // the same key, and the vendor's unpublished per-model coefficients).
+      // untrackedCredits7d is that measured gap, pinned to the bucket start.
+      const result = calcSlidingWindowUsage(rows, NOW, {
+        unit: "credits",
+        alitpResetAt: RESET_AT,
+        untrackedCredits7d: CONSOLE_USED - 1138.7,
+        untrackedCredits7dWindowStart: "2026-09-19T15:05:00Z",
+      });
+      const quota = result.quotas["Créditos 7d (estimado)"];
+      expect(quota.used).toBeCloseTo(CONSOLE_USED, 0);
+      expect(quota.remainingPercentage).toBeCloseTo(39.7, 0);
+    });
+
+    it("drops the offset once its window start no longer matches", () => {
+      const result = calcSlidingWindowUsage(rows, NOW, {
+        unit: "credits",
+        alitpResetAt: RESET_AT,
+        untrackedCredits7d: 368.8,
+        untrackedCredits7dWindowStart: "2026-09-13T15:05:00Z",
+      });
+      expect(result.quotas["Créditos 7d (estimado)"].used).toBeCloseTo(1138.7, 1);
+    });
+
+    it("uses the fresh 429 reset as the bucket when providerSpecificData has none", async () => {
+      const now = Date.parse("2026-09-12T13:26:00Z");
+      getAdapter.mockResolvedValue({
+        all: vi.fn().mockReturnValue([
+          row("2026-09-11T16:15:15Z", "qwen3.8-max", 2190302, 2100000, 25278),
+          row("2026-09-12T12:00:00Z", "glm-5.3", 504042, 358912, 4543),
+        ]),
+        get: vi.fn(),
+      });
+
+      const result = await getAlibabaTokenPlanUsage(
+        {
+          connectionId: "conn-alitp",
+          providerSpecificData: { plan: "Lite" },
+          lastError:
+            '[429]: {"error":{"message":"Your token-plan 1-week quota has been exhausted. The quota will reset at 09-18 16:04:00 UTC."}}',
+          lastErrorAt: "2026-09-12T13:22:00Z",
+        },
+        now,
+      );
+
+      // Bucket = 09-11 16:04 → 09-18 16:04: the 09-12 row counts, the earlier
+      // 09-11 16:15 row is inside it too, and the vendor reset is reported.
+      const quota = result.quotas["Créditos 7d (estimado)"];
+      expect(quota.resetAt).toBe("2026-09-18T16:04:00.000Z");
+      expect(quota.used).toBe(2500); // 429 still fills the ceiling
     });
   });
 
