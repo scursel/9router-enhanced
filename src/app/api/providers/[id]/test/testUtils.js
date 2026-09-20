@@ -4,6 +4,7 @@ import { testProxyUrl } from "@/lib/network/proxyTest";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost, PROVIDERS } from "open-sse/config/providers.js";
+import { PROVIDER_MEDIA } from "open-sse/providers/index.js";
 import { CODEX_CLI_VERSION } from "open-sse/config/appConstants.js";
 import {
   refreshProviderCredentials,
@@ -182,7 +183,13 @@ function parseProviderErrorMessage(bodyText, fallback) {
   if (!bodyText) return fallback;
   try {
     const parsed = JSON.parse(bodyText);
-    const message = parsed?.error?.message || parsed?.message || parsed?.error;
+    // `detail` covers FastAPI-style errors (`{detail: "..."}` and
+    // `{detail: {message: "..."}}`), which several media/search APIs return.
+    const message = parsed?.error?.message
+      || parsed?.message
+      || parsed?.error
+      || parsed?.detail?.message
+      || parsed?.detail;
     if (typeof message === "string" && message.trim()) return message.trim();
     if (message) return JSON.stringify(message);
   } catch {
@@ -320,8 +327,18 @@ function isTokenExpired(connection) {
 
 async function testOAuthConnection(connection, effectiveProxy = null) {
   const config = OAUTH_TEST_CONFIG[connection.provider];
-  if (!config) return { valid: false, error: "Provider test not supported", refreshed: false };
   if (!connection.accessToken) return { valid: false, error: "No access token", refreshed: false };
+
+  // OAuth provider with no hand-written probe (clinepass, xai, xiaomi-mimo,
+  // codebuddy-intl, zed): use the registry metadata instead of refusing to test.
+  // An OAuth access token is sent exactly like an API key.
+  if (!config) {
+    const result = await probeGenericProvider(
+      { ...connection, apiKey: connection.apiKey || connection.accessToken },
+      effectiveProxy,
+    );
+    return { ...result, refreshed: false };
+  }
 
   // Cursor uses protobuf API - can only verify token exists, not test endpoint
   if (config.tokenExists) {
@@ -470,6 +487,167 @@ async function fetchWithConnectionProxy(url, options = {}, effectiveProxy = null
     connectionProxyUrl: effectiveProxy.connectionProxyUrl,
     connectionNoProxy: effectiveProxy.connectionNoProxy || "",
   });
+}
+
+// ---------------------------------------------------------------------------
+// Generic probe fallback
+//
+// The per-provider switch in testApiKeyConnection covers only part of the
+// registry, and OAUTH_TEST_CONFIG only part of the OAuth providers. Anything
+// else used to answer "Provider test not supported" — which is not a diagnosis:
+// the credentials were never actually tried. Every registry entry carries
+// enough metadata (transport.validateUrl, transport.baseUrl, the per-kind media
+// configs) to make a real call, so providers without a hand-written probe run
+// the ordered fallback below and the first decisive answer wins.
+// ---------------------------------------------------------------------------
+
+// Media/search configs, in probe order. One is enough: every kind on a provider
+// shares the same credential, so a second probe would only repeat the answer.
+const MEDIA_CONFIG_KEYS = [
+  "embeddingConfig", "sttConfig", "ttsConfig", "imageConfig",
+  "imageToTextConfig", "videoConfig", "musicConfig", "searchConfig", "fetchConfig",
+];
+
+// Mirrors open-sse/handlers/sttCore.js buildAuthHeaders so a probe authenticates
+// exactly like the real request would.
+function buildMediaAuthHeaders(cfg, token) {
+  if (!token) return {};
+  switch (cfg?.authHeader) {
+    case "token": return { "Authorization": `Token ${token}` };
+    case "x-api-key": return { "x-api-key": token };
+    case "key": return { "Authorization": `Key ${token}` };
+    case "xi-api-key": return { "xi-api-key": token };
+    case "x-subscription-token": return { "x-subscription-token": token };
+    case "basic": return { "Authorization": `Basic ${token}` };
+    case "none": return {};
+    case "bearer":
+    case "authorization":
+    default: return { "Authorization": `Bearer ${token}` };
+  }
+}
+
+/**
+ * Ordered probes for a provider with no hand-written case.
+ *
+ * `acceptedStatuses` marks a probe that proves the credential even on a
+ * non-2xx answer: an endpoint that rejects the deliberately minimal body
+ * (400/404/422) still had to authenticate the request first. Only 401/403 means
+ * the key itself is bad — the same convention the explicit cases already use.
+ *
+ * Exported for unit tests.
+ */
+export function buildGenericProbes(connection) {
+  // Both maps are built from open-sse/providers/registry, so every provider that
+  // declares a transport or a media kind is probeable — including the ones the
+  // explicit switch above never covered.
+  const transport = PROVIDERS[connection.provider] || {};
+  const media = PROVIDER_MEDIA[connection.provider] || {};
+  const psd = connection.providerSpecificData || {};
+  const token = connection.apiKey || connection.accessToken || "";
+  const model = connection.defaultModel
+    || getDefaultModel(connection.provider)
+    || "gpt-4o-mini";
+  const bearer = { "Authorization": `Bearer ${token}` };
+  const jsonBearer = { "Content-Type": "application/json", ...bearer };
+  const probes = [];
+
+  // 1. User-supplied base URL — self-hosted and gateway connections.
+  if (psd.baseUrl) {
+    probes.push({ name: "baseUrl/models", method: "GET", url: `${String(psd.baseUrl).replace(/\/$/, "")}/models`, headers: bearer });
+  }
+
+  // 2. Registry-declared validation endpoint (a plain model list).
+  if (transport.validateUrl) {
+    probes.push({ name: "transport.validateUrl", method: "GET", url: transport.validateUrl, headers: bearer });
+  }
+
+  // 3. Registry-declared transport endpoint. The minimal body keeps the probe
+  //    cheap — providers answer 400/422 without running any inference.
+  if (transport.baseUrl) {
+    probes.push({
+      name: "transport.baseUrl",
+      method: "POST",
+      url: transport.baseUrl,
+      headers: jsonBearer,
+      body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }),
+      acceptedStatuses: (status) => status !== 401 && status !== 403,
+    });
+  }
+
+  // 4. Media/search providers: hit the first declared kind endpoint with an empty
+  //    body, which every media API rejects before doing any billable work.
+  for (const key of MEDIA_CONFIG_KEYS) {
+    const cfg = media[key];
+    if (!cfg?.baseUrl) continue;
+    probes.push({
+      name: key,
+      method: "POST",
+      url: cfg.baseUrl,
+      headers: { "Content-Type": "application/json", ...buildMediaAuthHeaders(cfg, token) },
+      body: "{}",
+      acceptedStatuses: (status) => status !== 401 && status !== 403,
+    });
+    break;
+  }
+
+  return probes;
+}
+
+/**
+ * Run the generic probes in order. Returns the first decisive verdict; when
+ * every probe is inconclusive, returns the last real error instead of a
+ * "not supported" placeholder.
+ */
+async function probeGenericProvider(connection, effectiveProxy = null) {
+  const probes = buildGenericProbes(connection);
+  if (probes.length === 0) {
+    return { valid: false, error: `No test endpoint known for provider '${connection.provider}'` };
+  }
+
+  const failures = [];
+
+  for (const probe of probes) {
+    let res;
+    try {
+      res = await fetchWithConnectionProxy(probe.url, {
+        method: probe.method,
+        headers: probe.headers,
+        ...(probe.body ? { body: probe.body } : {}),
+      }, effectiveProxy);
+    } catch (err) {
+      failures.push({ probe: probe.name, error: err.message });
+      continue;
+    }
+
+    if (res.ok) return { valid: true, error: null };
+
+    // A rejected credential is decisive: no other probe can succeed with it.
+    if (res.status === 401 || res.status === 403) {
+      const bodyText = await res.text().catch(() => "");
+      return {
+        valid: false,
+        error: parseProviderErrorMessage(bodyText, res.status === 401 ? "Invalid API key" : "Access denied"),
+        status: res.status,
+      };
+    }
+
+    if (probe.acceptedStatuses?.(res.status)) return { valid: true, error: null };
+
+    const bodyText = await res.text().catch(() => "");
+    failures.push({
+      probe: probe.name,
+      status: res.status,
+      error: parseProviderErrorMessage(bodyText, `API returned ${res.status}`),
+    });
+  }
+
+  const last = failures[failures.length - 1];
+  return {
+    valid: false,
+    error: last?.error || "Provider test failed",
+    status: last?.status ?? null,
+    probesTried: probes.map((probe) => probe.name),
+  };
 }
 
 async function testApiKeyConnection(connection, effectiveProxy = null) {
@@ -823,7 +1001,7 @@ case "llm7": {
         return { valid: res.ok, error: res.ok ? null : "Invalid API key", refreshed: false };
       }
       default:
-        return { valid: false, error: "Provider test not supported" };
+        return await probeGenericProvider(connection, effectiveProxy);
     }
   } catch (err) {
     return { valid: false, error: err.message };
