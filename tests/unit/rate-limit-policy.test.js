@@ -56,6 +56,36 @@ describe("parseRetryHintMs — reads the upstream's own retry window", () => {
     expect(parseRetryHintMs("")).toBeNull();
     expect(parseRetryHintMs(null)).toBeNull();
   });
+
+  // A wrong-but-plausible window is worse than no window: a present hint also
+  // freezes the backoff ladder, so a misread value silently under-waits.
+  it("rejects scientific notation instead of truncating it to a smaller number", () => {
+    expect(parseRetryHintMs('{"retry_after_seconds":1e3}')).toBeNull();
+    expect(parseRetryHintMs('{"retry_after_ms":1e3}')).toBeNull();
+  });
+
+  it("rejects a malformed number instead of parseFloat-ing a prefix", () => {
+    expect(parseRetryHintMs('{"retry_after_seconds":1.2.3}')).toBeNull();
+    expect(parseRetryHintMs('{"retry_after_seconds":5abc}')).toBeNull();
+  });
+
+  it("still accepts an integer and a decimal", () => {
+    expect(parseRetryHintMs('{"retry_after_seconds":5}')).toBe(5000);
+    expect(parseRetryHintMs('{"retry_after_seconds":2.5}')).toBe(2500);
+  });
+
+  it("falls back to retry_after_seconds_raw when the primary value is not numeric", () => {
+    expect(parseRetryHintMs('{"retry_after_seconds":null,"retry_after_seconds_raw":8}')).toBe(8000);
+    expect(parseRetryHintMs('{"retry_after_seconds":"soon","retry_after_seconds_raw":8}')).toBe(8000);
+  });
+
+  it("reads the retry window through two levels of JSON escaping", () => {
+    // Aggregators nest the upstream body; the class must not depend on depth.
+    const inner = JSON.stringify({ limit_source: "upstream_provider_shared_pool", retry_after_seconds: 5 });
+    const depth2 = JSON.parse(JSON.stringify(JSON.stringify(inner)));
+    expect(parseRetryHintMs(depth2)).toBe(5000);
+    expect(classifyUpstreamFailure(500, depth2).class).toBe(FAILURE_CLASS.sharedPool);
+  });
 });
 
 describe("classifyUpstreamFailure — pooled throttles do not blame the account", () => {
@@ -95,15 +125,23 @@ describe("classifyUpstreamFailure — deterministic failures stop burning candid
   });
 
   it("per-day cap honours the reset instant and keeps rotation (separate accounts, separate days)", () => {
-    const result = classifyUpstreamFailure(500, DAILY_RPD);
+    // The reset instant is generated RELATIVE to now rather than read from the
+    // captured epoch: the fixture's literal 1789948800000 is 2026-09-21T00:00Z, so
+    // an assertion tied to it silently starts measuring the NO-HINT path once that
+    // instant is in the past (which is exactly how this test first passed while
+    // asserting the wrong branch). The escaping shape is covered by the captured
+    // payloads and by the depth tests above, so this case keeps the marker text
+    // and states the window plainly.
+    const resetAt = Date.now() + 3 * 60 * 60 * 1000;
+    const payload = `{"error":{"message":"Rate limit exceeded: limit_rpd/thinkingmachines/inkling/abc. Daily limit reached.","code":429,"metadata":{"headers":{"X-RateLimit-Limit":"5000","X-RateLimit-Reset":"${resetAt}"},"limit_source":"openrouter_shared_capacity"}}}`;
+
+    const result = classifyUpstreamFailure(500, payload);
     expect(result.class).toBe(FAILURE_CLASS.dailyQuota);
     expect(result.rotateUseful).toBe(true);
     expect(result.dailyLimit).toBe(5000);
-    // The wait is derived from the X-RateLimit-Reset instant in the payload
-    // (1789948800000), not from a blind exponential step. The literal epoch is
-    // fixed, so assert the contract: a real future-derived wait, clamped by the
-    // class ceiling. A blind ladder would land far outside this band.
-    expect(result.cooldownMs).toBeGreaterThan(60_000);
+    // Derived from the header (~3h), not from a blind exponential step nor from
+    // the class default (5 min).
+    expect(result.cooldownMs).toBeGreaterThan(2 * 60 * 60 * 1000);
     expect(result.cooldownMs).toBeLessThanOrEqual(
       RATE_LIMIT_POLICY[FAILURE_CLASS.dailyQuota].maxCooldownMs
     );

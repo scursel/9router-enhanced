@@ -413,6 +413,15 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       }
 
       // Check if should fallback to next model
+      //
+      // `applyCooldownOnly` is deliberately not read at this caller. At ACCOUNT
+      // level (auth.js) it means "record the cooldown, do not rotate to a sibling
+      // credential". Here `shouldFallback: false` means the opposite — try the next
+      // MODEL of the combo — which is target-level orchestration about upstreams,
+      // not about credentials, and must not be suppressed by a pooled-throttle
+      // signal: the combo's other members are different upstreams entirely.
+      // The flag is only ever emitted together with `shouldFallback: false`, never
+      // with `true` (invariant documented in checkFallbackError's JSDoc).
       const { shouldFallback, cooldownMs } = checkFallbackError(result.status, errorText);
 
       if (!shouldFallback) {

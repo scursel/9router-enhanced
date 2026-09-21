@@ -125,69 +125,66 @@ const HINT_GRACE_MS = 1000;
 const text = (value) => (typeof value === "string" ? value : value == null ? "" : String(value));
 
 /**
- * Undo JSON escaping so one flat query works at every depth.
+ * Remove JSON escaping so one flat query works at every depth.
  *
  * An aggregator nests the upstream body inside its own, so the same field
- * arrives as `"retry_after_seconds":5` at the top level and as
- * `\"retry_after_seconds\":5` one level down (and `\\\"…\\\"` two levels down).
- * Stripping backslashes collapses those forms into a single spelling, which is
- * what lets the patterns below stay simple and depth-independent. The result is
- * never parsed as JSON — it is only searched — so a partial unescape is safe.
+ * arrives as `"retry_after_seconds":5` at the top level, `\"…\"` one level down
+ * and `\\\"…\\\"` two levels down. Stripping every backslash (not just the pairs
+ * a single pass would fold) collapses all of those into one spelling, which is
+ * what keeps the patterns below depth-independent. The result is never parsed as
+ * JSON — it is only searched — so a partial unescape is safe, and a payload
+ * whose own text contained a literal backslash would only lose that byte.
  */
-function unwrapEscapes(source) {
-  return source.replace(/\\(["\\/])/g, "$1");
+function stripBackslashes(source) {
+  return source.replace(/\\/g, "");
 }
 
-/** Field value for `"name":<number>` in either escaped or plain form. */
-function numberField(source, name) {
-  const pattern = new RegExp(`"${name}"\\s*:\\s*"?([\\d.]+)`, "i");
+/**
+ * Read a numeric JSON field, accepting only a well-formed number.
+ *
+ * The digits must form the WHOLE token: `1e3` (scientific notation, which the
+ * upstream could legitimately use for 1000 seconds) and `1.2.3` (malformed) are
+ * rejected rather than silently truncated to `1`. A wrong-but-plausible window
+ * is worse than no window, because a present hint also freezes the backoff
+ * ladder — so "unreadable" must degrade to the policy default, never to a
+ * smaller number than the upstream asked for.
+ */
+function numericField(source, name) {
+  const pattern = new RegExp(`"${name}"\\s*:\\s*"?\\s*(\\d+(?:\\.\\d+)?)\\s*(["},\\s]|$)`, "i");
   const match = pattern.exec(source);
   if (!match) return null;
   const value = Number.parseFloat(match[1]);
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-/** Field value for `"name":"<string>` in either escaped or plain form. */
+/** Read a string JSON field, tolerating escapes inside the value. */
 function stringField(source, name) {
-  const pattern = new RegExp(`"${name}"\\s*:\\s*"([^"\\\\]*)`, "i");
+  const pattern = new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, "i");
   const match = pattern.exec(source);
-  return match ? match[1] : null;
-}
-
-function firstNumber(source, patterns) {
-  for (const pattern of patterns) {
-    const match = pattern.exec(source);
-    if (!match) continue;
-    const value = Number.parseFloat(match[1]);
-    if (Number.isFinite(value) && value >= 0) return value;
-  }
-  return null;
+  return match ? stripBackslashes(match[1]) : null;
 }
 
 /**
  * Wait the upstream explicitly asked for, in ms.
  *
- * Accepts the three shapes seen in the wild:
+ * Accepts the shapes seen in the wild:
  *  - OpenRouter inside Cline: `"retry_after_seconds":5`
  *  - millisecond variants:    `"retry_after_ms":5000`
  *  - rate-limit headers:      `"X-RateLimit-Reset":"1789948800000"` (epoch ms)
  * The header form is only trusted when it points into the future.
  */
 export function parseRetryHintMs(errorText) {
-  const source = unwrapEscapes(text(errorText));
+  const source = stripBackslashes(text(errorText));
   if (!source) return null;
 
-  const seconds = firstNumber(source, [
-    /"retry[_-]?after[_-]?seconds(?:_raw)?"\s*:\s*"?([\d.]+)/i
-  ]);
+  const seconds = numericField(source, "retry_after_seconds")
+    ?? numericField(source, "retry_after_seconds_raw");
   if (seconds !== null) return Math.round(seconds * 1000);
 
-  const millis = numberField(source, "retry_after_ms");
+  const millis = numericField(source, "retry_after_ms");
   if (millis !== null) return Math.round(millis);
 
-  const resetEpochMs = firstNumber(source, [
-    /"x-ratelimit-reset"\s*:\s*"?(1\d{12})/i
-  ]);
+  const resetEpochMs = numericField(source, "X-RateLimit-Reset");
   if (resetEpochMs !== null) {
     const waitMs = resetEpochMs - Date.now();
     if (waitMs > 0) return waitMs;
@@ -202,7 +199,7 @@ export function parseRetryHintMs(errorText) {
  * Seen as OpenRouter `limit_source` values and in the human-readable hint.
  */
 export function isSharedPoolSignal(errorText) {
-  const source = unwrapEscapes(text(errorText)).toLowerCase();
+  const source = stripBackslashes(text(errorText)).toLowerCase();
   return (
     source.includes("upstream_provider_shared_pool") ||
     source.includes("openrouter_shared_capacity") ||
@@ -245,14 +242,14 @@ const isUnsupportedModelSignal = (source) =>
  *            dailyLimit: number|null, reason: string }}
  */
 export function classifyUpstreamFailure(status, errorText) {
-  const source = unwrapEscapes(text(errorText));
+  const source = stripBackslashes(text(errorText));
   const lower = source.toLowerCase();
   const code = Number.isFinite(Number(status)) ? Number(status) : null;
   const retryHintMs = parseRetryHintMs(source);
 
   const limitSource = stringField(source, "limit_source");
-  const dailyLimit = numberField(source, "X-RateLimit-Limit") ??
-    numberField(source, "daily_limit");
+  const dailyLimit = numericField(source, "X-RateLimit-Limit") ??
+    numericField(source, "daily_limit");
 
   const base = {
     class: FAILURE_CLASS.server,

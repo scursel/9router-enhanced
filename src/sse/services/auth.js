@@ -283,11 +283,14 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
       checkFallbackError(status, errorText, backoffLevel));
   }
   // `applyCooldownOnly`: the failure belongs to a resource every credential
-  // shares (an upstream pool), so rotating accounts cannot help — the caller
-  // must stop the loop and propagate the upstream error — but the wait the
-  // upstream asked for still has to be recorded, otherwise this account keeps
-  // hitting a saturated pool with no pause at all. Skipping the rotation while
-  // keeping the cooldown is the whole point of the distinction.
+  // shares (an upstream pool) or to a model the upstream will not serve at this
+  // tier, so rotating accounts cannot help — the caller must stop the loop and
+  // propagate the upstream error — but the wait the upstream asked for still has
+  // to be recorded, otherwise this account keeps hitting a saturated pool with no
+  // pause at all. Skipping the rotation while keeping the cooldown is the whole
+  // point of the distinction. The flag never arrives together with
+  // `shouldFallback: true` (invariant in checkFallbackError's JSDoc), so the two
+  // returns below stay mutually exclusive.
   if (!shouldFallback && !applyCooldownOnly) return { shouldFallback: false, cooldownMs: 0 };
   if (!(cooldownMs > 0)) return { shouldFallback, cooldownMs: 0 };
 

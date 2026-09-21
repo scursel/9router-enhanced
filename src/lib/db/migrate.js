@@ -3,6 +3,7 @@ import path from "node:path";
 import { LEGACY_FILES, DB_DIR } from "./paths.js";
 import { TABLES, buildCreateTableSql, SCHEMA_VERSION } from "./schema.js";
 import { MIGRATIONS, latestVersion } from "./migrations/index.js";
+import { resetInflatedClineBackoff } from "./migrations/003-reset-inflated-cline-backoff.js";
 import { getMetaSync, setMetaSync } from "./helpers/metaStore.js";
 import { makeBackupDir, backupFile, backupDbLite, pruneOldBackups } from "./backup.js";
 import { getAppVersion } from "./version.js";
@@ -422,6 +423,17 @@ export async function runMigrationOnce(adapter) {
     try { adapter.run(`DELETE FROM _meta WHERE key IN ('importAbortReason','importAbortedAt')`); } catch {}
     pruneOldBackups();
     console.log(`[DB][migrate] JSON → SQLite in ${Date.now() - t0}ms (attempt ${attempts}${lenient ? ", retry" : ""}) | legacy JSON kept at DATA_DIR | backup: ${backupDir}`);
+
+    // Migration 003 ran on the versioned chain BEFORE this import, so it could
+    // not see these rows — and the import writes `backoffLevel` verbatim from the
+    // legacy connection object. Without this second pass the ladder the fix
+    // exists to clear survives the very boot that also stamps version 3, and the
+    // chain never revisits it. Safe to call unconditionally: it is idempotent and
+    // scoped to the Cline providers.
+    const resetCount = resetInflatedClineBackoff(adapter);
+    if (resetCount > 0) {
+      console.log(`[DB][migrate] cleared ${resetCount} inflated Cline backoff ladder(s) imported from legacy JSON`);
+    }
     return;
   }
 

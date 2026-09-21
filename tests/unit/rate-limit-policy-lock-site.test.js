@@ -23,6 +23,74 @@ const SHARED_POOL_500 =
 const DAILY_CAP_500 =
   "[clinepass/thinkingmachines/inkling:free] [500]: {\"error\":\"failed to invoke model 'thinkingmachines/inkling:free' from Openrouter: request failed with status 429: {\\\"error\\\":{\\\"message\\\":\\\"Rate limit exceeded: limit_rpd/thinkingmachines/inkling-20260715/89249263. Daily limit reached for thinkingmachines/inkling:free via Thinking Machines.\\\",\\\"code\\\":429,\\\"metadata\\\":{\\\"headers\\\":{\\\"X-RateLimit-Limit\\\":\\\"5000\\\",\\\"X-RateLimit-Remaining\\\":\\\"0\\\"},\\\"limit_source\\\":\\\"openrouter_shared_capacity\\\"}}}\",\"success\":false}";
 
+// Real capture: the free tier was retired and the upstream points at the paid
+// slug, so asking again — on this credential or any sibling — changes nothing.
+const UNSUPPORTED_FREE_500 =
+  "[clinepass/deepseek/deepseek-v4-flash-0731:free] [500]: {\"error\":\"inference request failed: failed to invoke model 'deepseek/deepseek-v4-flash-0731:free' from Openrouter: request failed with status 404: {\\\"error\\\":{\\\"message\\\":\\\"This model is unavailable for free. The paid version is available now - use this slug instead: deepseek/deepseek-v4-flash-0731\\\",\\\"code\\\":404},\\\"user_id\\\":\\\"org_2ue3sRj4x3tXiJ1Dy2aaiheiHnm\\\"}\",\"success\":false}";
+
+describe("checkFallbackError — every rotation-free class is actually gated", () => {
+  it("a retired free tier does NOT burn the combo (was: fallback + 30s transient)", () => {
+    // Regression: `unsupported_model` was classified and then dropped by the
+    // gate, so the class existed in the policy table but was unreachable — the
+    // single case the class was written to prevent (rotating over a model that
+    // will never serve) kept happening, with a SHORTER cooldown than before.
+    const result = checkFallbackError(500, UNSUPPORTED_FREE_500, 0);
+    expect(result.applyCooldownOnly).toBe(true);
+    expect(result.shouldFallback).toBe(false);
+    expect(result.cooldownMs).toBe(30 * 60 * 1000);
+  });
+
+  it("a pooled throttle and a retired tier are both rotation-free", () => {
+    for (const payload of [SHARED_POOL_500, UNSUPPORTED_FREE_500]) {
+      const result = checkFallbackError(500, payload, 0);
+      expect(result.shouldFallback, payload.slice(0, 40)).toBe(false);
+      expect(result.applyCooldownOnly).toBe(true);
+    }
+  });
+
+  it("applyCooldownOnly never arrives together with shouldFallback: true", () => {
+    // The invariant auth.js and combo.js rely on, asserted across the classes.
+    const payloads = [
+      SHARED_POOL_500,
+      UNSUPPORTED_FREE_500,
+      DAILY_CAP_500,
+      "rate limit exceeded",
+      '{"retry_after_seconds":2}',
+      "Internal Server Error",
+      "context_length_exceeded"
+    ];
+    for (const [status, payload] of [
+      [500, payloads[0]], [500, payloads[1]], [500, payloads[2]],
+      [429, payloads[3]], [429, payloads[4]], [500, payloads[5]], [400, payloads[6]]
+    ]) {
+      const result = checkFallbackError(status, payload, 0);
+      expect(
+        result.shouldFallback && result.applyCooldownOnly,
+        `${status} / ${payload.slice(0, 40)}`
+      ).toBeFalsy();
+    }
+  });
+
+  it("a literal 404 keeps its historical 2-minute per-model lock", () => {
+    // A body marker must not promote a real 404 into the 30-minute
+    // unsupported-model tier: the length of an existing lock is not something a
+    // body marker gets to change.
+    //
+    // Note on discrimination: the pre-fix code reached this same 120000 through
+    // the status rule. What the guard changes is the ROUTE, so assert the route's
+    // fingerprint too — the structured block would have returned
+    // `applyCooldownOnly`, and the policy table would have said 30 minutes.
+    const withMarker = checkFallbackError(404, '{"limit_source":"upstream_provider_shared_pool"}', 0);
+    expect(withMarker).toEqual({ shouldFallback: true, cooldownMs: 120000 });
+    expect(withMarker.applyCooldownOnly).toBeUndefined();
+
+    expect(checkFallbackError(404, "The model `gpt-9` does not exist", 0)).toEqual({
+      shouldFallback: true,
+      cooldownMs: 120000
+    });
+  });
+});
+
 describe("checkFallbackError — a pooled throttle is settled from the upstream's own numbers", () => {
   it("uses the 5s upstream window instead of the 5-minute ladder ceiling", () => {
     // backoffLevel 9 is the observed worst case on the user's accounts; the old
@@ -117,5 +185,24 @@ describe("markAccountUnavailable — pooled throttle stops rotation but still re
   it("a daily credential cap still rotates through the other accounts", async () => {
     const tried = await simulateComboLoop(500, DAILY_CAP_500, "thinkingmachines/inkling:free");
     expect(tried).toBe(ACCOUNTS.length);
+    // Discriminating assertion: rotating is only useful if each credential gets
+    // its own bounded cooldown written. A loop that "rotated" without recording
+    // anything would satisfy the count above and hammer the upstream.
+    expect(dbMocks.updateProviderConnection).toHaveBeenCalledTimes(ACCOUNTS.length);
+    for (const [, update] of dbMocks.updateProviderConnection.mock.calls) {
+      const lockUntil = new Date(update[Object.keys(update).find((k) => k.startsWith("modelLock_"))]).getTime();
+      expect(lockUntil).toBeGreaterThan(Date.now());
+    }
+  });
+
+  it("a retired free tier does not walk the combo at all", async () => {
+    const tried = await simulateComboLoop(500, UNSUPPORTED_FREE_500, "deepseek/deepseek-v4-flash-0731:free");
+    expect(tried).toBe(1);
+    expect(dbMocks.updateProviderConnection).toHaveBeenCalledTimes(1);
+    const [, update] = dbMocks.updateProviderConnection.mock.calls[0];
+    const lockKey = Object.keys(update).find((k) => k.startsWith("modelLock_"));
+    const lockUntilMs = new Date(update[lockKey]).getTime() - Date.now();
+    // The 30-minute tier, not the 30-second transient default.
+    expect(lockUntilMs).toBeGreaterThan(29 * 60 * 1000);
   });
 });

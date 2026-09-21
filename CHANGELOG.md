@@ -4,7 +4,58 @@
 - **Rate-limit policy**: a message-text heuristic ("does the body mention a rate limit?") priced every upstream throttle with the exponential ladder, capped at 5 minutes. Aggregators re-wrap the upstream 429 inside their own 500, so an ordinary congestion spike walked credentials up that ladder — observed live on the Cline accounts at `backoffLevel=15` (one failure away from the 5-minute tier) for an upstream that had asked for `retry_after_seconds: 5`. The new `open-sse/services/rateLimitPolicy.js` classifies the failure from the upstream's own signals and settles it from the upstream's own numbers: a **shared pool** (`limit_source: upstream_provider_shared_pool` / `…shared_capacity`) is bounded by the retry window it advertised (ceiling 60s) and no longer escalates or consumes sibling credentials — every credential shares the pool, so rotating only delayed the honest error; a **daily cap** (`limit_rpd`, `X-RateLimit-Reset`) waits for the reset the upstream states (ceiling 6h) and still rotates, because separate accounts own separate days.
 - **`applyCooldownOnly`**: the account loop learns the difference between "do not rotate" and "do not wait". A pooled throttle stops the rotation — no sibling credential can clear a shared pool — while still recording the wait, so the account is paused for the window instead of hammering a saturated pool with no cooldown at all.
 - **Migration 003** (`reset-inflated-cline-backoff`): clears the ladder the old heuristic already accumulated on the Cline connections. Version-gated, so a database that already recorded version 3 needs the same reset applied by hand.
-- **Tests**: `tests/unit/rate-limit-policy.test.js` (classification, driven by error payloads captured live from Cline → OpenRouter), `tests/unit/rate-limit-policy-lock-site.test.js` (the real `markAccountUnavailable` call site: 1 attempt instead of 3, ~6s lock instead of 300s), `tests/unit/migration-003-reset-inflated-backoff.test.js`. Verified against a pristine `HEAD` worktree: 39 failures before, 39 after, none new.
+- **Tests**: `tests/unit/rate-limit-policy.test.js` (classification, driven by error payloads captured live from Cline → OpenRouter), `tests/unit/rate-limit-policy-lock-site.test.js` (the real `markAccountUnavailable` call site: 1 attempt instead of 3, ~6s lock instead of 300s), `tests/unit/migration-003-reset-inflated-backoff.test.js`, `tests/unit/migration-003-post-import-ordering.test.js`. Verified against a pristine `HEAD` worktree: 39 failures before, 39 after, none new.
+
+## Follow-up from an independent adversarial audit
+
+An external review of the commit above found six defects, all fixed here. The two
+that mattered were invisible to the original tests, which is the interesting part:
+
+- **`unsupported_model` was classified and then discarded.** It was in the policy
+  table but in neither gate flag, so it fell through to the text rules: the
+  "free tier retired" case still walked every credential of the combo and got a
+  30-second transient cooldown instead of its 30-minute tier. The class was
+  unreachable from `checkFallbackError` — and the tests only exercised
+  `classifyUpstreamFailure` for it, so the policy looked tested while the gate
+  was not. Rotation-free classes now live in one named set
+  (`ROTATION_FREE_CLASSES`) so a class that is classified but never gated cannot
+  pass silently again, and the invariant "`applyCooldownOnly` never accompanies
+  `shouldFallback: true`" is asserted across all classes.
+- **Migration 003 never ran where it was needed.** `migrate.js` runs the versioned
+  chain BEFORE the legacy `db.json` import, and that import copies `backoffLevel`
+  verbatim into the `data` column — so a JSON-origin database got its inflated
+  ladder after the chain had run, on a boot that had already stamped version 3.
+  The reset is now exported as `resetInflatedClineBackoff()` and called again
+  after a successful import; the UPDATE is wrapped so a disk error cannot abort
+  the boot (`driver.js` re-throws anything escaping a migration).
+- **A literal 404 with a pool marker lost its historical lock.** The structured
+  block preempted the 404 status rule, turning a 2-minute per-model lock into the
+  30-minute tier and stopping rotation. A `code === 404` guard now runs ahead of
+  the structured block: the length of an existing lock is not something a body
+  marker gets to change.
+- **Numeric parsing accepted malformed values.** `[\d.]+` + `parseFloat` read
+  `1e3` as `1` (→ 1000ms instead of 1000000ms) and `1.2.3` as `1.2`. A
+  wrong-but-plausible window is worse than no window, because a present hint also
+  freezes the ladder; the reader now requires the digits to form the whole token
+  and degrades to the policy default otherwise, with `retry_after_seconds_raw` as
+  a fallback when the primary value is not numeric.
+- **`limitSource` and the escape fold were fragile.** `stringField` stopped at the
+  first backslash, so it returned `null` from the second escaping level down; the
+  fold now strips every backslash, which makes every query depth-independent. A
+  depth-2 regression test pins it.
+- **Docs and dead code**: a comment claiming every rotation-free class "carries an
+  explicit upstream window" contradicted the class defaults (and the author's own
+  test, which used the no-window path), `AFFECTED_PROVIDERS` duplicated the SQL
+  predicate, and `combo.js` now documents why it deliberately ignores
+  `applyCooldownOnly` (there, `shouldFallback: false` means "try the next MODEL",
+  which is upstream orchestration, not credential rotation).
+
+Ablation against the pre-fix tree confirmed which assertions actually discriminate:
+the pooled-throttle and retired-tier cases fail before the fix, the retry-window
+reader returns `1000`/`1200`/`5000` where it must return `null`, and two original
+assertions were replaced because the pre-fix code reached an identical result by a
+different route (a 404 that never matched a rate-limit marker, and a loop count
+that did not check whether anything was actually recorded).
 
 # v0.5.81-enhanced.3 (2026-09-20 — Alibaba Token Plan quota meter)
 

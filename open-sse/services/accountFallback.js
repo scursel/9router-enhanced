@@ -36,6 +36,19 @@ const AUTH_ERROR_STATUSES = new Set(
 );
 
 /**
+ * Failure classes whose policy forbids rotation: the condition is identical for
+ * every credential, so walking the combo only delays the honest error. Kept next
+ * to the status sets rather than inline so adding a class to the policy table
+ * forces a conscious decision here (a class that is classified but never gated
+ * is unreachable — exactly the bug this list fixes for `unsupported_model`).
+ */
+const ROTATION_FREE_CLASSES = new Set([
+  FAILURE_CLASS.sharedPool,
+  FAILURE_CLASS.dailyQuota,
+  FAILURE_CLASS.unsupportedModel
+]);
+
+/**
  * Calculate exponential backoff cooldown for rate limits (429)
  * Level 1: 1s, Level 2: 2s, Level 3: 4s... → max 4 min
  * @param {number} backoffLevel - Current backoff level
@@ -69,7 +82,10 @@ export function getQuotaCooldown(backoffLevel = 0) {
  * @returns {{ shouldFallback: boolean, cooldownMs: number, newBackoffLevel?: number,
  *            applyCooldownOnly?: boolean }} `applyCooldownOnly` asks the caller to
  *   record the cooldown without rotating to another account: the failure was not
- *   this credential's fault and every sibling would answer identically.
+ *   this credential's fault and every sibling would answer identically. INVARIANT:
+ *   it is never emitted together with `shouldFallback: true` — a cooldown-only
+ *   answer stops the loop AND waits, and a caller that read the flag as
+ *   "rotate anyway" would do the worst of both (rotate and lock).
  */
 export function checkFallbackError(status, errorText, backoffLevel = 0) {
   // Request-caused error: propagate immediately, no account fallback, no lock.
@@ -78,6 +94,15 @@ export function checkFallbackError(status, errorText, backoffLevel = 0) {
   const code = Number.isFinite(Number(status)) ? Number(status) : null;
   if (code !== null && AUTH_ERROR_STATUSES.has(code)) {
     return { shouldFallback: false, cooldownMs: 0 };
+  }
+
+  // A literal 404 keeps its historical answer (fallback + per-model 2-minute
+  // lock) ahead of the structured block. "Model missing on this account" is
+  // account/model state, and a body that also carries a pool marker must not
+  // silently promote it to the 30-minute unsupported-model tier — the length of
+  // an existing lock is not something a body marker gets to change.
+  if (code === 404) {
+    return { shouldFallback: true, cooldownMs: 2 * 60 * 1000 };
   }
 
   const lowerError = errorText
@@ -97,7 +122,7 @@ export function checkFallbackError(status, errorText, backoffLevel = 0) {
   // The rules loop answers "does the message mention a rate limit?" and pays for
   // it with the exponential ladder (up to BACKOFF_CONFIG.max = 5 min). That is
   // the right answer for a credential's own throttle and the wrong one for the
-  // two classes an aggregator makes unambiguous:
+  // classes an aggregator makes unambiguous:
   //
   //   • shared_pool — the cap belongs to a pool every credential shares, so the
   //     text heuristic matched and escalated for a condition no retry could
@@ -105,17 +130,20 @@ export function checkFallbackError(status, errorText, backoffLevel = 0) {
   //     300s, and rotating burned every candidate.
   //   • daily_quota — the upstream states the exact instant the window reopens;
   //     waiting longer than advertised is pure downtime.
+  //   • unsupported_model — the upstream states the model will not serve this
+  //     tier at all, so rotation is pure waste.
   //
-  // Both carry an explicit upstream window, so they are classified and settled
-  // here from the upstream's own numbers instead of a blind ladder.
+  // When one of these carries an upstream window the cooldown is settled from
+  // that number; when it does not, the class default (rateLimitPolicy.js) is
+  // used rather than the undifferentiated transient cooldown.
   const failure = classifyUpstreamFailure(code, errorText);
   const isRateLimitClass =
     failure.class === FAILURE_CLASS.accountRateLimit ||
     failure.class === FAILURE_CLASS.dailyQuota;
   const hintDerived =
     (isRateLimitClass || failure.class === FAILURE_CLASS.sharedPool) && failure.retryHintMs !== null;
-  const structuredStandalone =
-    failure.class === FAILURE_CLASS.sharedPool || failure.class === FAILURE_CLASS.dailyQuota;
+  // Classes whose whole point is to skip rotation, with or without a window.
+  const structuredStandalone = ROTATION_FREE_CLASSES.has(failure.class);
 
   if (structuredStandalone || hintDerived) {
     const policy = getPolicyFor(failure.class);

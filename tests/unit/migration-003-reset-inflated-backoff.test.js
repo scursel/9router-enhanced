@@ -6,14 +6,24 @@
 // at the 5-minute tier.
 import { describe, expect, it, vi } from "vitest";
 
-import migration from "../../src/lib/db/migrations/003-reset-inflated-cline-backoff.js";
+import migration, {
+  resetInflatedClineBackoff
+} from "../../src/lib/db/migrations/003-reset-inflated-cline-backoff.js";
 
-/** Minimal adapter surface the migration uses (matches src/lib/db/migrate.js). */
+/**
+ * Minimal adapter surface the migration uses (matches src/lib/db/migrate.js).
+ * Honours the `provider IN (?, ?)` binding like a real engine: a double that
+ * returns every row regardless of the WHERE clause cannot prove the provider
+ * scoping, and would let a broken predicate pass.
+ */
 function fakeDb(rows) {
   const updates = [];
   return {
     updates,
-    all: vi.fn(() => rows),
+    all: vi.fn((sql, params = []) => {
+      const wanted = new Set(params);
+      return rows.filter((r) => wanted.size === 0 || wanted.has(r.provider));
+    }),
     run: vi.fn((sql, params) => updates.push({ sql, params }))
   };
 }
@@ -118,10 +128,12 @@ describe("migration 003 — reset inflated Cline backoff ladders", () => {
     expect(db.updates).toHaveLength(0);
   });
 
-  it("scopes the SELECT to the two Cline providers", () => {
+  it("scopes the SELECT to the Cline providers via bound params", () => {
     const db = fakeDb([]);
     migration.up(db);
-    expect(db.all.mock.calls[0][0]).toContain("provider IN ('cline', 'clinepass')");
+    const [sql, params] = db.all.mock.calls[0];
+    expect(sql).toContain("provider IN (?, ?)");
+    expect(params).toEqual(["cline", "clinepass"]);
   });
 
   it("is a no-op on a legacy DB with no connection table yet (never fails the boot)", () => {
@@ -153,5 +165,73 @@ describe("migration 003 — reset inflated Cline backoff ladders", () => {
     const second = fakeDb([{ id: "acc-1", provider: "clinepass", data: JSON.stringify(resetState) }]);
     migration.up(second);
     expect(second.updates).toHaveLength(0);
+  });
+
+  it("a failing UPDATE does not abort the boot (driver.js re-throws escapes)", () => {
+    // The whole point of the second pass in migrate.js is a schema-fix; a disk
+    // error must leave one row inflated, never take the process down.
+    const db = {
+      all: vi.fn(() => [row("acc-1", "clinepass", { backoffLevel: 15 })]),
+      run: vi.fn(() => {
+        throw new Error("simulated disk I/O error on UPDATE");
+      })
+    };
+    expect(() => migration.up(db)).not.toThrow();
+    expect(db.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports how many connections it reset, so migrate.js can log it", () => {
+    const db = fakeDb([
+      row("acc-1", "clinepass", { backoffLevel: 15 }),
+      row("acc-2", "clinepass", { backoffLevel: 2 })
+    ]);
+    expect(resetInflatedClineBackoff(db)).toBe(1);
+  });
+});
+
+// ── The adapter contract, against a real SQLite engine ──────────────────────
+// fakeDb cannot prove `all(sql, params)` / `run(sql, params)` work on the real
+// adapter surface the versioned chain uses, and a silent mismatch there would
+// make the reset quietly do nothing (the SELECT is inside a try/catch).
+describe("migration 003 — real adapter (node:sqlite)", () => {
+  it("resets the ladder, preserves sibling fields, and is idempotent", async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(":memory:");
+    const adapter = {
+      all: (sql, params = []) => db.prepare(sql).all(...params),
+      run: (sql, params = []) => db.prepare(sql).run(...params),
+      exec: (sql) => db.exec(sql)
+    };
+
+    adapter.exec(
+      "CREATE TABLE providerConnections (id TEXT PRIMARY KEY, provider TEXT NOT NULL, data TEXT NOT NULL)"
+    );
+    adapter.run("INSERT INTO providerConnections(id, provider, data) VALUES(?, ?, ?)", [
+      "acc-1",
+      "clinepass",
+      JSON.stringify({ backoffLevel: 15, email: "scursel@gmail.com", modelLock_old: STALE })
+    ]);
+    adapter.run("INSERT INTO providerConnections(id, provider, data) VALUES(?, ?, ?)", [
+      "acc-2",
+      "dahl",
+      JSON.stringify({ backoffLevel: 15 })
+    ]);
+
+    expect(resetInflatedClineBackoff(adapter)).toBe(1);
+
+    const row1 = JSON.parse(
+      adapter.all("SELECT data FROM providerConnections WHERE id = ?", ["acc-1"])[0].data
+    );
+    const row2 = JSON.parse(
+      adapter.all("SELECT data FROM providerConnections WHERE id = ?", ["acc-2"])[0].data
+    );
+    expect(row1.backoffLevel).toBe(0);
+    expect(row1.email).toBe("scursel@gmail.com");
+    expect(row1.modelLock_old).toBe(STALE);
+    expect(row2.backoffLevel).toBe(15);
+
+    // Second pass: nothing left to do.
+    expect(resetInflatedClineBackoff(adapter)).toBe(0);
+    db.close();
   });
 });
