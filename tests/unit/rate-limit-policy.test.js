@@ -18,6 +18,7 @@ import {
   getPolicyFor,
   parseRetryHintMs
 } from "../../open-sse/services/rateLimitPolicy.js";
+import { STRUCTURED_CLASSES } from "../../open-sse/services/accountFallback.js";
 
 // ── Captured wire payloads ──────────────────────────────────────────────────
 // Shared-pool saturation: upstream asked for 5s.
@@ -59,14 +60,21 @@ describe("parseRetryHintMs — reads the upstream's own retry window", () => {
 
   // A wrong-but-plausible window is worse than no window: a present hint also
   // freezes the backoff ladder, so a misread value silently under-waits.
-  it("rejects scientific notation instead of truncating it to a smaller number", () => {
-    expect(parseRetryHintMs('{"retry_after_seconds":1e3}')).toBeNull();
-    expect(parseRetryHintMs('{"retry_after_ms":1e3}')).toBeNull();
+  it("reads scientific notation as the JSON number it is", () => {
+    // `1e3` is valid JSON for 1000 seconds. Rejecting it would degrade to the
+    // ladder exactly when the upstream uses that format; truncating it to `1`
+    // (the pre-fix behaviour) under-waits by three orders of magnitude.
+    expect(parseRetryHintMs('{"retry_after_seconds":1e3}')).toBe(1_000_000);
+    expect(parseRetryHintMs('{"retry_after_seconds":1E3}')).toBe(1_000_000);
+    expect(parseRetryHintMs('{"retry_after_seconds":5e2}')).toBe(500_000);
+    expect(parseRetryHintMs('{"retry_after_ms":1e3}')).toBe(1000);
   });
 
   it("rejects a malformed number instead of parseFloat-ing a prefix", () => {
     expect(parseRetryHintMs('{"retry_after_seconds":1.2.3}')).toBeNull();
     expect(parseRetryHintMs('{"retry_after_seconds":5abc}')).toBeNull();
+    expect(parseRetryHintMs('{"retry_after_seconds":-5}')).toBeNull();
+    expect(parseRetryHintMs('{"retry_after_seconds":1e400}')).toBeNull();
   });
 
   it("still accepts an integer and a decimal", () => {
@@ -85,6 +93,31 @@ describe("parseRetryHintMs — reads the upstream's own retry window", () => {
     const depth2 = JSON.parse(JSON.stringify(JSON.stringify(inner)));
     expect(parseRetryHintMs(depth2)).toBe(5000);
     expect(classifyUpstreamFailure(500, depth2).class).toBe(FAILURE_CLASS.sharedPool);
+  });
+
+  // Regression: the first version of the depth fix removed EVERY backslash, which
+  // joins its neighbours — `C:\share\d_pool` collapsed to `C:shared_pool` and a
+  // generic 500 was classified as a saturated pool, stopping credential rotation
+  // for a condition that did not exist. Only escape SEQUENCES may be folded.
+  it("never invents a marker by folding a lone backslash", () => {
+    const windowsPath = String.raw`{"error":{"message":"scan the log dir C:\\share\\d_pool for details","code":500}}`;
+    expect(windowsPath).not.toContain("shared_pool");
+    expect(classifyUpstreamFailure(500, windowsPath).class).not.toBe(FAILURE_CLASS.sharedPool);
+
+    const singleBackslash = String.raw`{"error":{"message":"path C:\share\d_pool is unwritable","code":500}}`;
+    expect(singleBackslash).not.toContain("shared_pool");
+    expect(classifyUpstreamFailure(500, singleBackslash).class).not.toBe(FAILURE_CLASS.sharedPool);
+
+    const splitWord = String.raw`{"error":{"message":"model unavailabl\\e for free today","code":500}}`;
+    expect(splitWord).not.toContain("unavailable for free");
+    expect(classifyUpstreamFailure(500, splitWord).class).not.toBe(FAILURE_CLASS.unsupportedModel);
+  });
+
+  it("still finds a REAL marker that is genuinely escaped", () => {
+    // The fold must keep working where it matters, or the fix above would just be
+    // a different way of not detecting anything.
+    const escaped = String.raw`{"error":{"message":"pool saturated","limit_source":"upstream_provider_shared_pool"}}`;
+    expect(classifyUpstreamFailure(500, escaped).class).toBe(FAILURE_CLASS.sharedPool);
   });
 });
 
@@ -198,5 +231,34 @@ describe("policy table is total", () => {
 
   it("an unknown class degrades to the transient policy instead of throwing", () => {
     expect(getPolicyFor("no_such_class")).toBe(RATE_LIMIT_POLICY[FAILURE_CLASS.server]);
+  });
+});
+
+// ── The gate is complete by test, not by comment ─────────────────────────────
+// `unsupported_model` shipped classified-but-ungated: it was in the policy table,
+// in neither gate flag, and the tests only exercised the classifier. These two
+// assertions turn the "conscious decision" that the comment asks for into a check
+// that fails on a recurrence.
+describe("STRUCTURED_CLASSES — every structured class is actually reachable", () => {
+  it("every rotation-free class is gated, or answered by an early guard", () => {
+    // `auth` and `request` are settled BEFORE the structured block (the RH2 gates
+    // and the token-refresh flow own them), so they are legitimately absent.
+    const answeredEarly = new Set([FAILURE_CLASS.auth, FAILURE_CLASS.request]);
+    for (const [name, policy] of Object.entries(RATE_LIMIT_POLICY)) {
+      if (policy.rotateUseful) continue;
+      if (answeredEarly.has(name)) continue;
+      expect(STRUCTURED_CLASSES.has(name), `${name} must be reachable through the gate`).toBe(true);
+    }
+  });
+
+  it("holds no class without a policy row", () => {
+    for (const name of STRUCTURED_CLASSES) {
+      expect(RATE_LIMIT_POLICY[name], `${name} has no policy row`).toBeTruthy();
+    }
+  });
+
+  it("keeps daily_quota rotatable while gated (the two are independent)", () => {
+    expect(STRUCTURED_CLASSES.has(FAILURE_CLASS.dailyQuota)).toBe(true);
+    expect(RATE_LIMIT_POLICY[FAILURE_CLASS.dailyQuota].rotateUseful).toBe(true);
   });
 });

@@ -37,7 +37,12 @@
  *
  * - unsupported_model  upstream says this model will not serve this account,
  *                      and asking again will not change that (free tier retired,
- *                      model gated, permanent 404). Rotating accounts is useless.
+ *                      model gated). Rotating accounts is useless.
+ *                      A LITERAL 404 does not land here: `checkFallbackError`
+ *                      answers that status with its historical per-model lock
+ *                      before consulting this table. What reaches this class is
+ *                      the same condition reported inside a 200/500 wrapper,
+ *                      where the status alone says nothing.
  * - daily_quota        a per-day cap belonging to the credential (`limit_rpd`),
  *                      or an explicit reset timestamp. Wait until the reset.
  * - shared_pool        capacity owned by a pool shared across all users of the
@@ -125,35 +130,50 @@ const HINT_GRACE_MS = 1000;
 const text = (value) => (typeof value === "string" ? value : value == null ? "" : String(value));
 
 /**
- * Remove JSON escaping so one flat query works at every depth.
+ * Fold JSON escaping until it stops changing, so one flat query works at any
+ * nesting depth — without inventing text that was never there.
  *
- * An aggregator nests the upstream body inside its own, so the same field
- * arrives as `"retry_after_seconds":5` at the top level, `\"…\"` one level down
- * and `\\\"…\\\"` two levels down. Stripping every backslash (not just the pairs
- * a single pass would fold) collapses all of those into one spelling, which is
- * what keeps the patterns below depth-independent. The result is never parsed as
- * JSON — it is only searched — so a partial unescape is safe, and a payload
- * whose own text contained a literal backslash would only lose that byte.
+ * An aggregator nests the upstream body inside its own: the same field arrives as
+ * `"limit_source":"x"` at the top level, `\"limit_source\":\"x\"` one level down,
+ * and deeper after that. Only escape SEQUENCES are folded (`\"`, `\\`, `\/`) —
+ * never a lone backslash — because removing every backslash JOINS its neighbours:
+ * a 500 whose message read `C:\share\d_pool` would become `C:shared_pool`, match
+ * the shared-pool marker, and stop credential rotation for a condition that does
+ * not exist. (Observed and fixed; the false positive is pinned by test.)
+ *
+ * The result is still never parsed as JSON, only searched, so an imperfect fold
+ * is safe — it can only fail to find a marker, never manufacture one.
  */
-function stripBackslashes(source) {
-  return source.replace(/\\/g, "");
+function unfoldEscapes(source) {
+  let current = source;
+  // Nesting depth is small in practice (one level per wrapper); the cap only
+  // stops a pathological input from spinning.
+  for (let pass = 0; pass < 8; pass += 1) {
+    const next = current.replace(/\\(["\\/])/g, "$1");
+    if (next === current) break;
+    current = next;
+  }
+  return current;
 }
 
 /**
  * Read a numeric JSON field, accepting only a well-formed number.
  *
- * The digits must form the WHOLE token: `1e3` (scientific notation, which the
- * upstream could legitimately use for 1000 seconds) and `1.2.3` (malformed) are
- * rejected rather than silently truncated to `1`. A wrong-but-plausible window
- * is worse than no window, because a present hint also freezes the backoff
- * ladder — so "unreadable" must degrade to the policy default, never to a
- * smaller number than the upstream asked for.
+ * The digits must form the WHOLE token, and the token must be a NUMBER JSON
+ * could carry: `1e3` is a valid JSON number (1000 seconds) and is read as such,
+ * while `1.2.3` and `5abc` are rejected rather than silently truncated to `1`.
+ * A wrong-but-plausible window is worse than no window, because a present hint
+ * also freezes the backoff ladder — so "unreadable" must degrade to the policy
+ * default, never to a smaller number than the upstream asked for.
  */
 function numericField(source, name) {
-  const pattern = new RegExp(`"${name}"\\s*:\\s*"?\\s*(\\d+(?:\\.\\d+)?)\\s*(["},\\s]|$)`, "i");
+  const pattern = new RegExp(
+    `"${name}"\\s*:\\s*"?\\s*(\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)\\s*(["},\\s]|$)`,
+    "i"
+  );
   const match = pattern.exec(source);
   if (!match) return null;
-  const value = Number.parseFloat(match[1]);
+  const value = Number(match[1]);
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
@@ -161,7 +181,7 @@ function numericField(source, name) {
 function stringField(source, name) {
   const pattern = new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, "i");
   const match = pattern.exec(source);
-  return match ? stripBackslashes(match[1]) : null;
+  return match ? unfoldEscapes(match[1]) : null;
 }
 
 /**
@@ -174,7 +194,7 @@ function stringField(source, name) {
  * The header form is only trusted when it points into the future.
  */
 export function parseRetryHintMs(errorText) {
-  const source = stripBackslashes(text(errorText));
+  const source = unfoldEscapes(text(errorText));
   if (!source) return null;
 
   const seconds = numericField(source, "retry_after_seconds")
@@ -199,7 +219,7 @@ export function parseRetryHintMs(errorText) {
  * Seen as OpenRouter `limit_source` values and in the human-readable hint.
  */
 export function isSharedPoolSignal(errorText) {
-  const source = stripBackslashes(text(errorText)).toLowerCase();
+  const source = unfoldEscapes(text(errorText)).toLowerCase();
   return (
     source.includes("upstream_provider_shared_pool") ||
     source.includes("openrouter_shared_capacity") ||
@@ -242,7 +262,7 @@ const isUnsupportedModelSignal = (source) =>
  *            dailyLimit: number|null, reason: string }}
  */
 export function classifyUpstreamFailure(status, errorText) {
-  const source = stripBackslashes(text(errorText));
+  const source = unfoldEscapes(text(errorText));
   const lower = source.toLowerCase();
   const code = Number.isFinite(Number(status)) ? Number(status) : null;
   const retryHintMs = parseRetryHintMs(source);

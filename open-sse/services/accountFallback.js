@@ -36,13 +36,17 @@ const AUTH_ERROR_STATUSES = new Set(
 );
 
 /**
- * Failure classes whose policy forbids rotation: the condition is identical for
- * every credential, so walking the combo only delays the honest error. Kept next
- * to the status sets rather than inline so adding a class to the policy table
- * forces a conscious decision here (a class that is classified but never gated
- * is unreachable — exactly the bug this list fixes for `unsupported_model`).
+ * Failure classes whose cooldown and escalation are settled by the policy table
+ * instead of by the text rules below. Membership is about WHERE the answer comes
+ * from, not about the answer: `shared_pool` and `unsupported_model` are gated
+ * here and stop rotation, while `daily_quota` is gated here and still rotates —
+ * its policy row owns the decision either way.
+ *
+ * Kept next to the status sets, and asserted complete by test, so a class that
+ * is classified but never gated cannot pass silently: that was the `unsupported_model`
+ * bug, where the class existed in the policy table but no flag let it through.
  */
-const ROTATION_FREE_CLASSES = new Set([
+export const STRUCTURED_CLASSES = new Set([
   FAILURE_CLASS.sharedPool,
   FAILURE_CLASS.dailyQuota,
   FAILURE_CLASS.unsupportedModel
@@ -142,8 +146,8 @@ export function checkFallbackError(status, errorText, backoffLevel = 0) {
     failure.class === FAILURE_CLASS.dailyQuota;
   const hintDerived =
     (isRateLimitClass || failure.class === FAILURE_CLASS.sharedPool) && failure.retryHintMs !== null;
-  // Classes whose whole point is to skip rotation, with or without a window.
-  const structuredStandalone = ROTATION_FREE_CLASSES.has(failure.class);
+  // Classes the policy table settles itself, with or without an upstream window.
+  const structuredStandalone = STRUCTURED_CLASSES.has(failure.class);
 
   if (structuredStandalone || hintDerived) {
     const policy = getPolicyFor(failure.class);

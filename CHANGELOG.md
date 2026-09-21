@@ -57,6 +57,39 @@ assertions were replaced because the pre-fix code reached an identical result by
 different route (a 404 that never matched a rate-limit marker, and a loop count
 that did not check whether anything was actually recorded).
 
+## Second audit round
+
+That second reviewer cleared D1–D6 by execution (351-combination fuzz of the
+`applyCooldownOnly` invariant with zero violations, the full suite 1:1 against the
+baseline, and the new assertions proven to fail on the intermediate tree) and found
+two defects introduced by the D5 fix itself:
+
+- **The escape fold was too aggressive.** Removing *every* backslash joins its
+  neighbours: a generic 500 whose message contained `C:\share\d_pool` collapsed to
+  `C:shared_pool`, matched the shared-pool marker, and stopped credential rotation
+  for a pool that does not exist (`unavailabl\e for free` reaching the 30-minute
+  retired-tier lock is the same mechanism). `unfoldEscapes` now folds only escape
+  *sequences* (`\"`, `\\`, `\/`) to a fixed point — the previous single pass missed
+  depth 2, removing all backslashes invented text, and folding sequences repeatedly
+  covers depth 0–3 without either failure. A side effect: `limitSource` now reads
+  correctly at depth 3 as well.
+- **The gate set was misnamed and mis-described.** `ROTATION_FREE_CLASSES` also
+  contained `daily_quota`, which by policy *must* rotate — the name and the
+  comments around it claimed otherwise. It is now `STRUCTURED_CLASSES` ("the answer
+  comes from the policy table, not the text rules"), and the relationship is
+  asserted instead of asserted-in-prose: a new test fails if any class with
+  `rotateUseful: false` is missing from the set (the exact shape of the original
+  `unsupported_model` bug), and another pins that `daily_quota` stays rotatable
+  while gated.
+
+Two further findings were pinned as deliberate decisions rather than left implicit:
+a literal 404's status guard wins over a body that claims a daily cap (historical
+2-minute lock, rotation kept), while a 403 — which is not an auth status — lets an
+explicit pool marker win over the blind status rule. And `1e3` is now read as the
+valid JSON number it is (1000 s) instead of being rejected: refusing a readable
+window would degrade to the exponential ladder exactly when the upstream uses that
+format.
+
 # v0.5.81-enhanced.3 (2026-09-20 — Alibaba Token Plan quota meter)
 
 ## Fixes

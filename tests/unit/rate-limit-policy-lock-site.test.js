@@ -71,6 +71,43 @@ describe("checkFallbackError — every rotation-free class is actually gated", (
     }
   });
 
+  it("a generic 500 carrying backslash paths does not stop rotation", () => {
+    // Consequence of the false-positive class: misclassifying a plain server error
+    // as a saturated pool silences rotation for every credential of the combo.
+    const windowsPath = String.raw`{"error":{"message":"scan the log dir C:\\share\\d_pool for details","code":500}}`;
+    const result = checkFallbackError(500, windowsPath, 0);
+    expect(result.applyCooldownOnly).toBeUndefined();
+    expect(result.shouldFallback).toBe(true);
+  });
+
+  it("deliberate precedence: the status guard wins for a literal 404, the body wins for 403", () => {
+    // Both are decisions, not accidents, and an audit asked for them to be pinned.
+
+    // 404: the guard answers first, so a body that also claims a daily cap still
+    // gets the historical 2-minute per-model lock WITH rotation. A retired slug is
+    // more often "this account's tier" than a global daily cap.
+    expect(checkFallbackError(404, '{"error":{"message":"limit_rpd reached"}}', 0)).toEqual({
+      shouldFallback: true,
+      cooldownMs: 120000
+    });
+
+    // 403: NOT in AUTH_ERROR_STATUSES (that is 401 only) and not a request-shaped
+    // status, so it reaches the structured block and the explicit body marker wins
+    // over the blind 2-minute status rule: a bounded wait, no rotation.
+    const forbidden = checkFallbackError(
+      403,
+      '{"error":{"message":"pool saturated","limit_source":"upstream_provider_shared_pool"}}',
+      0
+    );
+    expect(forbidden.applyCooldownOnly).toBe(true);
+    expect(forbidden.cooldownMs).toBe(30_000);
+
+    // ...while a bare 403 keeps the historical answer.
+    const bare = checkFallbackError(403, "nope", 0);
+    expect(bare.shouldFallback).toBe(true);
+    expect(bare.applyCooldownOnly).toBeUndefined();
+  });
+
   it("a literal 404 keeps its historical 2-minute per-model lock", () => {
     // A body marker must not promote a real 404 into the 30-minute
     // unsupported-model tier: the length of an existing lock is not something a
