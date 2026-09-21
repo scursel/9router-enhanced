@@ -116,12 +116,20 @@ describe("commandcode-to-openai — finish", () => {
 });
 
 describe("commandcode-to-openai — error event", () => {
-  it("stringifies object errors so client sees readable message", () => {
-    const { chunks } = feed([
-      { type: "error", error: { type: "server_error", message: "Boom" } },
-    ]);
-    const text = chunks[0].choices[0].delta.content;
-    expect(text).toContain("Boom");
-    expect(text).not.toContain("[object Object]");
+  it("throws with a readable message, stringifying object errors", () => {
+    // Since 13b468b8/092c84ea a mid-stream error event throws instead of being
+    // emitted as fake content; the object→string readability guarantee moved
+    // into the thrown Error.message (commandcode-to-openai.js error case).
+    let caught;
+    try {
+      feed([
+        { type: "error", error: { type: "server_error", message: "Boom" } },
+      ]);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught.message).toContain("Boom");
+    expect(caught.message).not.toContain("[object Object]");
   });
 });
