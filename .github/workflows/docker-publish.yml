@@ -9,11 +9,6 @@ on:
 env:
   GHCR_IMAGE: ghcr.io/${{ github.repository }}
   DOCKERHUB_IMAGE: decolua/9router
-  # Job-level so step `if`s can gate the Docker Hub publish: a fork without
-  # DOCKERHUB_USERNAME/TOKEN secrets skips that registry instead of failing the
-  # whole run at login (the .4/.5 tags died in 15s this way). Repos that DO
-  # define the secrets keep the exact previous behavior — both registries.
-  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
 jobs:
   build-and-push:
@@ -27,6 +22,24 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # Secret values cannot be trusted in `if:` expressions (workflow/env
+      # secret mapping is invisible to `if` evaluation), so presence is
+      # detected in a real step and gated through its output: a fork without
+      # DOCKERHUB_USERNAME/TOKEN publishes GHCR only instead of dying at login
+      # (the .4/.5/.6 tag builds all died in ~15s this way). Repos that DO
+      # define the secrets keep the exact previous behavior — both registries.
+      - name: Detect Docker Hub credentials
+        id: detect
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          if [ -n "$DOCKERHUB_USERNAME" ]; then
+            echo "dh=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dh=false" >> "$GITHUB_OUTPUT"
+            echo "Docker Hub secrets absent — publishing GHCR only."
+          fi
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -35,18 +48,18 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        if: env.DOCKERHUB_USERNAME != ''
+        if: steps.detect.outputs.dh == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # metadata-action cannot conditionally include an image, so the image list
-      # is resolved here: Docker Hub joins only when its login can succeed.
+      # metadata-action cannot conditionally include an image, so the image
+      # list is resolved here: Docker Hub joins only when its login can succeed.
       - name: Resolve publish targets
         id: targets
         run: |
-          if [ -n "$DOCKERHUB_USERNAME" ]; then
+          if [ "${{ steps.detect.outputs.dh }}" = "true" ]; then
             printf 'images=%s\n%s\n' "$GHCR_IMAGE" "$DOCKERHUB_IMAGE" >> "$GITHUB_OUTPUT"
           else
             printf 'images=%s\n' "$GHCR_IMAGE" >> "$GITHUB_OUTPUT"
