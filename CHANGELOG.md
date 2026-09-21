@@ -6,9 +6,18 @@
 - **Migration 003** (`reset-inflated-cline-backoff`): clears the ladder the old heuristic already accumulated on the Cline connections. Version-gated, so a database that already recorded version 3 needs the same reset applied by hand.
 - **Tests**: `tests/unit/rate-limit-policy.test.js` (classification, driven by error payloads captured live from Cline → OpenRouter), `tests/unit/rate-limit-policy-lock-site.test.js` (the real `markAccountUnavailable` call site: 1 attempt instead of 3, ~6s lock instead of 300s), `tests/unit/migration-003-reset-inflated-backoff.test.js`, `tests/unit/migration-003-post-import-ordering.test.js`. Verified against a pristine `HEAD` worktree: 39 failures before, 39 after, none new.
 
-## Follow-up from an independent adversarial audit
+# v0.5.81-enhanced.5 (2026-09-21 — rate-limit policy, after two independent audit rounds)
 
-An external review of the commit above found six defects, all fixed here. The two
+The `.4` release shipped the policy; this one ships it correct. Two adversarial
+audit rounds reviewed `.4`, both by execution rather than by reading the diff, and
+between them found **eight** defects — six in how the new policy was wired (the
+policy table itself was sound; the gate that reaches it was not), and two that the
+first round's corrections introduced. All eight are fixed here and every fix is
+pinned by a test that fails without it.
+
+## First audit round — six wiring defects
+
+An external review of the `.4` commit found six defects, all fixed here. The two
 that mattered were invisible to the original tests, which is the interesting part:
 
 - **`unsupported_model` was classified and then discarded.** It was in the policy
