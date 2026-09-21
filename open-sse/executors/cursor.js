@@ -7,7 +7,8 @@ import {
   wrapConnectRPCFrame,
   decodeMessage,
   parseConnectRPCFrame,
-  extractTextFromResponse
+  extractTextFromResponse,
+  encodeMcpTools
 } from "../utils/cursorProtobuf.js";
 import { buildCursorHeaders } from "../utils/cursorChecksum.js";
 import { estimateUsage } from "../utils/usageTracking.js";
@@ -83,19 +84,68 @@ function isAgentTextRequest(body) {
   });
 }
 
-function encodeHistoryMessage(message) {
-  const content = textFromContent(message?.content);
-  if (!content) return null;
-
-  // ConversationHistoryMessage.user / .assistant -> repeated content -> text.
-  const text = agentString(1, content);
-  if (message.role === "assistant") {
-    return agentMessage(2, agentMessage(1, agentMessage(1, text)));
-  }
-  return agentMessage(1, agentMessage(1, agentMessage(1, text)));
+export function isAgentCapableRequest(body) {
+  // The AgentService can carry the full function-calling surface: plain text
+  // turns, declared tool schemas, and histories that already contain
+  // tool_calls / tool results. Only non-text parts (images) and bodies
+  // without messages are incapable. Routing still gates on isAgentTextRequest
+  // — the tool loop is not wired into execute() yet (buildAgentRunFrame
+  // already accepts the tools argument for when it is).
+  if (!Array.isArray(body?.messages)) return false;
+  return body.messages.every((message) => {
+    if (message?.tool_calls?.length || message?.role === "tool") return true;
+    return typeof message?.content === "string"
+      || Array.isArray(message?.content) && message.content.every((part) => part?.type === "text");
+  });
 }
 
-function buildAgentRunFrame(messages, model) {
+function encodeHistoryToolCall(toolCall) {
+  // ASSUMED layout — no independent fixture pins the AgentService tool-call
+  // history block: ContentBlock field 2 carries {1: call id, 2: name,
+  // 3: arguments}. Unreachable from live routing (isAgentTextRequest rejects
+  // tool histories) until the tool loop is wired.
+  const call = toolCall?.function ?? {};
+  const args = typeof call.arguments === "string"
+    ? call.arguments
+    : JSON.stringify(call.arguments ?? {});
+  return concatBuffers(
+    agentString(1, String(toolCall?.id ?? "")),
+    agentString(2, String(call.name ?? "")),
+    agentString(3, args),
+  );
+}
+
+function encodeHistoryMessage(message) {
+  if (message?.role === "tool") {
+    // ASSUMED layout — ConversationHistoryMessage field 3 = tool result
+    // {1: tool_call_id, 2: content}. Same caveat as encodeHistoryToolCall:
+    // no independent fixture; unreachable from live routing today.
+    return agentMessage(3, concatBuffers(
+      agentString(1, String(message.tool_call_id ?? "")),
+      agentString(2, textFromContent(message.content)),
+    ));
+  }
+
+  const blocks = [];
+  const text = textFromContent(message?.content);
+  if (text) {
+    // ContentBlock.text → TextContent.text (verified text-path layout).
+    blocks.push(agentMessage(1, agentString(1, text)));
+  }
+  for (const toolCall of Array.isArray(message?.tool_calls) ? message.tool_calls : []) {
+    blocks.push(agentMessage(2, encodeHistoryToolCall(toolCall)));
+  }
+  if (!blocks.length) return null;
+
+  // ConversationHistoryMessage.user/.assistant → repeated content blocks.
+  const content = concatBuffers(...blocks.map((block) => agentMessage(1, block)));
+  if (message.role === "assistant") {
+    return agentMessage(2, agentMessage(1, content));
+  }
+  return agentMessage(1, agentMessage(1, content));
+}
+
+export function buildAgentRunFrame(messages, model, tools = []) {
   const system = messages
     .filter((message) => message?.role === "system")
     .map((message) => textFromContent(message.content))
@@ -124,10 +174,14 @@ function buildAgentRunFrame(messages, model) {
   );
   const conversationAction = agentMessage(1, userAction);
   const requestedModel = concatBuffers(agentString(1, model), agentBool(7, true));
+  const mcpTools = Array.isArray(tools) && tools.length ? encodeMcpTools(tools) : null;
   const runRequest = concatBuffers(
     // An empty ConversationStateStructure starts a fresh local agent session.
     agentMessage(1, new Uint8Array()),
     agentMessage(2, conversationAction),
+    // AgentRunRequest.mcp_tools (field 4, verified against oh-my-pi) — the
+    // declared function schemas for this run; omitted when none are given.
+    ...(mcpTools ? [agentMessage(4, mcpTools)] : []),
     ...(system ? [agentString(8, system)] : []),
     agentMessage(9, requestedModel),
   );
