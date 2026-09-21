@@ -9,6 +9,11 @@ on:
 env:
   GHCR_IMAGE: ghcr.io/${{ github.repository }}
   DOCKERHUB_IMAGE: decolua/9router
+  # Job-level so step `if`s can gate the Docker Hub publish: a fork without
+  # DOCKERHUB_USERNAME/TOKEN secrets skips that registry instead of failing the
+  # whole run at login (the .4/.5 tags died in 15s this way). Repos that DO
+  # define the secrets keep the exact previous behavior — both registries.
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
 jobs:
   build-and-push:
@@ -30,18 +35,28 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
+        if: env.DOCKERHUB_USERNAME != ''
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # metadata-action cannot conditionally include an image, so the image list
+      # is resolved here: Docker Hub joins only when its login can succeed.
+      - name: Resolve publish targets
+        id: targets
+        run: |
+          if [ -n "$DOCKERHUB_USERNAME" ]; then
+            printf 'images=%s\n%s\n' "$GHCR_IMAGE" "$DOCKERHUB_IMAGE" >> "$GITHUB_OUTPUT"
+          else
+            printf 'images=%s\n' "$GHCR_IMAGE" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: |
-            ${{ env.GHCR_IMAGE }}
-            ${{ env.DOCKERHUB_IMAGE }}
+          images: ${{ steps.targets.outputs.images }}
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
