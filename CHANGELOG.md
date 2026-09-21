@@ -1,3 +1,23 @@
+# v0.5.81-enhanced.6 (2026-09-21 — the 39 baseline reds are green)
+
+The suite's documented "not all-green on a plain checkout" state is gone: the offline run now reports **0 failures** (was 3767 pass / 39 fail / 56 skip). `tests/__baseline__/known-fails.txt` is empty — any red is a regression by definition.
+
+## Cursor AgentService codecs (was 35 reds)
+
+- `open-sse/utils/cursorProtobuf.js` gains the agent.v1 MCP codec set: `encodeAgentValue`/`decodeAgentValue` (a full google.protobuf.Value codec — null/bool/double/string/struct/list, with a local `encodeFixed64Field` because `encodeField` has no FIXED64 branch), `encodeMcpToolDefinition`, `encodeMcpTools`, `decodeMcpArgs`, and `encodeMcpResultSuccess/Error/ToolNotFound`. Field numbers verified against Cursor's agent.proto via can1357/oh-my-pi @ `60c9a115` (`RunRequest.mcp_tools`=4, `McpToolDefinition` 1–5 with input_schema as a typed Value, `McpArgs` 1/2/3/5, `McpResult` oneof 1/2/5). This is a distinct contract from the ChatService MCP fields (field 34, JSON-string schemas) and the two are never mixed.
+- `open-sse/executors/cursor.js` now exports `isAgentCapableRequest` (unlike the routing predicate, it accepts histories that already contain `tool_calls`/`role:"tool"`) and a 3-arg `buildAgentRunFrame(messages, model, tools)` that emits `mcp_tools` (field 4) when tools are declared and encodes tool history entries. **Live wire behavior is byte-identical to before**: `execute()` still routes on `isAgentTextRequest` and the call site stays 2-arg, so the new branches are export-only until the tool loop is actually wired. The tool-call/tool-result history field numbers are the only unverified ones; they are commented as assumed in-source.
+- One bug was caught on the way in by the round-trip tests themselves: the Struct decode initially read the entry list one level too high, so keys came out as raw entry bytes. Fixed before landing.
+
+## Command Code assertions follow upstream (was 4 reds)
+
+- The OpenAI→CommandCode image-block assertions now expect both `mimeType` and `mediaType` (`toNativeImageBlock` has emitted both since `13b468b8`/`092c84ea`).
+- The commandcode stream-error test now asserts the thrown `Error` (object errors still stringified readably) instead of a fake content chunk — mid-stream errors throw since the same upstream change.
+
+## Suite hygiene
+
+- `unit/embeddings.cloud.test.js` no longer fails to COLLECT: the `cloud/` worker sources are not part of this repo, so the suite self-skips via a guarded dynamic import and reactivates automatically if that directory ever lands. Tests kept verbatim.
+- Baseline docs updated: `known-fails.txt` emptied with the fix history in its header, CLAUDE.md numbers refreshed.
+
 # v0.5.81-enhanced.4 (2026-09-20 — upstream rate-limit policy)
 
 ## Fixes

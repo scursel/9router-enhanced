@@ -1,62 +1,22 @@
 # Accepted failures. A failure NOT listed here is a regression.
 #
-# Regenerated 2026-09-16 from the offline run (tests/translator/real/** and
-# **/*.live.test.js excluded). The 24 previous entries were all stale: 11 now
-# pass and 13 no longer exist under those names (oauth-cursor-auto-import,
-# translator-request-normalization, claude-header-forwarding, rtk) after the
-# obsolete-contract fixes.
+# EMPTY as of 2026-09-21: the 39 catalogued reds were fixed.
+#   - 35 in unit/cursor-agent-proto.test.js: the AgentService (agent.v1) codecs
+#     now exist — encodeAgentValue/decodeAgentValue (google.protobuf.Value),
+#     encodeMcpToolDefinition, encodeMcpTools, decodeMcpArgs,
+#     encodeMcpResultSuccess/Error/ToolNotFound in
+#     open-sse/utils/cursorProtobuf.js, plus exported isAgentCapableRequest and
+#     a 3-arg buildAgentRunFrame in open-sse/executors/cursor.js. Field numbers
+#     verified against Cursor's agent.proto via can1357/oh-my-pi @ 60c9a115.
+#     Routing still gates on isAgentTextRequest, so live wire behavior is
+#     unchanged.
+#   - 4 in the Command Code suites (unit/openai-to-commandcode,
+#     unit/commandcode-to-openai, translator/bugs-gemini-cursor-commandcode):
+#     assertions updated to the current translator behavior from upstream
+#     13b468b8/092c84ea — image blocks carry both mimeType and mediaType, and
+#     mid-stream errors throw a readable Error instead of emitting a chunk.
+#   - unit/embeddings.cloud.test.js no longer fails to COLLECT: the cloud/
+#     worker sources are not part of this repo, so the suite self-skips via a
+#     guarded dynamic import until that directory lands.
 #
-# Everything below is tests/unit/cursor-agent-proto.test.js: orphan tests that
-# import codecs which do not exist (encodeAgentValue, encodeMcpToolDefinition,
-# encodeMcpTools, decodeMcpArgs, encodeMcpResult*, isAgentCapableRequest, a
-# 3-arg buildAgentRunFrame). Implementation is BLOCKED on independent protocol
-# fixtures — see /tmp/9router-cursor-protocol-report.md. They are left red on
-# purpose; do not skip them to make this list shorter.
-#
-# Not visible to this gate: tests/unit/embeddings.cloud.test.js fails to COLLECT
-# (it imports cloud/src/handlers/embeddings.js, a directory not in this repo), and
-# a collect failure produces no assertion results to compare.
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) McpArgs decode decodes name, toolName, toolCallId, and typed args map
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) McpArgs decode handles empty args map
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) McpResult error / toolNotFound builds error result (field 2)
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) McpResult error / toolNotFound builds toolNotFound result (field 5)
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) McpResult image content builds image item with raw bytes + mime type
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) McpResult image content builds mixed text + image content
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) McpResult success builds success with multiple text items
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) McpResult success builds success with single text content
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) McpResult success marks is_error=true
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) McpToolDefinition accepts flat tool shape (no .function wrapper)
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) McpToolDefinition encodes name, description, input_schema (Value), provider, tool_name
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) McpToolDefinition preserves nested JSON-schema types
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) encodeMcpTools produces empty bytes for no tools
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) encodeMcpTools wraps multiple tool defs as repeated field 1
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) google.protobuf.Value round-trip encodes/decodes array of mixed
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) google.protobuf.Value round-trip encodes/decodes bool false
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) google.protobuf.Value round-trip encodes/decodes bool true
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) google.protobuf.Value round-trip encodes/decodes deeply nested
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) google.protobuf.Value round-trip encodes/decodes empty object
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) google.protobuf.Value round-trip encodes/decodes flat object
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) google.protobuf.Value round-trip encodes/decodes float
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) google.protobuf.Value round-trip encodes/decodes integer
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) google.protobuf.Value round-trip encodes/decodes nested object
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) google.protobuf.Value round-trip encodes/decodes null
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService codec (cursorProtobuf.js) google.protobuf.Value round-trip encodes/decodes string
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (cursor.js) buildAgentRunFrame encodes a text-only run request with system + model
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (cursor.js) buildAgentRunFrame encodes conversation_history from prior turns including tool calls/results
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (cursor.js) buildAgentRunFrame encodes mcp_tools (field 4) when tools are provided
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (cursor.js) buildAgentRunFrame omits mcp_tools when no tools provided
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (cursor.js) isAgentCapableRequest accepts array text content
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (cursor.js) isAgentCapableRequest accepts history with assistant tool_calls + tool results
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (cursor.js) isAgentCapableRequest accepts plain text content
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (cursor.js) isAgentCapableRequest accepts request with tools declared
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (cursor.js) isAgentCapableRequest rejects missing messages
-tests/unit/cursor-agent-proto.test.js :: Cursor AgentService executor helpers (cursor.js) isAgentCapableRequest rejects non-text (image) content
-
-# Red in the official v0.5.81 tree itself (verified on a pristine upstream/master
-# worktree): 13b468b8/092c84ea changed the Command Code image block shape and
-# made stream errors throw, without updating these assertions. Not a merge
-# regression; drop them once upstream fixes its tests.
-tests/translator/bugs-gemini-cursor-commandcode.test.js :: OpenAI → CommandCode image content is preserved as native CommandCode image blocks
-tests/unit/commandcode-to-openai.test.js :: commandcode-to-openai — error event stringifies object errors so client sees readable message
-tests/unit/openai-to-commandcode.test.js :: openaiToCommandCodeRequest — native image blocks maps OpenAI image_url data URI to CommandCode {type:image,image,mimeType}
-tests/unit/openai-to-commandcode.test.js :: openaiToCommandCodeRequest — native image blocks maps Claude/OpenAI base64 image source to a data-URI image block
+# Any test failure in the offline run is now a regression by definition.
