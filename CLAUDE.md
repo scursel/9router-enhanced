@@ -40,12 +40,11 @@ npx vitest run unit/capabilities.test.js   # single file (path relative to tests
 ```
 > The committed `tests/package.json` `test` script hardcodes Unix paths (`NODE_PATH=/tmp/node_modules …`) — a shared-install workaround from upstream. On Windows (or anywhere), ignore it and use the `npx vitest` form above; `vitest.config.js` resolves the `open-sse`/`@/` aliases from the repo root regardless of where vitest lives.
 >
-> **The suite is NOT expected to be all-green on a plain checkout.** ~938 pass, ~64 fail. Judge regressions with `tests/__baseline__/verify-no-regression.mjs`, not a raw run. Expected red:
-> - 26 catalogued in `tests/__baseline__/known-fails.txt` (rtk, oauth-cursor-auto-import, translator-request-normalization, …).
-> - `unit/embeddings.cloud.test.js` imports `cloud/src/handlers/embeddings.js` — the `cloud/` worker dir is **not in this repo**, so it always fails here.
-> - `unit/xai-oauth-service.test.js` times out (5s) when the xAI endpoint-discovery fetch isn't reachable/mocked.
-> - `real/*.real.test.js` make live provider calls — need credentials, skip otherwise.
-- `*.real.test.js` under `tests/translator/real/` make live provider calls — skip unless credentials are set.
+> **The suite is NOT expected to be all-green on a plain checkout.** Measured on this tree: **3767 pass, 39 fail, 56 skip** across 391 files (387 of them green). Judge regressions with `tests/__baseline__/verify-no-regression.mjs`, not a raw run — its rule is "a failure NOT listed in `known-fails.txt` is a regression". All 39 expected reds are catalogued there:
+> - **35** in `unit/cursor-agent-proto.test.js` — orphan tests importing codecs that do not exist (`encodeAgentValue`, `decodeAgentValue`, `encodeMcpToolDefinition`, `encodeMcpTools`, `decodeMcpArgs`, `encodeMcpResult*`, `isAgentCapableRequest`, a 3-arg `buildAgentRunFrame`). The implementation is blocked on independent protocol fixtures, so they are left red **on purpose — do not skip them to shorten the list**. Origin: `6994cd1f` added the 282-line test and touched `executors/cursor.js`, but never `utils/cursorProtobuf.js`, so the file could never pass. Cursor's AgentService support is therefore half-landed here: the executor half exists, the codec half does not.
+> - **4** in the Command Code suites (`unit/openai-to-commandcode`, `unit/commandcode-to-openai`, `translator/bugs-gemini-cursor-commandcode`) — upstream `13b468b8`/`092c84ea` changed the image block shape (the translator now emits both `mimeType` and `mediaType`) and made stream errors throw, without updating these assertions. Red in the official v0.5.81 tree as well, so not a merge regression; leave them until upstream fixes its tests.
+> - **Invisible to the gate:** `unit/embeddings.cloud.test.js` fails to COLLECT — it imports `cloud/src/handlers/embeddings.js`, a directory **not in this repo**, and a collect failure produces no assertion results for the gate to compare. Counts as a red file, not as a red assertion.
+> - **The 56 skips** are `tests/translator/real/**` and `*.real.test.js` making live provider calls: they need credentials and skip otherwise.
 - Regression baselines: `tests/__baseline__/verify-*.mjs` compare against committed snapshots (providers, aliases, OAuth URLs). Run these after touching provider registry / alias logic.
 
 ## Architecture
