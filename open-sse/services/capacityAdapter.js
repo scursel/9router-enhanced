@@ -111,10 +111,31 @@ function blockLength(content) {
   return 0;
 }
 
+// Tool pairing across formats: OpenAI (tool_calls / role "tool"), Claude
+// (tool_use / tool_result blocks), Gemini (functionCall / functionResponse
+// parts), Responses (function_call / function_call_output items). Dropping one
+// side of a pair is a 400 on every upstream.
+function blocksOf(m) {
+  const c = m?.content ?? m?.parts;
+  return Array.isArray(c) ? c : [];
+}
+function hasToolCall(m) {
+  return (Array.isArray(m?.tool_calls) && m.tool_calls.length > 0)
+    || m?.type === "function_call"
+    || blocksOf(m).some((b) => b?.type === "tool_use" || b?.functionCall);
+}
+function isToolResult(m) {
+  return m?.role === "tool"
+    || m?.type === "function_call_output"
+    || blocksOf(m).some((b) => b?.type === "tool_result" || b?.functionResponse);
+}
+
 // Trim history to fit a (possibly smaller) context window by dropping the MIDDLE.
-// Preserves: all system/instruction messages (head), and the trailing user run
-// carrying the media the switch happened for (tail). Older middle turns between
-// the head instructions and the current turn are dropped first.
+// Untouched when everything fits. Otherwise keeps, in priority order: system
+// messages, the latest assistant turn plus the trailing turn after it (the
+// media the switch happened for, or the tool results answering that assistant
+// turn), the first HEAD_KEEP messages, then as many recent turns as fit.
+// Cut edges never split a tool call from its result.
 export function stripHistoryForContext(body, contextWindow) {
   const key = Array.isArray(body.messages) ? "messages"
     : Array.isArray(body.input) ? "input"
@@ -124,6 +145,12 @@ export function stripHistoryForContext(body, contextWindow) {
   const arr = body[key];
   if (!arr || arr.length === 0) return body;
 
+  const contentOf = (m) => m.content ?? m.parts;
+  const size = (list) => list.reduce((s, m) => s + blockLength(contentOf(m)), 0);
+  // Cap at 80% of the adapter model's context window — leaves room for the response.
+  const budgetChars = (contextWindow || 200000) * 0.8 * CHARS_PER_TOKEN;
+  if (size(arr) <= budgetChars) return body;
+
   const isSystem = (r) => r === "system" || r === "developer";
   const systemMsgs = arr.filter((m) => isSystem(m?.role));
   const rest = arr.filter((m) => !isSystem(m?.role));
@@ -132,28 +159,32 @@ export function stripHistoryForContext(body, contextWindow) {
   const isAssistant = (r) => r === "assistant" || r === "model";
   let i = rest.length - 1;
   while (i >= 0 && !isAssistant(rest[i]?.role)) i--;
-  const tail = rest.slice(i + 1);          // current user turn (has media) — always kept
-  const older = rest.slice(0, i + 1);      // everything before it
+  if (i < 0) return body;
+  const latest = rest.slice(i);            // latest assistant turn + trailing turn — always kept
+  const older = rest.slice(0, i);
   if (older.length === 0) return body;
 
-  const contentOf = (m) => m.content ?? m.parts;
-  // Cap at 80% of the adapter model's context window — leaves room for the response.
-  const budgetChars = (contextWindow || 200000) * 0.8 * CHARS_PER_TOKEN;
+  let remaining = budgetChars - size(systemMsgs) - size(latest);
 
-  // Prefer keeping the first HEAD_KEEP messages (initial instructions/context) verbatim;
-  // only trim further if even that exceeds the adapter model's context window.
-  const headKept = older.slice(0, HEAD_KEEP);
-  let total = systemMsgs.concat(headKept, tail).reduce((s, m) => s + blockLength(contentOf(m)), 0);
+  // Head: the opening turns (task/instructions). Never end on an unanswered call.
+  const head = older.slice(0, HEAD_KEEP);
+  const trimHead = () => { while (head.length > 0 && hasToolCall(head[head.length - 1])) head.pop(); };
+  trimHead();
+  while (head.length > 0 && size(head) > remaining) { head.pop(); trimHead(); }
+  remaining -= size(head);
 
-  // If head + tail overflow, drop head turns from the end (closest to middle) first.
-  let head = headKept;
-  while (total > budgetChars && head.length > 0) {
-    const dropped = head.pop();
-    total -= blockLength(contentOf(dropped));
+  // Recent: fill backwards from just before the latest turn while it fits.
+  let from = older.length;
+  while (from > head.length && blockLength(contentOf(older[from - 1])) <= remaining) {
+    from--;
+    remaining -= blockLength(contentOf(older[from]));
   }
+  // Never start on a result whose call was dropped (or, with no head, on an assistant turn).
+  while (from < older.length && (isToolResult(older[from]) || (head.length === 0 && isAssistant(older[from]?.role)))) from++;
+  const recent = older.slice(from);
 
-  if (head.length === older.length) return body;
-  return { ...body, [key]: [...systemMsgs, ...head, ...tail] };
+  if (head.length + recent.length === older.length) return body;
+  return { ...body, [key]: [...systemMsgs, ...head, ...recent, ...latest] };
 }
 
 // Wrap a handleSingleModel callback so calls to a capacity-adapter model strip
