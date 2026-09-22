@@ -445,7 +445,10 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
       const providerThinking = (chatSettings.providerThinking || {})[provider] || null;
       const result = await handleChatCore({
-        body: { ...body, model: `${provider}/${model}` },
+        // Deep copy per attempt: chatCore's normalizers edit nested objects in
+        // place (msg.content, cache_control, generationConfig), and this same
+        // body is retried on the next account and the next combo member.
+        body: { ...structuredClone(body), model: `${provider}/${model}` },
         modelInfo: { provider, model },
         credentials: refreshedCredentials,
         log,
