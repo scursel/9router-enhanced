@@ -2,6 +2,13 @@
 
 Merged upstream `v0.5.85` (37 commits). Every place where fork and upstream built the same thing was compared; the official implementation was adopted where it is equal or better, fork-only functionality was kept.
 
+## Secret-leak guard
+
+Repo audit found the fork public and HEAD clean, but git history carries `9router-0.5.69.tgz` (committed in `61b84a78`, untracked in `8e0617a5`) with build-HOME state inside: a real `jwt-secret` (dashboard admin-session HS256 key), `machine-id`, and a `db/data.sqlite` that was verified empty of credentials. The secret is confirmed no longer in use on any live instance; the blob remains public in history regardless. Prevention added so this class of mistake cannot land again:
+
+- **`scripts/check-no-secrets.mjs`** — secret-leak guard. Scans staged additions (or explicit paths) for secret-shaped content (provider tokens, private keys, JWTs, AWS/GitHub/Slack/GitLab key patterns, hardcoded values assigned to `JWT_SECRET`/`API_KEY_SECRET`/`MACHINE_ID_SALT`) and forbidden filenames (`*.tgz`, `.env`, `jwt-secret`, `machine-id`, `*.sqlite*`/`*.db`, key material, `.build-home/`, runtime state). Allowlists the known public-by-design values (upstream Windsurf Firebase Web key, the one-char private-key test fixture) and honors a `secret-scan:allow` line marker. No bypass flag by design: false positives are fixed by extending the allowlist in the same commit. Installed locally as `.git/hooks/pre-commit` (hooks are machine-local; re-create with `ln -sf ../../scripts/check-no-secrets.mjs .git/hooks/pre-commit`).
+- **`CLAUDE.md`** — new "Secret hygiene — hard rules" section: never stage archives/build/state, run the guard, rotate-then-purge (never just untrack), fixtures use obviously-fake values, Firebase Web keys are identifiers not secrets, `.env.example` placeholders only.
+
 ## Adopted from upstream (fork version dropped)
 - **Cursor AgentService**: upstream `c933eefc` ships the same agent.v1 MCP codec set the fork built in `4ed28c79` (same field numbers), plus the actual fixes: system prompt folded into the user turn (field 8 `custom_system_prompt` caused empty turns), `modelDetails` (field 3) for thinking variants, `encodeField` FIXED64 branch, and the tool loop wired into `execute()`. `open-sse/utils/cursorProtobuf.js` and `open-sse/executors/cursor.js` now match upstream exactly.
 - **Docker publish**: upstream's verified multi-platform pipeline gates Docker Hub on the repository name (`decolua/9router`), which covers what the fork's secret-detection step (`85370bc6`/`c5a21724`) worked around — a fork publishes GHCR only. Kept the fork's `actions/checkout@v7` bump.

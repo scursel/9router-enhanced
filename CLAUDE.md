@@ -88,3 +88,19 @@ Pre-translate hooks that compress `tool_result` content in-place to cut tokens. 
 - Security-sensitive env: `JWT_SECRET` (session cookie), `INITIAL_PASSWORD` (default `123456` — must override), `API_KEY_SECRET`, `MACHINE_ID_SALT`. Full env contract in `.env.example` and ARCHITECTURE.md's env matrix.
 - Binary/protobuf upstreams (kiro EventStream, cursor protobuf, commandcode NDJSON) don't round-trip through OpenAI — they're handled inside their own executor, not the translator.
 - Versioning: root and `cli/` are versioned independently; changes are logged in `CHANGELOG.md`. Commit style is Conventional Commits (`fix(translator): …`, `feat(...)`).
+
+## Secret hygiene — hard rules (never leak again)
+
+Incident this section exists for: commit `61b84a78` bundled `9router-0.5.69.tgz` into git history. The pack embedded build-HOME state — `jwt-secret` (the HS256 key that signs dashboard admin sessions), `machine-id`, and `db/data.sqlite`. It was untracked in `8e0617a5`, but the blob stays **public forever** in this public fork's history. (Verified: the sqlite came out empty of credentials, and the leaked secret is no longer in use on any live instance — but the rotation/purge cost was real.)
+
+1. **Never stage archives, build artifacts, or state.** `*.tgz`/`*.tar`/`*.zip`, `cli/.build-home/`, `.next*/`, `*.sqlite*`/`*.db`, `jwt-secret`, `machine-id`, `.env*` (except `.env.example`), `usage.json`, `log.txt`, token/session caches. The `*.tgz` ignore rule exists precisely because `build-cli` historically embedded HOME state into packs — treat any tarball or binary blob as guilty until inspected (`tar tz` it before `git add`; if you truly must commit one, that decision goes in the commit message with justification).
+2. **Run the guard before committing** — it is also installed as `.git/hooks/pre-commit` (hooks are machine-local; re-create after a fresh clone with `ln -sf ../../scripts/check-no-secrets.mjs .git/hooks/pre-commit`):
+   ```bash
+   node scripts/check-no-secrets.mjs            # scans staged additions (pre-commit)
+   node scripts/check-no-secrets.mjs <paths>    # scan before staging
+   ```
+   It blocks secret-shaped content (provider tokens, private keys, JWTs, AWS/GitHub/Slack/GitLab patterns, hardcoded values for `JWT_SECRET`/`API_KEY_SECRET`/`MACHINE_ID_SALT`) and forbidden filenames. There is **no bypass flag by design**: a false positive is fixed by extending the allowlist in `scripts/check-no-secrets.mjs` (or a `secret-scan:allow` comment on the line) **in the same commit**, so the judgment call is auditable.
+3. **Untracking a leaked secret is not a fix.** Once pushed, it is public forever: rotate the credential first, then purge history (`git filter-repo` + force-push; GitHub Support clears cached views/dangling objects). Prevention is the only cheap option.
+4. **Real credentials never enter code, tests, fixtures, docs, or commit messages.** Fixtures use obviously-fake values (`glpat-xxx…`, one-char key bodies). When adding OAuth/credential flows, derive test data from the fake-value convention, never from a real capture.
+5. **Public-by-design identifiers are not secrets — leave them alone.** Firebase Web API keys (e.g. the upstream Windsurf `AIzaSy…` in `src/lib/oauth/constants/oauth.js`) are client identifiers restricted in the Firebase console; they are allowlisted in the guard. Do not "clean" them, and do not use them as precedent for keeping anything that actually authenticates.
+6. **`.env.example` is the only env file that may be tracked**, and it must contain placeholders only — never a value that was ever real anywhere.
