@@ -1,3 +1,45 @@
+# v0.5.85-enhanced.1 (2026-09-22 — upstream v0.5.85 sync)
+
+Merged upstream `v0.5.85` (37 commits). Every place where fork and upstream built the same thing was compared; the official implementation was adopted where it is equal or better, fork-only functionality was kept.
+
+## Adopted from upstream (fork version dropped)
+- **Cursor AgentService**: upstream `c933eefc` ships the same agent.v1 MCP codec set the fork built in `4ed28c79` (same field numbers), plus the actual fixes: system prompt folded into the user turn (field 8 `custom_system_prompt` caused empty turns), `modelDetails` (field 3) for thinking variants, `encodeField` FIXED64 branch, and the tool loop wired into `execute()`. `open-sse/utils/cursorProtobuf.js` and `open-sse/executors/cursor.js` now match upstream exactly.
+- **Docker publish**: upstream's verified multi-platform pipeline gates Docker Hub on the repository name (`decolua/9router`), which covers what the fork's secret-detection step (`85370bc6`/`c5a21724`) worked around — a fork publishes GHCR only. Kept the fork's `actions/checkout@v7` bump.
+
+## Kept from the fork (upstream equivalent is narrower)
+- **Combo capabilities on `/v1/models`**: the fork's `comboCapabilities` resolves members through per-connection prefixes and model aliases, recurses nested combos, emits top-level `context_length`/`max_completion_tokens`, and only promises a capability every fallback member delivers. Upstream's `aggregateComboCapabilities` (union for modalities) is still used by the dashboard combo chips.
+- **Provider model import**: the fork's generic `handleImportListedModels`/`ImportModelsButtons` stays; upstream's Qoder-only handler patch is ported as a qoder/qoder-cn cross-prefix strip.
+
+## Combined
+- Combos page: upstream bulk select/delete/strategy toolbar and ctx/max chip + fork success-rate badge.
+- `/v1/models` static list: upstream per-model `capabilities` + fork `lifecycle`; upstream `resolveQoderLiveModels` (qoder + qoder-cn).
+- `handleForcedSSEToJson`: upstream `toolNameMap` + fork `usageEventId`; `usage.js`: upstream `getQoderUsageFor` + fork `USAGE_IMPLEMENTED_PROVIDERS`.
+
+## Merge fixes (auto-merged but broken)
+- `open-sse/providers/registry/index.js`: fork `bai.js` and upstream `qoder-cn.js` both claimed `p124` (duplicate `const`, app would not boot) — `bai` renumbered to `p128`.
+- `open-sse/providers/capabilities.js`: upstream `5c217d34` deleted the `qoder` and `codebuddy-intl` overrides while keeping `PROVIDER_CAPABILITIES["qoder-cn"] = PROVIDER_CAPABILITIES["qoder"]` (now `undefined`); both blocks restored from the merge base.
+- `src/app/api/models/test/ping.js`: the fork's kind allowlist silently dropped upstream's new `systemone` kind, so System One tests probed the chat endpoint; added `systemone: ["systemone"]`.
+
+# v0.5.85 (2026-09-22)
+
+## Features
+- **System One**: add `/v1/systemone` decision endpoint for Jev models (OpenCode Zen and OpenRouter lanes), wire into sidebar and Media Providers page with interactive probe testing
+- **CLI Tools**: add dynamic configuration, settings APIs, and official logos for Pi, OMP, Crush, ForgeCode, Smelt, and CodeWhale
+- **Analytics & Usage**: add Requests mode, provider/model breakdown charts, All Time period filter, and refined overview cards
+- **Combos**: add Cursor/Claude Default presets; support bulk select/delete and bulk strategy changes (Fallback / Round Robin / Fusion)
+- **Model Capabilities**: expose model capability metadata on `/v1/models` and aggregate capabilities across combo targets
+- **OpenCode Zen & MiMo**: add OpenCode Zen (`opencode-zen`) provider with free-tier fingerprint; switch default vision fallback to MiMo V2.6 Flash Free
+- **Qoder CN**: add `qoder-cn` provider for qoder.com.cn with OAuth flow, COSY protocol, and CN gateway routing
+
+## Fixes
+- **Translator**: map Claude `refusal` stop_reason to `content_filter` and surface explanation; strip replayed reasoning fields for Groq, Mistral, and Cerebras (#4220)
+- **Antigravity**: drop requestType `agent` to avoid false 429 `RESOURCE_EXHAUSTED`; separate weekly and short-window (5-hour) quotas and deduplicate dashboard rows
+- **Responses API**: report usage on `response.completed` so clients can auto-compact (#3432)
+- **Hugging Face**: migrate to Inference Providers router (`router.huggingface.co`), expand image models catalog, and add STT route
+- **Qoder**: prevent signed request replay (`403/103 Duplicate request`), handle code 110 billing blocks, and preserve upstream SSE error status
+- **Performance**: bound usage `lastUsed` scan to a 2-day window; map large budget tokens to `max` reasoning tier
+- **Docker**: publish verified multi-platform images (linux/amd64 and linux/arm64) with configurable apk build mirrors
+
 # v0.5.81-enhanced.6 (2026-09-21 — the 39 baseline reds are green)
 
 The suite's documented "not all-green on a plain checkout" state is gone: the offline run now reports **0 failures** (was 3767 pass / 39 fail / 56 skip). `tests/__baseline__/known-fails.txt` is empty — any red is a regression by definition.
@@ -249,6 +291,8 @@ sides had solved the same problem, the better implementation was kept:
 - **i18n**: integrate Persian (fa) translation
 
 ## Fixes
+- **Cursor**: stop AgentService empty turns (`OUT 0`) and silent hangs — fold system prompts instead of `custom_system_prompt`, send `ModelDetails`, read Composer/Grok `thinking_delta`, ack request-context without echoing MCP tools, and reject IDE execs so the model can continue
+- **RTK**: for Cursor, compress source-format `tool_result` / `role:tool` **before** translation — its translator rewrites those shapes, so post-translate compression missed them. Other providers keep the post-translate pass unchanged
 - **OpenCode / OpenCode Go**: resolve 403 `FreeTierError` and 429 rate limits with canonical session format, valid User-Agent, and stable upstream session reuse; force stream and declare `forceStream` for free-tier SSE aggregation; cloak decoy tools, normalize Muse Free tool choice, and strip prior reasoning items on Responses models; route Union Alpha via Messages API
 - **Kiro**: preserve underscores in tool names (`mcp__server__tool`) and restore client tool names in responses; use neutral placeholder for tool-result-only turns; forward tool-result images
 - **Stream**: report aborts after HTTP 200 in-band (per-format error frames) instead of closing silently

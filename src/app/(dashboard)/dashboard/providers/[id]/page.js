@@ -196,7 +196,7 @@ export default function ProviderDetailPage() {
   const apiKeyConnectionLabel =
     providerId === "xai" ? "xAI API Key"
     : providerId === "kimi" ? "Kimi API Key"
-    : providerId === "qoder" ? "PAT"
+    : (providerId === "qoder" || providerId === "qoder-cn") ? "PAT"
     : "API Key";
   // Resolve suffix "(level)" for a model when a thinking level is picked and the model supports it.
   const resolveThinkingSuffix = (modelId) => {
@@ -818,7 +818,11 @@ export default function ProviderDetailPage() {
       const toAdd = collectImportableModels({
         models: listed,
         existingIds,
-        prefixes: [providerStorageAlias, providerId, providerAlias],
+        // Qoder intl/CN share one catalog shape; strip either region's prefix.
+        prefixes: [
+          providerStorageAlias, providerId, providerAlias,
+          ...(providerId === "qoder" || providerId === "qoder-cn" ? ["qoder-cn", "qoder"] : []),
+        ],
         freeOnly,
         providerId,
       });

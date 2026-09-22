@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { PROVIDERS } from "../../open-sse/config/providers.js";
 import { OpenCodeExecutor } from "../../open-sse/executors/opencode.js";
 import { proxyAwareFetch } from "../../open-sse/utils/proxyFetch.js";
+import { OPENCODE_FINGERPRINT_TOOLS } from "../../open-sse/utils/opencodeFingerprint.js";
 
 vi.mock("../../open-sse/utils/proxyFetch.js", () => ({
   proxyAwareFetch: vi.fn(async () => ({ ok: true, status: 200, headers: { get: () => "" } })),
@@ -13,6 +14,13 @@ const FREE_13 = "muse-spark-1.3-contributor-free";
 const CREDS = { connectionId: "opencode-free-tool-choice-test" };
 const INPUT = [{ type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] }];
 const TOOLS = [{ type: "function", name: "get_weather", description: "w", parameters: { type: "object", properties: {} } }];
+
+// Since 822aa958 every OpenCode request also carries the free-tier fingerprint
+// quartet (bash/glob/grep/read) appended after the caller's own tools.
+function expectClientToolsIntact(tools) {
+  expect(tools.slice(0, TOOLS.length)).toEqual(TOOLS);
+  expect(tools.slice(TOOLS.length).map((tool) => tool.name)).toEqual(OPENCODE_FINGERPRINT_TOOLS);
+}
 
 function responsesBody(model, tool_choice) {
   const body = { model, input: structuredClone(INPUT), tools: structuredClone(TOOLS) };
@@ -36,7 +44,7 @@ describe("opencode Free 1.3 tool_choice auto-only", () => {
       const body = responsesBody(model, structuredClone(choice));
       const out = new OpenCodeExecutor().transformRequest(model, body, true, CREDS);
       expect(out.tool_choice).toBe("auto");
-      expect(out.tools).toEqual(TOOLS);
+      expectClientToolsIntact(out.tools);
       expect(out.input).toEqual(INPUT);
     }
   });
@@ -46,14 +54,16 @@ describe("opencode Free 1.3 tool_choice auto-only", () => {
       FREE_13, responsesBody(FREE_13, "auto"), true, CREDS,
     );
     expect(autoOut.tool_choice).toBe("auto");
-    expect(autoOut.tools).toEqual(TOOLS);
+    expectClientToolsIntact(autoOut.tools);
     expect(autoOut.input).toEqual(INPUT);
 
     const absentOut = new OpenCodeExecutor().transformRequest(
       FREE_13, responsesBody(FREE_13, undefined), true, CREDS,
     );
-    expect("tool_choice" in absentOut).toBe(false);
-    expect(absentOut.tools).toEqual(TOOLS);
+    // applyFingerprintTools defaults a Responses request to "auto" once the
+    // fingerprint quartet is present — still the only choice 1.3-Free accepts.
+    expect(absentOut.tool_choice).toBe("auto");
+    expectClientToolsIntact(absentOut.tools);
     expect(absentOut.input).toEqual(INPUT);
   });
 
@@ -84,7 +94,7 @@ describe("opencode Free 1.3 tool_choice auto-only", () => {
     const sent = JSON.parse(actualInit.body);
     expect(sent.tool_choice).toBe("auto");
     expect(sent.model).toBe(FREE_13);
-    expect(sent.tools).toEqual(TOOLS);
+    expectClientToolsIntact(sent.tools);
     expect(sent.input).toEqual(INPUT);
   });
 });

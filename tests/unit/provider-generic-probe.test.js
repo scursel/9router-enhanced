@@ -196,7 +196,7 @@ describe("generic provider probe fallback", () => {
       const result = await testSingleConnection("huggingface-conn");
 
       expect(result.valid).toBe(false);
-      expect(result.error).toContain("api-inference.huggingface.co");
+      expect(result.error).toContain("router.huggingface.co");
       expect(result.error).toContain("ENOTFOUND");
       expect(result.error).not.toBe("fetch failed");
     });
