@@ -242,7 +242,8 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display) {
     case "openai": {
       if (none && canDisable) { body.reasoning_effort = "none"; break; }
       const level = toLevel(eff);
-      if (level) body.reasoning_effort = normalizeOpenAILevel(level, supportedLevels);
+      // "auto" (Claude adaptive) is not in OpenAI's enum → omit, upstream default applies.
+      if (level && level !== "auto") body.reasoning_effort = normalizeOpenAILevel(level, supportedLevels);
       break;
     }
     case "claude-adaptive": {
@@ -252,7 +253,9 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display) {
       if (canDisable) body.thinking = { type: "adaptive", ...(display ? { display } : {}) };
       else delete body.thinking;
       const level = toLevel(eff);
-      body.output_config = { effort: level === "xhigh" || level === "auto" ? "high" : level };
+      // Anthropic's effort enum starts at "low": "minimal" (client, small budget,
+      // or "none" clamped on a can't-disable model) is a 400.
+      body.output_config = { effort: level === "xhigh" || level === "auto" ? "high" : level === "minimal" ? "low" : level };
       break;
     }
     case "claude-budget": {
@@ -335,7 +338,7 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display) {
     case "step": {
       if (none && canDisable) break;
       const level = toLevel(eff);
-      if (level) body.reasoning_effort = level === "xhigh" || level === "max" ? "high" : level;
+      if (level && level !== "auto") body.reasoning_effort = level === "xhigh" || level === "max" ? "high" : level;
       break;
     }
     case "tokenrouter": {
