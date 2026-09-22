@@ -13,6 +13,7 @@ import { useComboStats } from "./components/useComboStats.js";
 import ComboStatsBadge from "./components/ComboStatsBadge.js";
 import { pickComboEntry } from "./components/comboStats.js";
 import { aggregateComboCapabilities } from "open-sse/providers/capabilities.js";
+import { makeComboMemberResolver } from "@/shared/utils/comboMemberResolver";
 
 // Validate combo name: only a-z, A-Z, 0-9, -, _
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
@@ -62,6 +63,9 @@ export default function CombosPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingCombo, setEditingCombo] = useState(null);
   const [activeProviders, setActiveProviders] = useState([]);
+  // Card capabilities resolve members like /v1/models does (connection
+  // prefixes, model aliases) so the dashboard shows what clients receive.
+  const [modelAliases, setModelAliases] = useState({});
   const [comboStrategies, setComboStrategies] = useState({});
   const [capacityAdapter, setCapacityAdapter] = useState(EMPTY_CAPACITY_ADAPTER);
   const { getCaps } = useModelCaps();
@@ -162,10 +166,11 @@ export default function CombosPage() {
 
   const fetchData = async () => {
     try {
-      const [combosRes, providersRes, settingsRes] = await Promise.all([
+      const [combosRes, providersRes, settingsRes, aliasesRes] = await Promise.all([
         fetch("/api/combos"),
         fetch("/api/providers"),
         fetch("/api/settings"),
+        fetch("/api/models/alias").catch(() => null),
       ]);
       const combosData = await combosRes.json();
       const providersData = await providersRes.json();
@@ -175,6 +180,10 @@ export default function CombosPage() {
       if (combosRes.ok) setCombos((combosData.combos || []).filter(c => !c.kind || c.kind === "llm"));
       if (providersRes.ok) {
         setActiveProviders(providersData.connections || []);
+      }
+      if (aliasesRes?.ok) {
+        const aliasesData = await aliasesRes.json().catch(() => ({}));
+        setModelAliases(aliasesData.aliases || {});
       }
       setComboStrategies(settingsData.comboStrategies || {});
       const rawAdapter = settingsData.capacityAdapter || {};
@@ -494,12 +503,14 @@ export default function CombosPage() {
           <div className="flex flex-col gap-3">
             {(() => {
               const comboByName = Object.fromEntries(combos.map((c) => [c.name, c.models]));
+              const resolveMember = makeComboMemberResolver(activeProviders, modelAliases);
               return combos.map((combo) => (
                 <ComboCard
                   key={combo.id}
                   combo={combo}
                   getCaps={getCaps}
                   comboByName={comboByName}
+                  resolveMember={resolveMember}
                   activeProviders={activeProviders}
                   copied={copied}
                   onCopy={copy}
@@ -571,14 +582,14 @@ const fmtK = (n) => {
   return `${Math.round(n / 1000)}k`;
 };
 
-function ComboCard({ combo, getCaps, comboByName = {}, activeProviders = [], copied, onCopy, onEdit, onDelete, strategy = {}, onSetStrategy, comboStats = null, selected = false, onToggleSelect }) {
+function ComboCard({ combo, getCaps, comboByName = {}, resolveMember, activeProviders = [], copied, onCopy, onEdit, onDelete, strategy = {}, onSetStrategy, comboStats = null, selected = false, onToggleSelect }) {
   const [showJudgeSelect, setShowJudgeSelect] = useState(false);
   const statsEntry = pickComboEntry(comboStats, combo.name);
   const coverage = comboStats && comboStats.coverage ? comboStats.coverage : null;
   const current = strategy.fallbackStrategy || "fallback";
   const judge = strategy.judgeModel || "";
   const isFusion = current === "fusion";
-  const comboCaps = aggregateComboCapabilities(combo.models, comboByName);
+  const comboCaps = aggregateComboCapabilities(combo.models, comboByName, { resolveMember });
 
   return (
     <Card padding="sm" className={`group ${selected ? "ring-1 ring-primary/40 bg-primary/[0.03]" : ""}`}>
@@ -613,7 +624,7 @@ function ComboCard({ combo, getCaps, comboByName = {}, activeProviders = [], cop
                     <span>{model}</span>
                     <CapacityBadges caps={
                       comboByName[model]
-                        ? aggregateComboCapabilities(comboByName[model], comboByName)
+                        ? aggregateComboCapabilities(comboByName[model], comboByName, { resolveMember })
                         : getCaps?.(model)
                     } />
                   </code>

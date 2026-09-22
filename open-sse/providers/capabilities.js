@@ -312,17 +312,32 @@ PROVIDER_CAPABILITIES["qoder-cn"] = PROVIDER_CAPABILITIES["qoder"];
 export const PATTERN_CAPABILITIES = [
   // ── Claude (4.6+ = adaptive thinking; older/haiku = budget) ──────
   { pattern: "*claude*opus-5*",     caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 } },
-  { pattern: "*claude*opus-4.6*",   caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive" } },
-  { pattern: "*claude*opus-4.7*",   caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive" } },
-  { pattern: "*claude*opus-4.8*",   caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive" } },
-  { pattern: "*claude*sonnet-4.6*", caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive" } },
-  { pattern: "*claude*sonnet-4.7*", caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive" } },
+  // 4.6+ are adaptive with a 1M window, same as their exact MODEL_CAPABILITIES
+  // entries. Both spellings (dot and dash) because dated / -thinking ids of
+  // either form miss the exact table and used to fall to the budget family.
+  { pattern: "*claude*opus-4.6*",    caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 } },
+  { pattern: "*claude*opus-4-6*",    caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 } },
+  { pattern: "*claude*opus-4.7*",    caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 } },
+  { pattern: "*claude*opus-4-7*",    caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 } },
+  { pattern: "*claude*opus-4.8*",    caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 } },
+  { pattern: "*claude*opus-4-8*",    caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 } },
+  { pattern: "*claude*sonnet-4.6*",  caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 } },
+  { pattern: "*claude*sonnet-4-6*",  caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 } },
+  { pattern: "*claude*sonnet-4.7*",  caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 } },
+  { pattern: "*claude*sonnet-4-7*",  caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 } },
+  // Claude 3.x: 3.7 Sonnet introduced (budget) extended thinking; earlier 3.x
+  // have none — sending `thinking` to them is a 400. Must precede the family
+  // patterns below, which would otherwise mark every 3.x as reasoning.
+  { pattern: "*claude-3-7*",    caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget" } },
+  { pattern: "*claude-3.7*",    caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget" } },
+  { pattern: "*claude-3*",      caps: { vision: true, contextWindow: 200000, maxOutput: 8192 } },
   { pattern: "*claude*haiku*",  caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget" } },
   { pattern: "*claude*opus*",   caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget" } },
   { pattern: "*claude*sonnet*", caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget" } },
-  { pattern: "*claude*fable*",  caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget", contextWindow: 1000000, maxOutput: 128000 } },
+  // Fable is adaptive-only and cannot turn thinking off (see the exact
+  // "claude-fable-5-1" entry); dated / dotted ids must not fall to budget.
+  { pattern: "*claude*fable*",  caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 128000 } },
   { pattern: "*claude*mythos*", caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget", contextWindow: 1000000, maxOutput: 128000 } },
-  { pattern: "*claude-3*",      caps: { vision: true } },
   { pattern: "*claude*",        caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget" } },
 
   // ── Gemini (all 2.0+ multimodal + google_search grounding, 1M ctx) ─
@@ -331,6 +346,8 @@ export const PATTERN_CAPABILITIES = [
   { pattern: "*gemini-3.7*",    caps: { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 } },
   { pattern: "*gemini-3*pro*",  caps: { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65535 } },
   { pattern: "*gemini-3*",      caps: { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 } },
+  // 2.5 Pro cannot disable thinking; its budget range is 128–32768 (Flash: 0–24576).
+  { pattern: "*gemini-2.5*pro*", caps: { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingCanDisable: false, thinkingRange: { min: 128, max: 32768 }, contextWindow: 1048576, maxOutput: 65536 } },
   { pattern: "*gemini-2.5*",    caps: { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 0, max: 24576 }, contextWindow: 1048576, maxOutput: 65536 } },
   { pattern: "*gemini-2*",      caps: { vision: true, audioInput: true, videoInput: true, search: true, contextWindow: 1048576, maxOutput: 65536 } },
   { pattern: "*gemini*",        caps: { vision: true, search: true, contextWindow: 1048576 } },
@@ -352,10 +369,13 @@ export const PATTERN_CAPABILITIES = [
   { pattern: "*gpt-oss*",       caps: { reasoning: true, thinkingFormat: "openai", contextWindow: 128000 } },
 
   // ── OpenAI o-series (reasoning, vision) ──────────────────────────
-  { pattern: "*o1-mini*",       caps: { reasoning: true, thinkingFormat: "openai", contextWindow: 128000 } },
-  { pattern: "*o1*",            caps: { vision: true, reasoning: true, thinkingFormat: "openai", contextWindow: 200000, maxOutput: 100000 } },
-  { pattern: "*o3*",            caps: { vision: true, reasoning: true, thinkingFormat: "openai", contextWindow: 200000, maxOutput: 100000 } },
-  { pattern: "*o4*",            caps: { vision: true, reasoning: true, thinkingFormat: "openai", contextWindow: 200000, maxOutput: 100000 } },
+  // Anchored at the start of the model id (the vendor prefix is stripped before
+  // matching): an unanchored *o4* turned any id containing "o4" — qwen-turbo4,
+  // yolo4 — into an OpenAI reasoning model.
+  { pattern: "o1-mini*",        caps: { reasoning: true, thinkingFormat: "openai", contextWindow: 128000 } },
+  { pattern: "o1*",             caps: { vision: true, reasoning: true, thinkingFormat: "openai", contextWindow: 200000, maxOutput: 100000 } },
+  { pattern: "o3*",             caps: { vision: true, reasoning: true, thinkingFormat: "openai", contextWindow: 200000, maxOutput: 100000 } },
+  { pattern: "o4*",             caps: { vision: true, reasoning: true, thinkingFormat: "openai", contextWindow: 200000, maxOutput: 100000 } },
 
   // ── Grok (vision + Live Search) ──────────────────────────────────
   { pattern: "*grok*image*",    caps: { imageOutput: true } },
@@ -461,50 +481,91 @@ export const PATTERN_CAPABILITIES = [
   { pattern: "*ling-*",         caps: { reasoning: true, contextWindow: 128000 } },
 ];
 
+// Combos can list other combos as members; the cap guards a pathological
+// chain, it is not a supported nesting depth.
+const MAX_COMBO_NESTING_DEPTH = 5;
+
+const UNION_KEYS = ["vision", "pdf", "audioInput", "videoInput", "imageOutput", "audioOutput", "search"];
+
+function splitMember(member) {
+  const slash = member.indexOf("/");
+  return slash === -1 ? { provider: null, model: member } : { provider: member.slice(0, slash), model: member.slice(slash + 1) };
+}
+
 /**
- * Aggregate capabilities for a combo from its constituent model IDs.
- * Each entry in comboModels is a fully-qualified "provider/model" string.
+ * Capabilities a combo can advertise, from its members. Single source of truth
+ * for the dashboard and /v1/models; the rules follow how routing behaves:
  *
- * Union:        vision, pdf, audioInput, videoInput, imageOutput, audioOutput, search
- * Intersection: tools
- * Primary:      reasoning fields from the first (primary) model
- * Conservative: contextWindow = min; maxOutput = max
+ *   modalities (vision, pdf, audio, video, image/audio output, search) — UNION:
+ *     the combo auto-switches to a member that has what the request needs.
+ *   tools — INTERSECTION: nothing re-routes a tool call.
+ *   reasoning — ANY: thinking params are adapted per member and stripped for
+ *     members that cannot reason, so a client may always ask for them.
+ *     thinkingFormat / thinkingRange / thinkingEffortSupported come from the
+ *     first reasoning member; thinkingCanDisable only if every reasoning member can.
+ *   contextWindow / maxOutput — MINIMUM over members with known limits: the
+ *     combo may land on any member, so it can only promise what every one
+ *     delivers. Uncatalogued members (DEFAULT floor) are left out unless no
+ *     member has data.
  *
- * @param {string[]} comboModels
- * @param {Object|null} [comboLookup] optional map of combo name → models array for nested resolution
- * @param {number} [_depth] internal recursion depth guard
- * @returns {object|null} full capabilities object, or null for empty input
+ * @param {string[]} comboModels   member strings ("prefix/model", nested combo name, alias)
+ * @param {Object|null} [comboLookup] combo name → members array, for nested combos
+ * @param {Object} [options]
+ * @param {(member: string) => ({provider: string|null, model: string}|null)} [options.resolveMember]
+ *   maps a member string to the provider id + model to look up (connection
+ *   prefixes, model aliases). Default: split on the first "/". null = skip.
+ * @returns {object|null} full capabilities object, or null when no member resolves
  */
-export function aggregateComboCapabilities(comboModels, comboLookup = null, _depth = 0) {
-  if (!comboModels?.length || _depth > 6) return null;
-  const allCaps = comboModels.map((fullId) => {
-    // Nested combo: bare name (no slash) that exists in the lookup — recurse
-    if (!fullId.includes("/") && comboLookup?.[fullId]) {
-      return aggregateComboCapabilities(comboLookup[fullId], comboLookup, _depth + 1)
-          ?? getCapabilitiesForModel(null, fullId);
+export function aggregateComboCapabilities(comboModels, comboLookup = null, options = {}) {
+  return aggregate(comboModels, comboLookup, options.resolveMember || splitMember, 0, new Set());
+}
+
+function aggregate(comboModels, comboLookup, resolveMember, depth, visited) {
+  if (!Array.isArray(comboModels) || comboModels.length === 0 || depth >= MAX_COMBO_NESTING_DEPTH) return null;
+
+  const members = []; // { caps, limitsKnown }
+  for (const raw of comboModels) {
+    if (typeof raw !== "string" || !raw.trim()) continue;
+    const member = raw.trim();
+    if (!member.includes("/") && comboLookup?.[member]) {
+      // Nested combo. `visited` holds the current chain only, so a combo reached
+      // twice by different paths still counts — only a cycle is cut.
+      if (visited.has(member)) continue;
+      visited.add(member);
+      const nested = aggregate(comboLookup[member], comboLookup, resolveMember, depth + 1, visited);
+      visited.delete(member);
+      if (nested) members.push({ caps: nested, limitsKnown: nested.limitsKnown });
+      continue;
     }
-    const slash = fullId.indexOf("/");
-    const provider = slash === -1 ? null : fullId.slice(0, slash);
-    const model = slash === -1 ? fullId : fullId.slice(slash + 1);
-    return getCapabilitiesForModel(provider, model);
-  });
-  const first = allCaps[0];
-  return {
-    vision:      allCaps.some((c) => c.vision),
-    pdf:         allCaps.some((c) => c.pdf),
-    audioInput:  allCaps.some((c) => c.audioInput),
-    videoInput:  allCaps.some((c) => c.videoInput),
-    imageOutput: allCaps.some((c) => c.imageOutput),
-    audioOutput: allCaps.some((c) => c.audioOutput),
-    search:      allCaps.some((c) => c.search),
-    tools:       allCaps.every((c) => c.tools),
-    reasoning:          first.reasoning,
-    thinkingFormat:     first.thinkingFormat,
-    thinkingCanDisable: first.thinkingCanDisable,
-    thinkingRange:      first.thinkingRange,
-    contextWindow: Math.min(...allCaps.map((c) => c.contextWindow)),
-    maxOutput:     Math.max(...allCaps.map((c) => c.maxOutput)),
-  };
+    const target = resolveMember(member);
+    if (!target?.model) continue;
+    members.push(lookupCapabilities(target.provider, target.model));
+  }
+  if (members.length === 0) return null;
+
+  const all = members.map((m) => m.caps);
+  const merged = { ...DEFAULT_CAPABILITIES };
+  for (const key of UNION_KEYS) merged[key] = all.some((c) => c[key] === true);
+  merged.tools = all.every((c) => c.tools !== false);
+
+  const reasoners = all.filter((c) => c.reasoning);
+  merged.reasoning = reasoners.length > 0;
+  if (merged.reasoning) {
+    const primary = reasoners[0];
+    merged.thinkingFormat = primary.thinkingFormat;
+    merged.thinkingRange = primary.thinkingRange;
+    merged.thinkingEffortSupported = primary.thinkingEffortSupported;
+    merged.thinkingCanDisable = reasoners.every((c) => c.thinkingCanDisable !== false);
+  }
+
+  const known = members.filter((m) => m.limitsKnown);
+  const limitSource = (known.length > 0 ? known : members).map((m) => m.caps);
+  merged.contextWindow = Math.min(...limitSource.map((c) => c.contextWindow));
+  merged.maxOutput = Math.min(...limitSource.map((c) => c.maxOutput));
+
+  // Carried for nested combos; not part of the public shape.
+  Object.defineProperty(merged, "limitsKnown", { value: known.length > 0, enumerable: false });
+  return merged;
 }
 
 /**
@@ -547,6 +608,7 @@ function getCatalogSource() {
 // flips when an outside source positively declares support.
 function refine(base, provider, model) {
   const result = { ...DEFAULT_CAPABILITIES, ...base };
+  let limitsKnown = Number.isFinite(base?.contextWindow);
 
   const source = getCatalogSource();
   if (source) {
@@ -559,14 +621,14 @@ function refine(base, provider, model) {
 
     const limits = source.getLimits(provider, model);
     if (limits) {
-      if (limits.contextWindow > 0) result.contextWindow = limits.contextWindow;
+      if (limits.contextWindow > 0) { result.contextWindow = limits.contextWindow; limitsKnown = true; }
       if (limits.maxOutput > 0) result.maxOutput = limits.maxOutput;
     }
   }
 
   if (!result.vision && looksLikeVisionModel(model)) result.vision = true;
 
-  return result;
+  return { caps: result, limitsKnown };
 }
 
 // Mirrors Command Code CLI `isKnownTextOnlyModel` (no image input). New models
@@ -607,7 +669,20 @@ function isCommandCodeTextOnly(model) {
   return false;
 }
 export function getCapabilitiesForModel(provider, model) {
-  if (!model) return { ...DEFAULT_CAPABILITIES };
+  return lookupCapabilities(provider, model).caps;
+}
+
+// Whether contextWindow/maxOutput come from real data (a table entry, a
+// pattern that declares them, or the synced catalog) rather than the
+// DEFAULT_CAPABILITIES floor. Combos use it so an uncatalogued member does not
+// drag the advertised window down to the 200k guess.
+export function hasKnownLimits(provider, model) {
+  return lookupCapabilities(provider, model).limitsKnown;
+}
+
+function lookupCapabilities(provider, model) {
+  const exact = (entry) => ({ caps: { ...DEFAULT_CAPABILITIES, ...entry }, limitsKnown: Number.isFinite(entry.contextWindow) });
+  if (!model) return { caps: { ...DEFAULT_CAPABILITIES }, limitsKnown: false };
 
   // Canonical exact lookup strips vendor prefix: "anthropic/claude-opus-4.7" -> "claude-opus-4.7".
   const baseModel = model.includes("/") ? model.split("/").pop() : model;
@@ -616,29 +691,28 @@ export function getCapabilitiesForModel(provider, model) {
   // (deepseek-v4 → thinkingFormat:deepseek, vision:false) must not win here.
   if (provider === "commandcode" || provider === "cmc") {
     const providerCaps = PROVIDER_CAPABILITIES.commandcode;
-    if (providerCaps?.[model]) return { ...DEFAULT_CAPABILITIES, ...providerCaps[model] };
-    if (providerCaps?.[baseModel]) return { ...DEFAULT_CAPABILITIES, ...providerCaps[baseModel] };
-    return {
-      ...DEFAULT_CAPABILITIES,
+    if (providerCaps?.[model]) return exact(providerCaps[model]);
+    if (providerCaps?.[baseModel]) return exact(providerCaps[baseModel]);
+    return exact({
       reasoning: true,
       thinkingFormat: "commandcode",
       thinkingEffortSupported: true,
       vision: !isCommandCodeTextOnly(model),
       contextWindow: 1000000,
       maxOutput: 384000,
-    };
+    });
   }
 
   // 1. Provider-specific override
   if (provider) {
     const providerCaps = PROVIDER_CAPABILITIES[provider];
-    if (providerCaps?.[model]) return { ...DEFAULT_CAPABILITIES, ...providerCaps[model] };
-    if (providerCaps?.[baseModel]) return { ...DEFAULT_CAPABILITIES, ...providerCaps[baseModel] };
+    if (providerCaps?.[model]) return exact(providerCaps[model]);
+    if (providerCaps?.[baseModel]) return exact(providerCaps[baseModel]);
   }
 
   // 2. Canonical exact
-  if (MODEL_CAPABILITIES[baseModel]) return { ...DEFAULT_CAPABILITIES, ...MODEL_CAPABILITIES[baseModel] };
-  if (MODEL_CAPABILITIES[model]) return { ...DEFAULT_CAPABILITIES, ...MODEL_CAPABILITIES[model] };
+  if (MODEL_CAPABILITIES[baseModel]) return exact(MODEL_CAPABILITIES[baseModel]);
+  if (MODEL_CAPABILITIES[model]) return exact(MODEL_CAPABILITIES[model]);
 
   // 3. Pattern match (first match wins), refined by catalog + name heuristic
   for (const { pattern, caps } of PATTERN_CAPABILITIES) {

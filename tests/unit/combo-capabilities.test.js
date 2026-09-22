@@ -109,13 +109,25 @@ describe("aggregateComboCapabilities — context/output limits", () => {
     expect(caps.contextWindow).toBe(262144);
   });
 
-  it("maxOutput is the maximum across all models", () => {
-    // mimo-v2.5: 131072; kimi-k2.5 (*kimi*k2* pattern): 262144
+  it("maxOutput is the minimum across all models", () => {
+    // mimo-v2.5: 131072; kimi-k2.5 (*kimi*k2* pattern): 262144. Was the MAX,
+    // which promised output the fallback member cannot produce.
     const caps = aggregateComboCapabilities([
       "opencode-go/mimo-v2.5",
       "opencode-go/kimi-k2.5",
     ]);
-    expect(caps.maxOutput).toBe(262144);
+    expect(caps.maxOutput).toBe(131072);
+  });
+
+  it("an uncatalogued member does not drag limits down to the 200k default", () => {
+    const caps = aggregateComboCapabilities(["claude/claude-sonnet-5", "custom/some-unknown-model-zz"]);
+    expect(caps.contextWindow).toBe(1000000);
+    expect(caps.maxOutput).toBe(128000);
+  });
+
+  it("falls back to the default floor when no member has known limits", () => {
+    const caps = aggregateComboCapabilities(["custom/unknown-a-zz", "custom/unknown-b-zz"]);
+    expect(caps.contextWindow).toBe(200000);
   });
 });
 
@@ -151,5 +163,43 @@ describe("aggregateComboCapabilities — nested combo resolution via comboLookup
     const caps = aggregateComboCapabilities(["deepseek-v4-pro-fusion"]);
     expect(caps.reasoning).toBe(true);
     expect(caps.vision).toBe(false);
+  });
+});
+
+describe("aggregateComboCapabilities — reasoning", () => {
+  it("reasoning is advertised when any member reasons (params are stripped per member)", () => {
+    const caps = aggregateComboCapabilities(["openai/gpt-4o-mini", "claude/claude-sonnet-5"]);
+    expect(caps.reasoning).toBe(true);
+    expect(caps.thinkingFormat).toBe("claude-adaptive"); // first REASONING member
+  });
+
+  it("thinkingCanDisable is false if any reasoning member cannot disable", () => {
+    const caps = aggregateComboCapabilities(["claude/claude-sonnet-5", "claude/claude-fable-5-1"]);
+    expect(caps.thinkingCanDisable).toBe(false);
+  });
+
+  it("no reasoning member → reasoning false and neutral thinking fields", () => {
+    const caps = aggregateComboCapabilities(["openai/gpt-4o-mini"]);
+    expect(caps.reasoning).toBe(false);
+    expect(caps.thinkingFormat).toBeNull();
+  });
+});
+
+describe("aggregateComboCapabilities — member resolution", () => {
+  it("uses resolveMember to map connection prefixes and aliases", () => {
+    const resolveMember = (m) => (m === "fast" ? { provider: "claude", model: "claude-sonnet-5" }
+      : m.startsWith("myprefix/") ? { provider: "openai", model: m.slice(9) } : null);
+    const caps = aggregateComboCapabilities(["fast", "myprefix/gpt-4o-mini", "bare-provider"], null, { resolveMember });
+    expect(caps.reasoning).toBe(true);
+    expect(caps.contextWindow).toBe(128000);
+  });
+
+  it("returns null when no member resolves", () => {
+    expect(aggregateComboCapabilities(["x"], null, { resolveMember: () => null })).toBeNull();
+  });
+
+  it("limitsKnown is not part of the public shape", () => {
+    const caps = aggregateComboCapabilities(["claude/claude-sonnet-5"]);
+    expect(Object.keys(caps)).not.toContain("limitsKnown");
   });
 });
