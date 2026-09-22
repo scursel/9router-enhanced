@@ -20,8 +20,8 @@ const PERSONA = "You are Claude Code, Anthropic's official CLI for Claude.";
 
 // The two credential shapes the engine actually sees: a plain API key (generic
 // Anthropic / Anthropic-compatible) and an OAuth token (claude-oauth account).
-const API_KEY_CREDS = { apiKey: "sk-ant-api03-generic-key" };
-const OAUTH_CREDS = { accessToken: "sk-ant-oat01-personal-account-token" };
+const API_KEY_CREDS = { apiKey: "sk-ant-api03-generic-key" }; // secret-scan:allow (fake fixture)
+const OAUTH_CREDS = { accessToken: "sk-ant-oat01-personal-account-token" }; // secret-scan:allow (fake fixture)
 
 function systemBlocks(out) {
   if (Array.isArray(out.system)) return out.system;

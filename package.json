@@ -16,7 +16,8 @@
     "cli:pack": "npm --prefix cli run pack:cli",
     "precli:pack": "node scripts/cutover-guard.mjs pre",
     "cli:publish": "npm --prefix cli run publish:cli",
-    "cutover:verify": "node scripts/cutover-guard.mjs verify"
+    "cutover:verify": "node scripts/cutover-guard.mjs verify",
+    "prepare": "node scripts/install-hooks.mjs || exit 0"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

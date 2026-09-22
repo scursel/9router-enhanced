@@ -7,11 +7,12 @@
 //   new commits.
 //
 // Usage:
-//   node scripts/check-no-secrets.mjs            # scan STAGED additions (pre-commit mode)
-//   node scripts/check-no-secrets.mjs <path>...  # scan files/dirs before staging
+//   node scripts/check-no-secrets.mjs                   # scan STAGED additions (pre-commit mode)
+//   node scripts/check-no-secrets.mjs --range A..B      # scan additions between two commits (CI)
+//   node scripts/check-no-secrets.mjs <path>...         # scan files/dirs before staging
 //
-// Install as the local pre-commit hook (hooks are not versioned by git):
-//   ln -sf ../../scripts/check-no-secrets.mjs .git/hooks/pre-commit
+// The pre-commit hook is installed by `npm install` (prepare ->
+// scripts/install-hooks.mjs); CI runs --range on every push/PR as the backstop.
 //
 // False positive? Fix the allowlist below IN THE SAME COMMIT (auditable) —
 // there is deliberately no env-var bypass. Lines containing
@@ -38,7 +39,12 @@ const CONTENT_PATTERNS = [
   { re: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b/, label: "GitHub token" },
   { re: /\bgithub_pat_[A-Za-z0-9_]{22,}\b/, label: "GitHub fine-grained PAT" },
   { re: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/, label: "Slack token" },
-  { re: /\bglpat-[A-Za-z0-9_-]{20,}\b/, label: "GitLab PAT" },
+  {
+    re: /\bglpat-[A-Za-z0-9_-]{20,}\b/,
+    label: "GitLab PAT",
+    // UI placeholders / fixtures use the documented fake shape `glpat-xxx…`.
+    allow: (line) => !/\bglpat-(?!x+\b)[A-Za-z0-9_-]{20,}/.test(line),
+  },
   {
     re: /\bAIza[0-9A-Za-z_-]{35}\b/,
     label: "Google API key",
@@ -57,6 +63,8 @@ const CONTENT_PATTERNS = [
       return m[1].replace(/\\n/g, "").trim().length <= 4;
     },
   },
+  // .npmrc registry credentials (the file itself is fine: tests/.npmrc only sets flags).
+  { re: /(?:^|:)_(?:authToken|auth|password)\s*=\s*\S/, label: "npm registry credential" },
   { re: /\beyJ[A-Za-z0-9_-]{15,}\.eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}\b/, label: "JWT / signed token" },
   {
     // A real-looking value assigned to one of the app's own secret env names.
@@ -74,11 +82,11 @@ const FILENAME_RULES = [
   },
   { re: /(?:^|\/)\.env(?:\.[^/]*)?$/, skip: /(^|\/)\.env\.example$/, label: ".env file (only .env.example may be tracked)" },
   { re: /(?:^|\/)(?:jwt-secret|machine-id)$/, label: "credential state file (DATA_DIR state)" },
-  { re: /\.(?:sqlite|sqlite3|db)$/, label: "database file" },
+  // SQLite sidecars (-wal/-shm/-journal) hold committed pages too.
+  { re: /\.(?:sqlite3?|db)(?:-(?:wal|shm|journal))?$/, label: "database file" },
   { re: /\.pem$|\.key$|(?:^|\/)id_rsa(?:\..*)?$|(?:^|\/)id_ed25519(?:\..*)?$|\.p12$|\.pfx$|\.jks$|\.keystore$/, label: "key material" },
   { re: /(?:^|\/)\.build-home\//, label: "CLI build HOME state (contains jwt-secret/machine-id/db)" },
   { re: /(?:^|\/)usage\.json$|(?:^|\/)log\.txt$/, label: "runtime state under ~/.9router" },
-  { re: /(?:^|\/)\.npmrc$/, label: ".npmrc — must not carry _authToken/registry credentials" },
 ];
 
 const violations = [];
@@ -90,7 +98,8 @@ function sh(cmd, args) {
 }
 
 function checkFilename(relPath) {
-  const p = relPath.replaceAll("\\", "/");
+  // Lowercased: `Backup.TGZ` / `id_rsa.PEM` must not slip past the rules.
+  const p = relPath.replaceAll("\\", "/").toLowerCase();
   for (const rule of FILENAME_RULES) {
     if (rule.skip && rule.skip.test(p)) continue;
     if (rule.re.test(p)) {
@@ -129,37 +138,37 @@ function walkFiles(p) {
   return [p];
 }
 
-// ---------- staged mode ----------
-function scanStaged() {
-  const files = sh("git", ["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
+// ---------- diff mode (staged / commit range) ----------
+// `diffArgs` selects what to compare: ["--cached"] or ["A", "B"].
+function scanDiff(diffArgs, emptyMsg) {
+  const files = sh("git", ["diff", ...diffArgs, "--name-only", "--diff-filter=ACMR"])
     .split("\n")
     .map((s) => s.trim())
     .filter(Boolean);
   if (files.length === 0) {
-    console.log("check-no-secrets: nothing staged — clean.");
+    console.log(`check-no-secrets: ${emptyMsg} — clean.`);
     quiet = true;
     return;
   }
 
   for (const f of files) checkFilename(f);
 
-  // Added lines only, with real line numbers, parsed from `git diff --cached -U0`.
-  const diff = sh("git", ["diff", "--cached", "--unified=0"]);
+  // Binary files: numstat reports "-\t-\tpath". Taken from here rather than the
+  // patch because a binary diff carries no `+++ b/` line to name the file.
+  // -z avoids path quoting; --no-renames keeps one path per record.
+  const numstat = sh("git", ["diff", ...diffArgs, "--numstat", "-z", "--no-renames", "--diff-filter=ACM"]);
+  for (const rec of numstat.split("\0")) {
+    const m = rec.match(/^-\t-\t(.+)$/s);
+    if (m) warnings.push(`${m[1]}: binary file — content not scannable, review it manually`);
+  }
+
+  // Added lines only, with real line numbers, parsed from `git diff -U0`.
+  const diff = sh("git", ["diff", ...diffArgs, "--unified=0"]);
   let current = null;
   let addLine = 0;
-  let binary = false;
-  const flushBinary = () => {
-    if (binary && current) warnings.push(`${current}: binary file staged — content not scannable, review it manually`);
-    binary = false;
-  };
   for (const raw of diff.split("\n")) {
     if (raw.startsWith("diff --git")) {
-      flushBinary();
       current = null;
-      continue;
-    }
-    if (raw.startsWith("Binary files") || raw.startsWith("GIT binary patch")) {
-      binary = true;
       continue;
     }
     if (raw.startsWith("+++ b/")) {
@@ -168,7 +177,6 @@ function scanStaged() {
     }
     const hunk = raw.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
     if (hunk) {
-      flushBinary();
       addLine = parseInt(hunk[1], 10);
       continue;
     }
@@ -176,12 +184,10 @@ function scanStaged() {
     if (raw.startsWith("+")) {
       scanText(current, [raw.slice(1)], addLine);
       addLine++;
-    } else if (raw.startsWith("-") || raw.startsWith(" ")) {
-      // context/deleted lines don't advance the new-file line counter
-      if (raw.startsWith(" ")) addLine++;
+    } else if (raw.startsWith(" ")) {
+      addLine++; // context lines advance the new-file counter; deletions don't
     }
   }
-  flushBinary();
 }
 
 // ---------- explicit paths mode ----------
@@ -207,8 +213,16 @@ function scanPaths(paths) {
 
 // ---------- main ----------
 const args = process.argv.slice(2);
-if (args.length > 0) scanPaths(args);
-else scanStaged();
+if (args[0] === "--range") {
+  const range = args[1] || "";
+  const [from, to] = range.split("..");
+  if (!from || !to) {
+    console.error("check-no-secrets: --range needs A..B");
+    process.exit(2);
+  }
+  scanDiff([from, to], `nothing added in ${range}`);
+} else if (args.length > 0) scanPaths(args);
+else scanDiff(["--cached"], "nothing staged");
 
 if (warnings.length) {
   console.warn("check-no-secrets: warnings");
