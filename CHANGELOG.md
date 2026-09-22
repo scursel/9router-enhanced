@@ -1,3 +1,17 @@
+# v0.5.85-enhanced.2 (2026-09-22)
+
+Combo reasoning/context review. Each fix ships with a test that was red before it.
+
+## Fixes
+- **Combo attempts no longer share nested request state** (`src/sse/handlers/chat.js`). Every attempt, whether the next account or the next combo member, got a shallow `{ ...body }`, so chatCore's in-place normalizers leaked from one attempt into the next. A non-vision member that failed left `[Previous image omitted]` for the vision fallback. `prepareClaudeRequest`'s unsigned thinking placeholder reached a later `cc/` member (Anthropic 400), and `cache_control` breakpoints and Gemini `thinkingConfig` were lost. Each attempt now gets a `structuredClone`. Fusion panel calls are covered by the same path.
+- **Adaptive thinking no longer sends `reasoning_effort:"auto"`** to OpenAI-format and StepFun members (`thinkingUnified.js`). Neither enum has `auto`, so a Claude Code combo falling back to gpt-5/openrouter/grok/step got a 400. The field is now omitted and the upstream default applies.
+- **claude-adaptive maps `minimal` → `low`**. Anthropic's effort enum starts at `low`. `minimal` came from clients, from small budgets, and from `none` on models that cannot disable thinking (Fable 5.1).
+- **Provider thinking override: legacy `on`/`off` never become `reasoning_effort`**. When the client already sent `thinking` (Claude Code always does), the old `else` branch shipped `reasoning_effort:"on"`. The logic moved to `open-sse/handlers/chatCore/providerThinking.js`, where it is testable.
+- **Capacity-adapter history trimming** (`open-sse/services/capacityAdapter.js`, `stripHistoryForContext`):
+  - Leaves the conversation untouched when it fits the adapter model's window. Before, anything longer than 6 messages was always cut, even with 1M tokens free.
+  - When it must trim, it keeps the latest assistant turn with its trailing results and fills in recent turns, not just the head.
+  - Cut edges never split a tool call from its result. Before, an orphaned `tool` result reached the vision fallback as a 400.
+
 # v0.5.85-enhanced.1 (2026-09-22 — upstream v0.5.85 sync)
 
 Merged upstream `v0.5.85` (37 commits). Every place where fork and upstream built the same thing was compared; the official implementation was adopted where it is equal or better, fork-only functionality was kept.
