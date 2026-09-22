@@ -37,7 +37,10 @@ jobs:
       - name: Add .nojekyll
         run: touch out/.nojekyll
 
+      # The target site and its deploy key belong to upstream; forks still
+      # build (catches broken docs) but never deploy.
       - name: Deploy to 9router.github.io
+        if: github.repository == 'decolua/9router'
         uses: peaceiris/actions-gh-pages@v4
         with:
           deploy_key: ${{ secrets.GH_PAGES_DEPLOY_KEY }}
