@@ -1,3 +1,35 @@
+# v0.5.85-enhanced.3 (2026-09-22)
+
+Second half of the combo reasoning/context review, plus the docs build. Each fix ships with a test that was red before it.
+
+## Combo capabilities (what clients and the dashboard are told)
+- **One merge for dashboard and `/v1/models`.** The dashboard took reasoning from the first member and the MAX output. `/v1/models` required every member to reason and took the MIN. So `[claude-sonnet-5, gpt-4o-mini]` showed "reasoning, max 128k" in the UI while clients got "no reasoning, max 16k".
+  - Both now call `aggregateComboCapabilities` with a shared member resolver (`src/shared/utils/comboMemberResolver.js`: connection prefixes, static aliases, model aliases).
+  - Rules follow routing:
+    - modalities are a union (auto-switch);
+    - tools are an intersection;
+    - reasoning is advertised if any member reasons (thinking params are adapted or stripped per member);
+    - context and output limits take the **minimum over members with known limits**.
+  - An uncatalogued member no longer drags `context_length` down to the 200k default.
+
+## Capability table
+- Claude 3.x before 3.7 is no longer marked as reasoning. Sending it `thinking` was a 400.
+- Dash-form and dated Claude 4.6+ ids and Fable ids resolve as adaptive with 1M/128k, instead of falling to the budget family at 200k/64k.
+- `gemini-2.5-pro`: thinking cannot be disabled, budget range 128–32768.
+- `o1`/`o3`/`o4` patterns are anchored at the start of the id. `qwen-turbo4` and `yolo4` were being treated as OpenAI reasoning models.
+
+## Routing
+- **Fusion**:
+  - Panel and judge calls now keep the cyclic-combo guard. A fusion combo listing itself used to expand until it ran out of memory.
+  - A failing judge (context overflow, 5xx, throw) falls back to a successful panel answer instead of discarding the panel.
+  - Gemini `thought` parts and Responses reasoning items no longer reach the judge as answers.
+- **`[1m]` / 1M context**: the claude executor rebuilt `anthropic-beta` from a fixed list, so the client's `context-1m-*` flag never reached Anthropic. It is now forwarded for opus/sonnet targets.
+- **Member thinking suffix on passthrough** (`cc/claude-opus(high)`, `gemini-cli/…(8192)`) is now applied for every provider. Before, only Codex applied it.
+- **Output tokens are clamped to the target model's documented maximum** for every format (`max_tokens`, `max_completion_tokens`, `max_output_tokens`, `generationConfig.maxOutputTokens`). A fallback from Opus (128k) to gpt-4o (16k) no longer gets a 400. Uncatalogued models are left alone.
+
+## Docs
+- The GitBook build failed on every push (`useEffect is not defined` in `LanguageSwitcher`, left half-refactored by upstream `d29b19bc`). The deploy step, which targets upstream's `9router.github.io` with upstream's key, is now skipped on forks.
+
 # v0.5.85-enhanced.2 (2026-09-22)
 
 Combo reasoning/context review. Each fix ships with a test that was red before it.
