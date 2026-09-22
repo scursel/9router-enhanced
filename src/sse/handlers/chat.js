@@ -82,7 +82,7 @@ export async function handleChat(request, clientRawRequest = null) {
   }
   // Claude Code marks a 1M-context request as `<model>[1m]`; the marker matches
   // no combo, alias or provider/model pair, so it must not reach resolution.
-  // The capability travels in the anthropic-beta header, forwarded as-is.
+  // The capability travels in the anthropic-beta header (see selectAnthropicBeta).
   const { model: modelStr, contextMarker } = stripModelContextMarker(body.model);
   if (contextMarker) body.model = modelStr;
 

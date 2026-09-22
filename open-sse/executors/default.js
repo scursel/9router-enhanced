@@ -183,7 +183,7 @@ export class DefaultExecutor extends BaseExecutor {
     const isClaudeModel = typeof model === "string" && /^claude-/.test(model);
     if (model && (this.provider === "claude"
       || (this.provider?.startsWith?.("anthropic-compatible-") && isClaudeModel))) {
-      headers["Anthropic-Beta"] = selectAnthropicBeta(model, body);
+      headers["Anthropic-Beta"] = selectAnthropicBeta(model, body, credentials?.rawHeaders?.["anthropic-beta"]);
     }
 
     // Strip first-party Claude Code identity headers for non-Anthropic anthropic-compatible upstreams

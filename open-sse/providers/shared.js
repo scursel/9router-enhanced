@@ -71,9 +71,22 @@ export function wantsThinkingSummaries(body) {
   return body?.thinking?.display === "summarized";
 }
 
-export function selectAnthropicBeta(model = "", body = null) {
+// The long-context beta is a client choice (Claude Code's `[1m]` toggle sends
+// it alongside the `<model>[1m]` marker chat.js strips), so it is taken from
+// the client's own anthropic-beta header rather than the fixed list — and only
+// for opus/sonnet, the families that accept it; in a combo the member serving
+// the request may not be the model the client toggled 1M for.
+const CLIENT_CONTEXT_BETA = /^context-1m-/;
+
+export function selectAnthropicBeta(model = "", body = null, clientBeta = "") {
   const flags = ANTHROPIC_BETA_BASE.filter((flag) => flag !== ANTHROPIC_BETA_REDACT_THINKING || !wantsThinkingSummaries(body));
-  if (/^claude-(opus|sonnet)/.test(model)) flags.push(...ANTHROPIC_BETA_HEAVY_AGENT);
+  const heavy = /^claude-(opus|sonnet)/.test(model);
+  if (heavy) flags.push(...ANTHROPIC_BETA_HEAVY_AGENT);
+  if (heavy && typeof clientBeta === "string") {
+    for (const flag of clientBeta.split(",").map((f) => f.trim())) {
+      if (CLIENT_CONTEXT_BETA.test(flag) && !flags.includes(flag)) flags.push(flag);
+    }
+  }
   return flags.join(",");
 }
 

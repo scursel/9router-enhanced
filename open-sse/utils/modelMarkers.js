@@ -5,8 +5,10 @@
 // carries it dies at model resolution with "Invalid model format".
 //
 // The capability itself travels in the `anthropic-beta: context-1m-2025-08-07`
-// header, which is forwarded untouched — stripping the marker is enough to let
-// the request route normally and still reach the upstream as a 1M request.
+// header. The claude executor rebuilds anthropic-beta from its own list and
+// re-adds the client's context-1m flags for opus/sonnet targets
+// (selectAnthropicBeta in providers/shared.js), so stripping the marker is
+// enough to let the request route normally and still reach the upstream as 1M.
 
 const CONTEXT_MARKER = /\[1m\]$/i;
 
