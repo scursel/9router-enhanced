@@ -139,14 +139,7 @@ export async function handleChat(request, clientRawRequest = null) {
       return handleFusionChat({
         body,
         models: comboModels,
-        handleSingleModel: (b, m, isPanel) => {
-          let cleanRawReq = clientRawRequest;
-          if (isPanel && clientRawRequest) {
-            const { tools, tool_choice, ...cleanBody } = clientRawRequest.body || {};
-            cleanRawReq = { ...clientRawRequest, body: cleanBody };
-          }
-          return handleSingleModelChat(b, m, cleanRawReq, request, apiKey);
-        },
+        handleSingleModel: fusionMemberHandler(clientRawRequest, request, apiKey, [modelStr]),
         log,
         comboName: modelStr,
         judgeModel: comboStrategies[modelStr]?.judgeModel,
@@ -205,6 +198,21 @@ export async function handleChat(request, clientRawRequest = null) {
   return handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey);
 }
 
+// Panel/judge dispatcher for a fusion combo. Carries the chain of combos
+// already expanded so the cyclic-combo guard in handleSingleModelChat still
+// sees it (a fresh scratch per call: parallel panel calls stamp their own
+// account on it). No comboName, so fusion calls write no combo usage line.
+function fusionMemberHandler(clientRawRequest, request, apiKey, comboPath) {
+  return (b, m, isPanel) => {
+    let cleanRawReq = clientRawRequest;
+    if (isPanel && clientRawRequest) {
+      const { tools, tool_choice, ...cleanBody } = clientRawRequest.body || {};
+      cleanRawReq = { ...clientRawRequest, body: cleanBody };
+    }
+    return handleSingleModelChat(b, m, cleanRawReq, request, apiKey, { comboPath });
+  };
+}
+
 /**
  * Handle single model chat request
  */
@@ -246,14 +254,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         return handleFusionChat({
           body,
           models: comboModels,
-          handleSingleModel: (b, m, isPanel) => {
-            let cleanRawReq = clientRawRequest;
-            if (isPanel && clientRawRequest) {
-              const { tools, tool_choice, ...cleanBody } = clientRawRequest.body || {};
-              cleanRawReq = { ...clientRawRequest, body: cleanBody };
-            }
-            return handleSingleModelChat(b, m, cleanRawReq, request, apiKey);
-          },
+          handleSingleModel: fusionMemberHandler(clientRawRequest, request, apiKey, [...comboPath, modelStr]),
           log,
           comboName: modelStr,
           judgeModel: comboStrategies[modelStr]?.judgeModel,

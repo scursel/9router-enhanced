@@ -522,16 +522,18 @@ function extractPanelText(json) {
   const claudeText = extractTextContent(json.content);
   if (claudeText.trim()) return claudeText;
 
-  // Gemini (parts carry .text without a type discriminator)
+  // Gemini (parts carry .text without a type discriminator; thought:true parts
+  // are the model's reasoning, not its answer)
   const parts = json.candidates?.[0]?.content?.parts;
   if (Array.isArray(parts)) {
-    const t = parts.map((p) => p?.text || "").join("");
+    const t = parts.map((p) => (p?.thought ? "" : p?.text || "")).join("");
     if (t.trim()) return t;
   }
 
-  // OpenAI Responses API
+  // OpenAI Responses API — only message items; reasoning items can carry text too
   if (Array.isArray(json.output)) {
     const t = json.output
+      .filter((o) => o?.type === "message" || (o?.type === undefined && o?.role === "assistant"))
       .flatMap((o) => (Array.isArray(o.content) ? o.content.map((c) => c?.text || "") : []))
       .join("");
     if (t.trim()) return t;
@@ -740,5 +742,20 @@ export async function handleFusionChat({ body, models, handleSingleModel, log, c
   // 4. Judge analyzes + writes one final answer (streams to client if requested).
   const judgeBody = appendUserTurn(body, buildJudgePrompt(answers));
   log.info("FUSION", `Judging ${answers.length} answers with ${judge}`);
-  return handleSingleModel(judgeBody, judge);
+  let judgeError = null;
+  try {
+    const judged = await handleSingleModel(judgeBody, judge);
+    if (judged?.ok !== false) return judged;
+    judgeError = `status ${judged.status}`;
+  } catch (e) {
+    judgeError = e?.message || String(e);
+  }
+
+  // The judge prompt is the whole conversation plus every answer, so it is the
+  // call most likely to overflow a context window. Don't throw the panel away:
+  // answer directly with a panel model that already succeeded (prefer one that
+  // is not the failed judge), exactly like the lone-survivor path above.
+  const fallback = answers.find((a) => a.model !== judge) || answers[0];
+  log.warn("FUSION", `Judge ${judge} failed (${judgeError}) — answering directly with ${fallback.model}`);
+  return handleSingleModel(body, fallback.model);
 }
