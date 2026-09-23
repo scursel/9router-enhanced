@@ -21,12 +21,19 @@ function loadJwtSecret() {
   return generated;
 }
 
-const SECRET = new TextEncoder().encode(loadJwtSecret());
+const JWT_SECRET_VALUE = loadJwtSecret();
+const SECRET = new TextEncoder().encode(JWT_SECRET_VALUE);
+
+// Shared only by server-side session signers (e.g. MiMo login cookies).
+export function getDashboardSessionSigningSecret() {
+  return JWT_SECRET_VALUE;
+}
 
 export function shouldUseSecureCookie(request) {
   const forceSecureCookie = process.env.AUTH_COOKIE_SECURE === "true";
-  const forwardedProto = request?.headers?.get?.("x-forwarded-proto");
-  const isHttpsRequest = forwardedProto === "https";
+  const forwardedProto = request?.headers?.get?.("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  const requestProtocol = request?.nextUrl?.protocol || request?.url && new URL(request.url).protocol;
+  const isHttpsRequest = forwardedProto === "https" || requestProtocol === "https:";
   return forceSecureCookie || isHttpsRequest;
 }
 

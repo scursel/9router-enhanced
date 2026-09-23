@@ -1,3 +1,14 @@
+# v0.5.86-enhanced.1 (2026-09-23 — upstream v0.5.86 sync)
+
+Merged upstream `v0.5.86` (3 feature/fix commits plus release). Adopted official MiMo desktop login by server/cluster and v2.6 routes, Claude Opus 5.5 and CLI fingerprint, lossless proxy-pool headers, and the i18n mutation-observer fix. Enhanced-only behavior remains, including Claude 1M beta forwarding, stricter dashboard guard rules, secret scanning, combo/routing fixes, and CLI packaging safeguards. The imported MiMo proxy was also hardened so an empty server-side cookie jar never falls back to forwarding browser cookies upstream; redirects remain on the same-origin proxy; cookies are host/domain scoped across account and regional servers; unapproved redirect hosts and insecure downgrade redirects are rejected; HTTPS/session state is signed and Secure; and diagnostics no longer log upstream SSO bodies or browser cookie values.
+
+## Upstream v0.5.86
+- **Xiaomi MiMo**: server-assisted desktop login for headless/Docker deployments, five account clusters (cn/sgp/ams/ru/in), and v2.6 pro/flash/pro-ultraspeed models with dual-route (account service vs. cloud API).
+- **Claude**: add Claude Opus 5.5 support; update CLI fingerprint to 2.1.280.
+- **i18n**: translate React text rewrites via characterData mutation observer.
+- **Proxy Pools**: preserve request headers through Vercel/Cloudflare/Deno relays.
+- **MiMo login security**: keep session in the httpOnly cookie, require dashboard auth on the proxy branch, and stop forwarding authorization headers upstream.
+
 # v0.5.85-enhanced.3 (2026-09-22)
 
 Second half of the combo reasoning/context review, plus the docs build. Each fix ships with a test that was red before it.
@@ -73,7 +84,6 @@ Repo audit found the fork public and HEAD clean, but git history carries `9route
 - `open-sse/providers/registry/index.js`: fork `bai.js` and upstream `qoder-cn.js` both claimed `p124` (duplicate `const`, app would not boot) — `bai` renumbered to `p128`.
 - `open-sse/providers/capabilities.js`: upstream `5c217d34` deleted the `qoder` and `codebuddy-intl` overrides while keeping `PROVIDER_CAPABILITIES["qoder-cn"] = PROVIDER_CAPABILITIES["qoder"]` (now `undefined`); both blocks restored from the merge base.
 - `src/app/api/models/test/ping.js`: the fork's kind allowlist silently dropped upstream's new `systemone` kind, so System One tests probed the chat endpoint; added `systemone: ["systemone"]`.
-
 # v0.5.85 (2026-09-22)
 
 ## Features
