@@ -81,6 +81,18 @@ describe("getCapabilitiesForModel", () => {
     expect(getCapabilitiesForModel("kiro", "gpt-5.6-sol-thinking-agentic")).toMatchObject(kiroGpt56Expected);
   });
 
+  it("reports Codex GPT-6 Luna with the verified 1.05M API context", () => {
+    expect(getCapabilitiesForModel("codex", "gpt-6-luna")).toMatchObject({
+      vision: true,
+      reasoning: true,
+      search: true,
+      thinkingFormat: "openai",
+      contextWindow: 1050000,
+      maxOutput: 128000,
+    });
+    expect(getCapabilitiesForModel("codex", "cx/gpt-6-luna").contextWindow).toBe(1050000);
+  });
+
   it("reports Codex GPT 6.0 Astra as a vision and thinking capable model", () => {
     expect(getCapabilitiesForModel("codex", "gpt-6-astra")).toMatchObject({
       vision: true,

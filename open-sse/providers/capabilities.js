@@ -175,6 +175,10 @@ export const PROVIDER_CAPABILITIES = {
     "glm-5.3-flash": { vision: true, videoInput: true, pdf: true, reasoning: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 131072 },
   },
   "codex": {
+    // OpenAI's ChatGPT Codex feed advertises 272K as the default, but a real
+    // request through this route successfully consumed 822,486 prompt tokens.
+    // Advertise the verified public API limit; pricing doubles above 272K.
+    "gpt-6-luna":                { vision: true, reasoning: true, search: true, thinkingFormat: "openai", contextWindow: 1050000, maxOutput: 128000 },
     "gpt-6-astra":               { vision: true, reasoning: true, search: true, thinkingFormat: "openai", contextWindow: 272000, maxOutput: 128000 },
     "gpt-5.6-sol":               CODEX_GPT_56_SOL_CAPS,
     "gpt-5.6-sol-review":        CODEX_GPT_56_SOL_CAPS,
