@@ -9,6 +9,14 @@ Merged upstream `v0.5.86` (3 feature/fix commits plus release). Adopted official
 - **Proxy Pools**: preserve request headers through Vercel/Cloudflare/Deno relays.
 - **MiMo login security**: keep session in the httpOnly cookie, require dashboard auth on the proxy branch, and stop forwarding authorization headers upstream.
 
+## Capabilities
+- **Catalog coverage guard** (`tests/unit/capabilities-catalog-coverage.test.js`): every `claude` and `codex` chat model in the registry must resolve to known limits, not the `DEFAULT_CAPABILITIES` floor (200k / 64k). A model added by an upstream sync that no table or pattern covers now fails the suite by name. Image-generation entries are excluded; `codex-auto-review` (virtual model) is allowlisted with its reason, and stale allowlist entries fail too.
+- **Claude Haiku 4.5**: `claude-haiku-4-5-20251001` had no declared limits (the generic haiku pattern carries none). It now resolves to 200k context / 64k output, both id spellings.
+- **Codex `gpt-6-luna`**: advertised with a 1.05M context window. The Codex feed says 272k, but a real request through this route consumed 822,486 prompt tokens.
+
+## Baselines
+- `tests/__baseline__/providers-baseline.json`: Claude `User-Agent` refreshed to `claude-cli/2.1.280` after the upstream fingerprint bump (upstream left its own baseline stale).
+
 # v0.5.85-enhanced.3 (2026-09-22)
 
 Second half of the combo reasoning/context review, plus the docs build. Each fix ships with a test that was red before it.

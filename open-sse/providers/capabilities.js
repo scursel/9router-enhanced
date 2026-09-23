@@ -335,6 +335,10 @@ export const PATTERN_CAPABILITIES = [
   { pattern: "*claude-3-7*",    caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget" } },
   { pattern: "*claude-3.7*",    caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget" } },
   { pattern: "*claude-3*",      caps: { vision: true, contextWindow: 200000, maxOutput: 8192 } },
+  // Haiku 4.5: 200k context / 64k output (Anthropic model overview). Declared
+  // so the dated registry id has known limits instead of the DEFAULT floor.
+  { pattern: "*claude*haiku-4-5*", caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget", contextWindow: 200000, maxOutput: 64000 } },
+  { pattern: "*claude*haiku-4.5*", caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget", contextWindow: 200000, maxOutput: 64000 } },
   { pattern: "*claude*haiku*",  caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget" } },
   { pattern: "*claude*opus*",   caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget" } },
   { pattern: "*claude*sonnet*", caps: { vision: true, reasoning: true, search: true, thinkingFormat: "claude-budget" } },
