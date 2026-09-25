@@ -24,6 +24,10 @@ function capitalize(text) {
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
 }
 
+// Kinds are ids ("llm", "tts"); acronyms read wrong when merely capitalized.
+const KIND_LABELS = { llm: "LLM", tts: "TTS", stt: "STT" };
+const kindLabel = (kind) => KIND_LABELS[kind] || capitalize(kind);
+
 // Small pill-style toggle used for the tier/kind filter chips. Not a shared
 // component — this shape (active = filled brand color) only exists here.
 function FilterChip({ active, onClick, children }) {
@@ -387,7 +391,7 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
                   <span className="mx-1 h-4 w-px bg-black/10 dark:bg-white/10" aria-hidden="true" />
                   {presentKinds.map((kind) => (
                     <FilterChip key={kind} active={filters.kinds.includes(kind)} onClick={() => toggleListFilter("kinds", kind)}>
-                      {translate(capitalize(kind))}
+                      {translate(kindLabel(kind))}
                     </FilterChip>
                   ))}
                 </>
@@ -413,13 +417,15 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
                 type="text"
                 value={filters.include}
                 onChange={(e) => setFilter("include", e.target.value)}
-                placeholder={translate("Include: e.g. *-preview, *:free")}
+                label={translate("Include ids")}
+                placeholder="*-preview, *:free"
               />
               <Input
                 type="text"
                 value={filters.exclude}
                 onChange={(e) => setFilter("exclude", e.target.value)}
-                placeholder={translate("Exclude: e.g. *-preview, *:free")}
+                label={translate("Exclude ids")}
+                placeholder="*-preview, *:free"
               />
             </div>
           </div>
@@ -473,7 +479,7 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
                     {translate(capitalize(c.tier))}
                   </Badge>
                   <Badge variant="default" size="sm">
-                    {translate(capitalize(c.kind))}
+                    {translate(kindLabel(c.kind))}
                   </Badge>
                   {contextLabel && <span className="text-[11px] text-text-muted">{contextLabel}</span>}
                   {priceLabel && <span className="text-[11px] text-text-muted">{priceLabel}</span>}
