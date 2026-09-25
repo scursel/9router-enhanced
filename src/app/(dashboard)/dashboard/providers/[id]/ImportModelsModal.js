@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import Link from "next/link";
-import { Button, Modal, Badge, Toggle, Select } from "@/shared/components";
+import { Button, Modal, Badge, Toggle, Select, Input } from "@/shared/components";
 import { translate } from "@/i18n/runtime";
 import { cn } from "@/shared/utils/cn";
 import {
@@ -31,6 +31,7 @@ function FilterChip({ active, onClick, children }) {
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={cn(
         "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
         active
@@ -254,7 +255,7 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
       applyEvents(flushNdjsonBuffer(buffer));
 
       setPhase("done");
-      if (typeof onImported === "function") onImported();
+      onImported();
     } catch (err) {
       if (err?.name === "AbortError") return; // closed mid-run — nothing more to show
       setRunError(err?.message || String(err));
@@ -367,18 +368,13 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
         <div className="flex flex-col gap-4">
           {/* Filter bar */}
           <div className="flex flex-col gap-3">
-            <div className="relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-[18px]">
-                search
-              </span>
-              <input
-                type="text"
-                value={filters.search}
-                onChange={(e) => setFilter("search", e.target.value)}
-                placeholder={translate("Search models...")}
-                className="w-full pl-9 pr-3 py-2 text-sm text-text-main bg-surface-2 rounded-[10px] border border-transparent placeholder-text-muted/70 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-              />
-            </div>
+            <Input
+              type="text"
+              value={filters.search}
+              onChange={(e) => setFilter("search", e.target.value)}
+              placeholder={translate("Search models...")}
+              icon="search"
+            />
 
             <div className="flex flex-wrap items-center gap-1.5">
               {IMPORT_TIERS.map((tier) => (
@@ -387,14 +383,15 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
                 </FilterChip>
               ))}
               {presentKinds.length > 1 && (
-                <span className="mx-1 h-4 w-px bg-black/10 dark:bg-white/10" aria-hidden="true" />
+                <>
+                  <span className="mx-1 h-4 w-px bg-black/10 dark:bg-white/10" aria-hidden="true" />
+                  {presentKinds.map((kind) => (
+                    <FilterChip key={kind} active={filters.kinds.includes(kind)} onClick={() => toggleListFilter("kinds", kind)}>
+                      {translate(capitalize(kind))}
+                    </FilterChip>
+                  ))}
+                </>
               )}
-              {presentKinds.length > 1 &&
-                presentKinds.map((kind) => (
-                  <FilterChip key={kind} active={filters.kinds.includes(kind)} onClick={() => toggleListFilter("kinds", kind)}>
-                    {kind}
-                  </FilterChip>
-                ))}
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -406,24 +403,23 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
                   onChange={(e) => setFilter("minContext", Number(e.target.value))}
                   options={MIN_CONTEXT_OPTIONS.map((o) => ({ value: String(o.value), label: o.label }))}
                   placeholder={translate("Min context")}
+                  aria-label={translate("Minimum context")}
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <input
+              <Input
                 type="text"
                 value={filters.include}
                 onChange={(e) => setFilter("include", e.target.value)}
                 placeholder={translate("Include: e.g. *-preview, *:free")}
-                className="w-full py-2 px-3 text-sm text-text-main bg-surface-2 rounded-[10px] border border-transparent placeholder-text-muted/70 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
               />
-              <input
+              <Input
                 type="text"
                 value={filters.exclude}
                 onChange={(e) => setFilter("exclude", e.target.value)}
                 placeholder={translate("Exclude: e.g. *-preview, *:free")}
-                className="w-full py-2 px-3 text-sm text-text-main bg-surface-2 rounded-[10px] border border-transparent placeholder-text-muted/70 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
               />
             </div>
           </div>
@@ -477,7 +473,7 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
                     {translate(capitalize(c.tier))}
                   </Badge>
                   <Badge variant="default" size="sm">
-                    {c.kind}
+                    {translate(capitalize(c.kind))}
                   </Badge>
                   {contextLabel && <span className="text-[11px] text-text-muted">{contextLabel}</span>}
                   {priceLabel && <span className="text-[11px] text-text-muted">{priceLabel}</span>}
