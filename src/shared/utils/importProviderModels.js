@@ -289,14 +289,3 @@ export function connectionCanSyncCatalog({
   return typeof baseUrl === "string" && baseUrl.trim().length > 0;
 }
 
-export function providerCanImportModels({
-  modelsFetcher = null,
-  hasActiveConnection = false,
-  isCompatible = false,
-  baseUrl = null,
-} = {}) {
-  if (typeof modelsFetcher?.url === "string" && modelsFetcher.url.trim()) return true;
-  if (!hasActiveConnection) return false;
-  if (isCompatible) return true;
-  return connectionCanSyncCatalog({ modelsFetcher, baseUrl });
-}

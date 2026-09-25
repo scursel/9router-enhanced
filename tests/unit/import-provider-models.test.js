@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   collectImportableModels,
   connectionCanSyncCatalog,
-  providerCanImportModels,
   stripProviderPrefix,
   IMPORT_KINDS,
   IMPORT_TIERS,
@@ -73,35 +72,6 @@ describe("collectImportableModels", () => {
         freeOnly: true,
       }).map((m) => m.id),
     ).toEqual(["known:free"]);
-  });
-});
-
-describe("providerCanImportModels", () => {
-  it("is true when the provider exposes a modelsFetcher", () => {
-    expect(
-      providerCanImportModels({ modelsFetcher: { url: "https://api.cline.bot/api/v1/models" } }),
-    ).toBe(true);
-  });
-
-  it("is true for an active OpenAI/Anthropic-compatible node", () => {
-    expect(providerCanImportModels({ hasActiveConnection: true, isCompatible: true })).toBe(true);
-  });
-
-  it("is true for an active connection with a chat baseUrl that can list /models", () => {
-    expect(
-      providerCanImportModels({
-        hasActiveConnection: true,
-        baseUrl: "https://api.example.com/v1",
-      }),
-    ).toBe(true);
-  });
-
-  it("is false for a random active connection that cannot list models", () => {
-    expect(providerCanImportModels({ hasActiveConnection: true })).toBe(false);
-  });
-
-  it("is false with neither a fetcher nor a connection", () => {
-    expect(providerCanImportModels({})).toBe(false);
   });
 });
 
