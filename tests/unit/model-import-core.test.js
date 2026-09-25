@@ -30,6 +30,7 @@ const {
   resolveStorageAlias,
   importPrefixes,
   listImportCandidates,
+  MAX_CONNECTION_ATTEMPTS,
 } = await import("@/lib/modelImport/candidates.js");
 const { runImport, IMPORT_TEST_CONCURRENCY } = await import("@/lib/modelImport/runImport.js");
 const {
@@ -170,6 +171,58 @@ describe("listImportCandidates", () => {
     expect(result.connectionId).toBe("conn-active");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(result.candidates.map((c) => c.id)).toEqual(["model-a"]);
+  });
+
+  it("tries healthy accounts first and falls through an empty list to the next account", async () => {
+    fakes.getProviderConnections.mockResolvedValue([
+      { id: "conn-dead", isActive: true, testStatus: "error" },
+      { id: "conn-empty", isActive: true, testStatus: "active" },
+      { id: "conn-good", isActive: true, testStatus: "active" },
+    ]);
+    const calls = [];
+    const fetchImpl = vi.fn(async (url) => {
+      const id = String(url).match(/providers\/([^/]+)\/models/)[1];
+      calls.push(id);
+      const models = id === "conn-good" ? [{ id: "model-a" }] : [];
+      return { ok: true, status: 200, json: async () => ({ models, warning: id === "conn-empty" ? "no models" : undefined }) };
+    });
+
+    const result = await listImportCandidates("openrouter", { fetchImpl });
+    expect(calls).toEqual(["conn-empty", "conn-good"]);
+    expect(result.connectionId).toBe("conn-good");
+    expect(result.candidates.map((c) => c.id)).toEqual(["model-a"]);
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("stops after MAX_CONNECTION_ATTEMPTS accounts and reports the last warning", async () => {
+    fakes.getProviderConnections.mockResolvedValue(
+      Array.from({ length: 6 }, (_, i) => ({ id: `conn-${i}`, isActive: true })),
+    );
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ models: [], warning: "Failed to fetch Zed models: Invalid Authorization header" }),
+    }));
+
+    const result = await listImportCandidates("zed", { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(MAX_CONNECTION_ATTEMPTS);
+    expect(result.candidates).toEqual([]);
+    expect(result.warning).toBe("Failed to fetch Zed models: Invalid Authorization header");
+  });
+
+  it("uses a later account when an earlier one errors, but throws when every attempt errors", async () => {
+    fakes.getProviderConnections.mockResolvedValue([
+      { id: "conn-1", isActive: true },
+      { id: "conn-2", isActive: true },
+    ]);
+    const okSecond = vi.fn(async (url) => String(url).includes("conn-1")
+      ? { ok: false, status: 401, json: async () => ({ error: "expired" }) }
+      : { ok: true, status: 200, json: async () => ({ models: [{ id: "model-b" }] }) });
+    const result = await listImportCandidates("openrouter", { fetchImpl: okSecond });
+    expect(result.connectionId).toBe("conn-2");
+
+    const allFail = vi.fn(async () => ({ ok: false, status: 401, json: async () => ({ error: "expired" }) }));
+    await expect(listImportCandidates("openrouter", { fetchImpl: allFail })).rejects.toThrow("expired");
   });
 
   it("throws when the connection's /models route responds non-OK", async () => {

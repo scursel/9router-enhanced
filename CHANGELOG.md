@@ -1,3 +1,8 @@
+# Unreleased
+
+## Model import picker
+- **Account fallback when listing models**: the picker tries up to 3 active accounts (healthy ones first) and moves past an account whose `/models` comes back empty, e.g. a Zed account with a dead token. If none answers, the provider's warning is shown instead of "No models match".
+
 # v0.5.86-enhanced.3 (2026-09-25)
 
 Interactive model discovery and daily auto-import. The provider page's old "Import models" / "Import free" split button is now a single "Import models" button that opens a picker dialog, available with a connection or a public catalog. The picker filters and tests models before import; filters can be saved as a daily auto-import rule that runs on a schedule.
