@@ -11,6 +11,9 @@ import {
   normalizeImportFilters,
   matchesIdPattern,
   applyImportFilters,
+  formatContextLength,
+  formatPricePerMillion,
+  MIN_CONTEXT_OPTIONS,
 } from "@/shared/utils/importProviderModels.js";
 import REGISTRY from "open-sse/providers/registry/index.js";
 
@@ -544,5 +547,56 @@ describe("buildImportCandidates, normalizeImportFilters, matchesIdPattern, apply
       expect(result.length).toBe(1);
       expect(result[0].id).toBe("gpt-4");
     });
+  });
+});
+
+describe("formatContextLength", () => {
+  it("returns null for missing/non-positive values", () => {
+    expect(formatContextLength(null)).toBe(null);
+    expect(formatContextLength(undefined)).toBe(null);
+    expect(formatContextLength(0)).toBe(null);
+    expect(formatContextLength(-5)).toBe(null);
+  });
+
+  it("formats thousands as k, rounding to the nearest whole k", () => {
+    expect(formatContextLength(32000)).toBe("32k");
+    expect(formatContextLength(128000)).toBe("128k");
+    expect(formatContextLength(200000)).toBe("200k");
+    expect(formatContextLength(8192)).toBe("8k");
+  });
+
+  it("formats millions as M, keeping one decimal only when needed", () => {
+    expect(formatContextLength(1000000)).toBe("1M");
+    expect(formatContextLength(2000000)).toBe("2M");
+    expect(formatContextLength(1500000)).toBe("1.5M");
+  });
+
+  it("leaves sub-1k values as a plain number", () => {
+    expect(formatContextLength(512)).toBe("512");
+  });
+});
+
+describe("formatPricePerMillion", () => {
+  it("returns null when the value is null/undefined/not finite", () => {
+    expect(formatPricePerMillion(null)).toBe(null);
+    expect(formatPricePerMillion(undefined)).toBe(null);
+    expect(formatPricePerMillion(NaN)).toBe(null);
+  });
+
+  it("scales a per-token price to per-1M and trims trailing zeros", () => {
+    expect(formatPricePerMillion(0.000003)).toBe("3");
+    expect(formatPricePerMillion(0.0000005)).toBe("0.5");
+    expect(formatPricePerMillion(0)).toBe("0");
+  });
+
+  it("keeps at most two decimals", () => {
+    expect(formatPricePerMillion(0.0000015)).toBe("1.5");
+    expect(formatPricePerMillion(0.00000012345)).toBe("0.12");
+  });
+});
+
+describe("MIN_CONTEXT_OPTIONS", () => {
+  it("exposes the Any/32k/128k/200k/1M picker options in order", () => {
+    expect(MIN_CONTEXT_OPTIONS.map((o) => o.value)).toEqual([0, 32000, 128000, 200000, 1000000]);
   });
 });

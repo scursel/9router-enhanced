@@ -241,6 +241,46 @@ export function collectImportableModels({
   return out;
 }
 
+// Minimum-context select options for the import picker's filter bar
+// ("Any" / 32k / 128k / 200k / 1M), in display order.
+export const MIN_CONTEXT_OPTIONS = [
+  { value: 0, label: "Any" },
+  { value: 32000, label: "32k" },
+  { value: 128000, label: "128k" },
+  { value: 200000, label: "200k" },
+  { value: 1000000, label: "1M" },
+];
+
+// Display formatter for a context length: "128k" / "1M" / "1.5M" style,
+// rounded (never more than one decimal). Returns null for missing/invalid
+// values so callers can hide the field entirely.
+export function formatContextLength(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return null;
+
+  if (num >= 1_000_000) {
+    const millions = Math.round((num / 1_000_000) * 10) / 10;
+    const str = millions % 1 === 0 ? String(millions) : millions.toFixed(1);
+    return `${str}M`;
+  }
+  if (num >= 1000) {
+    return `${Math.round(num / 1000)}k`;
+  }
+  return String(Math.round(num));
+}
+
+// Display formatter for a per-token price as "per 1M tokens": scales by 1e6
+// and keeps up to 2 decimals with trailing zeros trimmed. Returns null for
+// missing/non-finite values so callers can hide the price entirely (the
+// route already nulls out pricing when both prompt/completion are absent).
+export function formatPricePerMillion(value) {
+  if (value === null || value === undefined) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  const rounded = Math.round(num * 1_000_000 * 100) / 100;
+  return String(rounded);
+}
+
 export function connectionCanSyncCatalog({
   modelsFetcher = null,
   baseUrl = null,
