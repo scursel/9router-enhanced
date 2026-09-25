@@ -1,3 +1,22 @@
+# v0.5.86-enhanced.2 (2026-09-25)
+
+Combo fallback speed, after a side-by-side comparison with OmniRoute. A broken combo member used to hold the whole combo; each case below now falls over to the next member. Every fix ships with a test that was red before it (`tests/unit/combo-fast-failover.test.js` drives the real combo loop, chatCore and DefaultExecutor against a local mock upstream).
+
+## Combo fallback
+| Broken first member | Before | Now |
+|---|---|---|
+| 503 / 502 | 8–9 s, 4 calls to the same upstream | 1 call, next member immediately |
+| 403 from an API-key provider | +3 s refresh ladder that cannot succeed | no refresh attempt |
+| 200 with an empty stream | empty answer forwarded to the client | next member |
+| error inside the stream | error forwarded to the client | next member |
+| 200 then silence / no headers | stuck > 150 s | next member within 60 s |
+
+- **No same-upstream retries while a next member waits.** Applies across nested combos too; the last member keeps the historical retries.
+- **Refresh only when it can work.** New `executor.canRefreshCredentials()`: false for plain API keys; executors with their own refresh (vertex, github, OAuth ones) are unchanged.
+- **Stream readiness gate** (`open-sse/utils/streamReadiness.js`): an SSE response reaches the client only after its first real output (text, reasoning, tool call — OpenAI, Claude, Gemini and Responses shapes). Bytes read meanwhile are replayed unchanged. Budget: `COMBO_STREAM_READINESS_TIMEOUT_MS` (new, 60 s) for a member with a next member; `STREAM_FIRST_CHUNK_TIMEOUT_MS` (200 s, previously used by kiro only) otherwise.
+- **No pause between members.** The up-to-5 s wait on 502/503/504 before trying the next member is gone.
+- **Behavior change:** an empty stream on a plain (non-combo) request is now a 502 instead of an empty 200, so account fallback can try another account.
+
 # v0.5.86-enhanced.1 (2026-09-23 — upstream v0.5.86 sync)
 
 Merged upstream `v0.5.86` (3 feature/fix commits plus release). Adopted official MiMo desktop login by server/cluster and v2.6 routes, Claude Opus 5.5 and CLI fingerprint, lossless proxy-pool headers, and the i18n mutation-observer fix. Enhanced-only behavior remains, including Claude 1M beta forwarding, stricter dashboard guard rules, secret scanning, combo/routing fixes, and CLI packaging safeguards. The imported MiMo proxy was also hardened so an empty server-side cookie jar never falls back to forwarding browser cookies upstream; redirects remain on the same-origin proxy; cookies are host/domain scoped across account and regional servers; unapproved redirect hosts and insecure downgrade redirects are rejected; HTTPS/session state is signed and Secure; and diagnostics no longer log upstream SSO bodies or browser cookie values.
