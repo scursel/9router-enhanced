@@ -208,6 +208,29 @@ describe("runAllAutoImports", () => {
     const third = await runAllAutoImports({ listImportRules: vi.fn(async () => ({})), getSettings, updateSettings });
     expect(third.busy).toBe(false);
   });
+
+  it("releases the single-flight lock even when a collaborator throws", async () => {
+    const listImportRules = vi.fn(async () => {
+      throw new Error("db unreachable");
+    });
+    const getSettings = vi.fn(async () => ({
+      autoModelImport: { enabled: true, hour: 4, lastRunAt: null, lastResult: null },
+    }));
+    const updateSettings = vi.fn(async () => {});
+
+    // First call with failing listImportRules returns a fail-open result.
+    const first = await runAllAutoImports({ listImportRules, getSettings, updateSettings });
+    expect(first.busy).toBe(false);
+    expect(updateSettings).not.toHaveBeenCalled();
+
+    // The lock is released, so the second call runs normally (not {busy: true}).
+    const second = await runAllAutoImports({
+      listImportRules: vi.fn(async () => ({})),
+      getSettings,
+      updateSettings,
+    });
+    expect(second.busy).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -308,5 +331,21 @@ describe("startAutoModelImport / stopAutoModelImport", () => {
 
     expect(mod.startAutoModelImport({ tickMs: 60_000, startupDelayMs: 500 })).toBe(true);
     mod.stopAutoModelImport();
+  });
+
+  it("does not arm timers during next build (NEXT_PHASE=phase-production-build)", async () => {
+    const originalPhase = process.env.NEXT_PHASE;
+    try {
+      process.env.NEXT_PHASE = "phase-production-build";
+      const mod = await fresh();
+      expect(mod.startAutoModelImport({ tickMs: 60_000, startupDelayMs: 500 })).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      if (originalPhase !== undefined) {
+        process.env.NEXT_PHASE = originalPhase;
+      } else {
+        delete process.env.NEXT_PHASE;
+      }
+    }
   });
 });

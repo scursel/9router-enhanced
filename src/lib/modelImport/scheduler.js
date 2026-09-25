@@ -11,6 +11,16 @@ let started = false;
 let initialHandle = null;
 let intervalHandle = null;
 
+// Conservative: any NEXT_PHASE that is not a known server phase (dev or prod
+// server) — e.g. production-build / phase-production-build / phase-export —
+// must never arm background sweeps. Mirrors the T3.1/T3.3 guards.
+function isNonServerProcess() {
+  if (typeof window !== "undefined") return true;
+  const phase = String(process.env.NEXT_PHASE || "");
+  if (!phase) return false;
+  return phase !== "phase-production-server" && phase !== "phase-development-server";
+}
+
 async function tick() {
   try {
     const settings = await getSettings();
@@ -25,12 +35,13 @@ async function tick() {
 
 /**
  * Arm the daily auto-import timer. Idempotent — a second call is a no-op
- * until stopAutoModelImport() runs.
+ * until stopAutoModelImport() runs. Disabled during build/export phases.
  * @param {{ tickMs?: number, startupDelayMs?: number }} [opts]
  * @returns {boolean} true if this call started the scheduler
  */
 export function startAutoModelImport({ tickMs = 15 * 60_000, startupDelayMs = 120_000 } = {}) {
   if (started) return false;
+  if (isNonServerProcess()) return false;
   started = true;
 
   initialHandle = setTimeout(() => {

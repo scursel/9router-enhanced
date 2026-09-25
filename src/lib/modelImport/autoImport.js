@@ -66,6 +66,8 @@ let running = false;
 
 /**
  * Run every saved rule sequentially, then persist the sweep's outcome.
+ * Never throws — any failure is captured and logged so a bad provider or
+ * DB hiccup doesn't prevent the lock from releasing.
  * @param {{ listImportRules?: Function, getSettings?: Function,
  *           updateSettings?: Function, listImportCandidates?: Function,
  *           runImport?: Function, runAutoImportForProvider?: Function }} [deps]
@@ -95,6 +97,9 @@ export async function runAllAutoImports(deps = {}) {
     });
 
     return { busy: false, at, providers };
+  } catch (error) {
+    console.log(`[modelImport] auto-import sweep failed (swallowed): ${error?.message || error}`);
+    return { busy: false };
   } finally {
     running = false;
   }
