@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Card, Button, Toggle, Select } from "@/shared/components";
 import { translate } from "@/i18n/runtime";
-import { cn } from "@/shared/utils/cn";
 
 export default function AutoModelImportCard() {
   const [loading, setLoading] = useState(true);
@@ -44,62 +43,35 @@ export default function AutoModelImportCard() {
     fetchSettings();
   }, []);
 
-  const handleToggle = async (enabled) => {
+  // autoModelImport is one settings key that the daily sweep also writes
+  // (lastRunAt/lastResult), and PATCH /api/settings replaces top-level keys
+  // whole. Re-read it right before saving so a stale copy from page load never
+  // rolls back lastRunAt (which would let the sweep run twice in one day).
+  const saveConfig = async (patch) => {
     setSaving(true);
+    setError("");
     try {
+      const currentRes = await fetch("/api/models/import/auto");
+      if (!currentRes.ok) throw new Error("Failed to load auto-import settings");
+      const current = (await currentRes.json()).settings || {};
       const res = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          autoModelImport: { ...autoImportSettings, enabled },
-        }),
+        body: JSON.stringify({ autoModelImport: { ...current, ...patch } }),
       });
-
-      if (res.ok) {
-        const data = await res.json();
-        setAutoImportSettings((prev) => ({
-          ...prev,
-          enabled: data.autoModelImport?.enabled ?? enabled,
-        }));
-      } else {
-        setError("Failed to update auto-import setting");
-      }
+      if (!res.ok) throw new Error("Failed to update auto-import settings");
+      const data = await res.json();
+      setAutoImportSettings(data.autoModelImport || { ...current, ...patch });
     } catch (err) {
-      setError("An error occurred");
-      console.error(err);
+      setError(err?.message || "An error occurred");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleHourChange = async (e) => {
-    const hour = parseInt(e.target.value, 10);
-    setSaving(true);
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          autoModelImport: { ...autoImportSettings, hour },
-        }),
-      });
+  const handleToggle = (enabled) => saveConfig({ enabled });
 
-      if (res.ok) {
-        const data = await res.json();
-        setAutoImportSettings((prev) => ({
-          ...prev,
-          hour: data.autoModelImport?.hour ?? hour,
-        }));
-      } else {
-        setError("Failed to update hour setting");
-      }
-    } catch (err) {
-      setError("An error occurred");
-      console.error(err);
-    } finally {
-      setSaving(false);
-    }
-  };
+  const handleHourChange = (e) => saveConfig({ hour: parseInt(e.target.value, 10) });
 
   const handleRunNow = async () => {
     setRunLoading(true);
@@ -192,26 +164,24 @@ export default function AutoModelImportCard() {
         </div>
 
         {/* Hour selector and run button */}
-        {autoImportSettings.enabled && (
-          <div className="flex flex-col sm:flex-row gap-3 items-end">
-            <div className="flex-1 min-w-0">
-              <Select
-                label="Run time (UTC)"
-                options={hourOptions}
-                value={String(autoImportSettings.hour ?? 4)}
-                onChange={handleHourChange}
-                disabled={saving}
-              />
-            </div>
-            <Button
-              onClick={handleRunNow}
-              loading={runLoading}
-              className="w-full sm:w-auto"
-            >
-              Run now
-            </Button>
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+          <div className="flex-1 min-w-0">
+            <Select
+              label="Run time (server local time)"
+              options={hourOptions}
+              value={String(autoImportSettings.hour ?? 4)}
+              onChange={handleHourChange}
+              disabled={saving}
+            />
           </div>
-        )}
+          <Button
+            onClick={handleRunNow}
+            loading={runLoading}
+            className="w-full sm:w-auto"
+          >
+            Run now
+          </Button>
+        </div>
 
         {/* Error message */}
         {error && (
