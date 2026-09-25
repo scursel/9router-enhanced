@@ -5,8 +5,6 @@ import { readModelTestResult } from "@/shared/utils/modelTestResult";
 import PropTypes from "prop-types";
 import { Button } from "@/shared/components";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
-import { collectImportableModels } from "@/shared/utils/importProviderModels";
-import ImportModelsButtons from "./ImportModelsButtons";
 
 function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting, comboNames = [], selectable = false, selected = false, onToggleSelect }) {
   const borderColor = testStatus === "ok"
@@ -90,10 +88,9 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
   );
 }
 
-export default function CompatibleModelsSection({ providerStorageAlias, providerDisplayAlias, modelAliases, customModels, copied, onCopy, onDeleteAlias, onAddCustomModel, onDeleteCustomModel, onBulkDeleteCustomModels, connections, isAnthropic, comboNamesFor, candidatesForModelId }) {
+export default function CompatibleModelsSection({ providerStorageAlias, providerDisplayAlias, modelAliases, customModels, copied, onCopy, onDeleteAlias, onAddCustomModel, onDeleteCustomModel, onBulkDeleteCustomModels, connections, isAnthropic, comboNamesFor, candidatesForModelId, onImportModels }) {
   const [newModel, setNewModel] = useState("");
   const [adding, setAdding] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [testingModelId, setTestingModelId] = useState(null);
   const [modelTestResults, setModelTestResults] = useState({});
   const [selecting, setSelecting] = useState(false);
@@ -144,45 +141,6 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
     }
   };
 
-  const handleImport = async ({ freeOnly = false } = {}) => {
-    if (importing) return;
-    const activeConnection = connections.find((conn) => conn.isActive !== false);
-    if (!activeConnection) return;
-
-    setImporting(true);
-    try {
-      const res = await fetch(`/api/providers/${activeConnection.id}/models`);
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || "Failed to import models");
-        return;
-      }
-      const models = data.models || [];
-      if (models.length === 0) {
-        alert("No models returned from /models.");
-        return;
-      }
-      const toAdd = collectImportableModels({
-        models,
-        existingIds: new Set(allModels.map((entry) => entry.id)),
-        prefixes: [providerStorageAlias],
-        freeOnly,
-      });
-      let importedCount = 0;
-      for (const model of toAdd) {
-        await onAddCustomModel(model.id);
-        importedCount += 1;
-      }
-      if (importedCount === 0) {
-        alert(freeOnly ? "No new free models were added." : "No new models were added.");
-      }
-    } catch (error) {
-      console.log("Error importing models:", error);
-    } finally {
-      setImporting(false);
-    }
-  };
-
   const canImport = connections.some((conn) => conn.isActive !== false);
 
   const toggleSelected = (id) => {
@@ -224,12 +182,17 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
         <Button size="sm" icon="add" onClick={handleAdd} disabled={!newModel.trim() || adding}>
           {adding ? "Adding..." : "Add"}
         </Button>
-        <ImportModelsButtons
-          canImport={canImport}
-          importing={importing}
-          onImportAll={() => handleImport({ freeOnly: false })}
-          onImportFree={() => handleImport({ freeOnly: true })}
-        />
+        <Button
+          size="sm"
+          variant="ghost"
+          icon="download"
+          onClick={onImportModels}
+          disabled={!canImport}
+          title={canImport ? undefined : "Add a connection first"}
+          className="border border-blue-500/40 text-blue-600 dark:text-blue-400 hover:bg-blue-500/5"
+        >
+          Import models
+        </Button>
         {allModels.length > 0 && (
           <Button
             size="sm"
@@ -311,4 +274,5 @@ CompatibleModelsSection.propTypes = {
   isAnthropic: PropTypes.bool,
   comboNamesFor: PropTypes.func.isRequired,
   candidatesForModelId: PropTypes.func.isRequired,
+  onImportModels: PropTypes.func.isRequired,
 };

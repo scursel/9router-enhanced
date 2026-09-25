@@ -128,3 +128,13 @@ the known custom hosts were migrated. The backend endpoint
    yourself — nothing is retargeted automatically.
 
 Local Qwen (HF/Modal) and other non-public hosts stay custom by design.
+
+## Import picker and daily auto-import
+
+The import picker and daily auto-import feature work in tandem with the per-connection catalog sync described above. They answer a different question: **which discovered models should be added to Available Models?** The relationship is:
+
+- **Catalog sync** discovers what models exist and are reachable by each connection (each account via its `/models` endpoint), and marks the ones that become unavailable after two consecutive missing syncs. Discovery is automatic and always happens (unless `CONNECTION_MODEL_SYNC=off`).
+- **Import picker** runs on-demand: open the provider page, click "Import models", and select which discovered models you want to add to your Available Models list. The picker lists models via a **live `/models` call on the active connection** (not the synced catalog) — falling back to the provider's public catalog for providers without an active connection — filters by search/tier/kind/context/patterns, tests each selected model through the gateway before import, and records their actual working kind (llm vs image vs embedding, etc.) from the probes.
+- **Daily auto-import** saves the picker's filters and test setting as a recurring rule per provider, so new models matching those filters are discovered and tested automatically once per day at a configurable hour. Rules are created and removed only from a provider's own Import dialog (the "Use these filters for daily auto-import" checkbox); the Profile page's "Daily Model Auto-Import" settings card only has the global enable toggle, the run hour, and "Run now" — it does not create or edit per-provider rules. Each daily run imports only **new** models (ones not already in Available Models); it never removes models you've already added. A model becomes available the moment it passes a test probe, so the same model tested via the picker (on-demand) or auto-import (scheduled) behaves identically.
+
+The three flows are composable: a connection's catalog sync provides the discovery data; the picker lets you manually curate; and auto-import runs the picker's logic on a schedule. Together, they give you full control over which models are exposed to clients, while keeping discovery automatic and test-before-import as a safeguard against adding broken or misconfigured models.

@@ -15,11 +15,11 @@ import { useCircuitBreakers } from "@/shared/hooks/useCircuitBreakers";
 import { translate } from "@/i18n/runtime";
 import { fetchSuggestedModels } from "@/shared/utils/providerModelsFetcher";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
-import { collectImportableModels, connectionCanSyncCatalog, providerCanImportModels } from "@/shared/utils/importProviderModels";
+import { connectionCanSyncCatalog, LIVE_CATALOG_PROVIDERS } from "@/shared/utils/importProviderModels";
 import { readModelTestResult } from "@/shared/utils/modelTestResult";
 import ModelRow from "./ModelRow";
 import CompatibleModelsSection from "./CompatibleModelsSection";
-import ImportModelsButtons from "./ImportModelsButtons";
+import ImportModelsModal from "./ImportModelsModal";
 import ConnectionRow from "./ConnectionRow";
 import AddApiKeyModal from "./AddApiKeyModal";
 import EditCompatibleNodeModal from "./EditCompatibleNodeModal";
@@ -97,7 +97,7 @@ export default function ProviderDetailPage() {
   const [oneByOneResults, setOneByOneResults] = useState({});
   const [oneByOneSummary, setOneByOneSummary] = useState(null);
   const stopOneByOneRef = useRef(false);
-  const [importingListedModels, setImportingListedModels] = useState(false);
+  const [showImportModels, setShowImportModels] = useState(false);
   const [selectingModels, setSelectingModels] = useState(false);
   const [selectedCustomModelIds, setSelectedCustomModelIds] = useState(() => new Set());
   const [providerUsage24h, setProviderUsage24h] = useState(null);
@@ -179,7 +179,7 @@ export default function ProviderDetailPage() {
   const supportsApiKeyAuth = !!APIKEY_PROVIDERS[providerId] || authModes.includes("apikey");
   const isFreeNoAuth = !!FREE_PROVIDERS[providerId]?.noAuth;
   const staticModels = getModelsByProviderId(providerId);
-  const models = (providerId === "cursor" || providerId === "zed") && liveModels.length > 0
+  const models = LIVE_CATALOG_PROVIDERS.has(providerId) && liveModels.length > 0
     ? liveModels
     : staticModels;
   const providerAlias = getProviderAlias(providerId);
@@ -713,6 +713,14 @@ export default function ProviderDetailPage() {
     }
   };
 
+  // Import picker: needs a live connection to list, or a public catalog to browse.
+  const canImportModels = connections.some((conn) => conn.isActive !== false) || !!providerInfo?.modelsFetcher?.url;
+
+  const handleModelsImported = async () => {
+    await fetchCustomModels();
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("customModelChanged"));
+  };
+
   const deleteCustomModelNow = async (modelId, type, providerAliasOverride) => {
     try {
       const params = new URLSearchParams({ providerAlias: providerAliasOverride, id: modelId, type });
@@ -780,73 +788,6 @@ export default function ProviderDetailPage() {
     }
   };
 
-  const handleImportListedModels = async ({ freeOnly = false } = {}) => {
-    if (importingListedModels) return;
-    const activeConnection = connections.find((conn) => conn.isActive !== false);
-
-    setImportingListedModels(true);
-    try {
-      let listed = [];
-      if (activeConnection) {
-        const res = await fetch(`/api/providers/${activeConnection.id}/models`);
-        const data = await res.json();
-        if (!res.ok) {
-          alert(data.error || translate("Failed to fetch models"));
-          return;
-        }
-        listed = data.models || [];
-      } else if (suggestedModels.length > 0) {
-        listed = suggestedModels;
-      } else {
-        alert(translate("Please add an active connection first"));
-        return;
-      }
-      if (listed.length === 0) {
-        alert(translate("No models returned"));
-        return;
-      }
-
-      const existingIds = new Set([
-        ...models.map((model) => model.id),
-        ...customModels
-          .filter((entry) => entry.providerAlias === providerStorageAlias)
-          .map((entry) => entry.id),
-        ...Object.values(modelAliases)
-          .filter((full) => typeof full === "string" && full.startsWith(`${providerStorageAlias}/`))
-          .map((full) => full.slice(providerStorageAlias.length + 1)),
-      ]);
-      const toAdd = collectImportableModels({
-        models: listed,
-        existingIds,
-        // Qoder intl/CN share one catalog shape; strip either region's prefix.
-        prefixes: [
-          providerStorageAlias, providerId, providerAlias,
-          ...(providerId === "qoder" || providerId === "qoder-cn" ? ["qoder-cn", "qoder"] : []),
-        ],
-        freeOnly,
-        providerId,
-      });
-
-      let importedCount = 0;
-      for (const model of toAdd) {
-        await handleAddCustomModel(model.id, model.kind, providerStorageAlias);
-        importedCount += 1;
-      }
-
-      if (importedCount === 0) {
-        alert(freeOnly
-          ? translate("All free models already exist, no new models added")
-          : translate("All models already exist, no new models added"));
-      } else {
-        alert(translate("Successfully added") + ` ${importedCount} ` + translate(freeOnly ? "free models" : "models"));
-      }
-    } catch (error) {
-      console.log("Error importing models:", error);
-      alert(translate("Error fetching models") + ": " + (error?.message || error));
-    } finally {
-      setImportingListedModels(false);
-    }
-  };
 
   const toggleCustomModelSelected = (id) => {
     setSelectedCustomModelIds((prev) => {
@@ -1418,6 +1359,7 @@ export default function ProviderDetailPage() {
           isAnthropic={isAnthropicCompatible}
           comboNamesFor={comboNamesFor}
           candidatesForModelId={candidatesForModelId}
+          onImportModels={() => setShowImportModels(true)}
         />
       );
     }
@@ -1517,18 +1459,17 @@ export default function ProviderDetailPage() {
           Add Model
         </button>
 
-        <ImportModelsButtons
-          canImport={providerCanImportModels({
-            modelsFetcher: providerInfo?.modelsFetcher,
-            hasActiveConnection: connections.some((conn) => conn.isActive !== false),
-            isCompatible,
-            baseUrl: connections.find((conn) => conn.isActive !== false)?.providerSpecificData?.baseUrl
-              || providerInfo?.baseUrl,
-          })}
-          importing={importingListedModels}
-          onImportAll={() => handleImportListedModels({ freeOnly: false })}
-          onImportFree={() => handleImportListedModels({ freeOnly: true })}
-        />
+        <Button
+          size="sm"
+          variant="ghost"
+          icon="download"
+          onClick={() => setShowImportModels(true)}
+          disabled={!canImportModels}
+          title={!canImportModels ? translate("Add a connection first") : undefined}
+          className="border border-blue-500/40 text-blue-600 dark:text-blue-400 hover:bg-blue-500/5"
+        >
+          {translate("Import models")}
+        </Button>
 
         {(customModelRows.length > 0 || displayModels.length > 0) && (
           <button
@@ -2256,6 +2197,15 @@ export default function ProviderDetailPage() {
           isOpen={showBulkImportGrokCli}
           onClose={() => setShowBulkImportGrokCli(false)}
           onSuccess={fetchConnections}
+        />
+      )}
+
+      {showImportModels && (
+        <ImportModelsModal
+          isOpen={showImportModels}
+          onClose={() => setShowImportModels(false)}
+          providerId={providerId}
+          onImported={handleModelsImported}
         />
       )}
 

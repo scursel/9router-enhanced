@@ -24,6 +24,10 @@ export async function register() {
     const { startConnectionCatalogSync } = await import("@/lib/modelSync/scheduler.js");
     startConnectionCatalogSync();
 
+    // Daily sweep of saved per-provider auto-import rules (adds new models only).
+    const { startAutoModelImport } = await import("@/lib/modelImport/scheduler.js");
+    startAutoModelImport();
+
     // Keep dashboard connection status fresh without clicks (CREDENTIAL_HEALTH=off to disable).
     const { startCredentialHealth } = await import("@/lib/credentialHealth/scheduler.js");
     startCredentialHealth();
