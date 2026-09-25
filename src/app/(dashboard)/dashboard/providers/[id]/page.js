@@ -15,7 +15,7 @@ import { useCircuitBreakers } from "@/shared/hooks/useCircuitBreakers";
 import { translate } from "@/i18n/runtime";
 import { fetchSuggestedModels } from "@/shared/utils/providerModelsFetcher";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
-import { connectionCanSyncCatalog } from "@/shared/utils/importProviderModels";
+import { connectionCanSyncCatalog, LIVE_CATALOG_PROVIDERS } from "@/shared/utils/importProviderModels";
 import { readModelTestResult } from "@/shared/utils/modelTestResult";
 import ModelRow from "./ModelRow";
 import CompatibleModelsSection from "./CompatibleModelsSection";
@@ -179,7 +179,7 @@ export default function ProviderDetailPage() {
   const supportsApiKeyAuth = !!APIKEY_PROVIDERS[providerId] || authModes.includes("apikey");
   const isFreeNoAuth = !!FREE_PROVIDERS[providerId]?.noAuth;
   const staticModels = getModelsByProviderId(providerId);
-  const models = (providerId === "cursor" || providerId === "zed") && liveModels.length > 0
+  const models = LIVE_CATALOG_PROVIDERS.has(providerId) && liveModels.length > 0
     ? liveModels
     : staticModels;
   const providerAlias = getProviderAlias(providerId);

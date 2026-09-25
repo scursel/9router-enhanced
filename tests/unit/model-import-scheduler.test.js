@@ -36,6 +36,14 @@ describe("isAutoImportDue", () => {
     expect(isAutoImportDue(cfg, new Date(2026, 0, 1, 4, 0))).toBe(true);
     expect(isAutoImportDue(cfg, new Date(2026, 0, 1, 23, 0))).toBe(true);
   });
+
+  it("clamps a non-integer or out-of-range hour to the default (4)", () => {
+    for (const badHour of [-1, 24, 3.5, NaN, "4", null, undefined]) {
+      const cfg = { enabled: true, hour: badHour, lastRunAt: null };
+      expect(isAutoImportDue(cfg, new Date(2026, 0, 1, 3, 59))).toBe(false);
+      expect(isAutoImportDue(cfg, new Date(2026, 0, 1, 4, 0))).toBe(true);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -98,6 +106,44 @@ describe("runAutoImportForProvider", () => {
     );
 
     expect(result).toEqual({ providerId: "opencode", imported: 1, failed: 1 });
+  });
+
+  it("passes forceKind:'llm' to runImport for an openai-compatible-* provider", async () => {
+    const listImportCandidates = vi.fn(async () => ({
+      storageAlias: "openai-compatible-my-node",
+      candidates: [{ id: "a", name: "A", kind: "embedding", tier: "free", alreadyImported: false }],
+    }));
+    const runImport = vi.fn(async () => ({ imported: ["a"], failed: [] }));
+
+    await runAutoImportForProvider(
+      "openai-compatible-my-node",
+      { filters: {}, testFirst: false },
+      { listImportCandidates, runImport },
+    );
+
+    expect(runImport).toHaveBeenCalledWith(
+      expect.objectContaining({ forceKind: "llm" }),
+    );
+  });
+
+  it("does not pass forceKind for a regular registry provider", async () => {
+    const listImportCandidates = vi.fn(async () => ({
+      storageAlias: "oc",
+      candidates: [{ id: "a", name: "A", kind: "llm", tier: "free", alreadyImported: false }],
+    }));
+    const runImport = vi.fn(async () => ({ imported: ["a"], failed: [] }));
+
+    await runAutoImportForProvider(
+      "opencode",
+      { filters: {}, testFirst: false },
+      { listImportCandidates, runImport },
+    );
+
+    expect(runImport).toHaveBeenCalledWith({
+      storageAlias: "oc",
+      models: [{ id: "a", kind: "llm", name: "A" }],
+      testFirst: false,
+    });
   });
 
   it("captures a thrown error on the result instead of throwing (candidate lookup fails)", async () => {
@@ -178,6 +224,59 @@ describe("runAllAutoImports", () => {
     expect(stored.autoModelImport.lastResult).toEqual({ at: result.at, providers: result.providers });
     // Never removes models: the sweep only reports imported/failed counts.
     expect(result.providers.every((p) => !("removed" in p))).toBe(true);
+  });
+
+  it("does not stamp lastRunAt when every provider result errored, but still persists lastResult", async () => {
+    const rules = {
+      bad1: { filters: {}, testFirst: false },
+      bad2: { filters: {}, testFirst: false },
+    };
+    const listImportRules = vi.fn(async () => rules);
+    const listImportCandidates = vi.fn(async () => {
+      throw new Error("connection down");
+    });
+
+    let stored = {
+      autoModelImport: { enabled: true, hour: 4, lastRunAt: "2020-01-01T00:00:00.000Z", lastResult: null },
+    };
+    const getSettings = vi.fn(async () => ({ ...stored }));
+    const updateSettings = vi.fn(async (patch) => {
+      stored = { ...stored, ...patch };
+      return stored;
+    });
+
+    const result = await runAllAutoImports({
+      listImportRules,
+      listImportCandidates,
+      getSettings,
+      updateSettings,
+    });
+
+    expect(result.busy).toBe(false);
+    expect(result.providers.every((p) => Boolean(p.error))).toBe(true);
+    // lastRunAt stays untouched so the next 15-minute tick retries today.
+    expect(stored.autoModelImport.lastRunAt).toBe("2020-01-01T00:00:00.000Z");
+    // lastResult is still persisted so the settings card can show the errors.
+    expect(stored.autoModelImport.lastResult).toEqual({ at: result.at, providers: result.providers });
+  });
+
+  it("does stamp lastRunAt when at least one provider succeeds", async () => {
+    const rules = { good: { filters: {}, testFirst: false }, bad: { filters: {}, testFirst: false } };
+    const listImportRules = vi.fn(async () => rules);
+    const listImportCandidates = vi.fn(async (providerId) => {
+      if (providerId === "bad") throw new Error("connection down");
+      return { storageAlias: providerId, candidates: [] };
+    });
+
+    let stored = { autoModelImport: { enabled: true, hour: 4, lastRunAt: null, lastResult: null } };
+    const getSettings = vi.fn(async () => ({ ...stored }));
+    const updateSettings = vi.fn(async (patch) => {
+      stored = { ...stored, ...patch };
+      return stored;
+    });
+
+    const result = await runAllAutoImports({ listImportRules, listImportCandidates, getSettings, updateSettings });
+    expect(stored.autoModelImport.lastRunAt).toBe(result.at);
   });
 
   it("single-flight: a call made while a sweep is in progress returns {busy: true} and does not touch settings", async () => {

@@ -12,6 +12,7 @@ import {
   formatContextLength,
   formatPricePerMillion,
   MIN_CONTEXT_OPTIONS,
+  LIVE_CATALOG_PROVIDERS,
 } from "@/shared/utils/importProviderModels.js";
 import REGISTRY from "open-sse/providers/registry/index.js";
 
@@ -38,6 +39,12 @@ describe("buildImportCandidates tier from id suffix", () => {
       ["qwen-coder-free", "free"],
       ["gpt-5.4", "unknown"],
     ]);
+  });
+});
+
+describe("LIVE_CATALOG_PROVIDERS", () => {
+  it("contains exactly cursor and zed", () => {
+    expect([...LIVE_CATALOG_PROVIDERS].sort()).toEqual(["cursor", "zed"]);
   });
 });
 
@@ -195,6 +202,23 @@ describe("buildImportCandidates, normalizeImportFilters, matchesIdPattern, apply
       expect(candidates[1].contextLength).toBe(8192);
       expect(candidates[2].contextLength).toBe(16384);
       expect(candidates[3].contextLength).toBeNull();
+    });
+
+    it("accepts a finite positive numeric string via Number(), keeps null otherwise", () => {
+      const candidates = buildImportCandidates({
+        models: [
+          { id: "m1", contextLength: "128000" },
+          { id: "m2", context_length: "0" }, // not positive
+          { id: "m3", context_window: "not-a-number" },
+          { id: "m4", contextLength: "" }, // empty string
+          { id: "m5", contextLength: "-100" }, // negative
+        ],
+      });
+      expect(candidates[0].contextLength).toBe(128000);
+      expect(candidates[1].contextLength).toBeNull();
+      expect(candidates[2].contextLength).toBeNull();
+      expect(candidates[3].contextLength).toBeNull();
+      expect(candidates[4].contextLength).toBeNull();
     });
 
     it("prefers first finite positive contextLength", () => {

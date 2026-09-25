@@ -9,6 +9,6 @@ import {
 
 export function isKnownProvider(providerId) {
   if (typeof providerId !== "string" || !providerId) return false;
-  if (providerId in AI_PROVIDERS) return true;
+  if (Object.hasOwn(AI_PROVIDERS, providerId)) return true;
   return isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId);
 }

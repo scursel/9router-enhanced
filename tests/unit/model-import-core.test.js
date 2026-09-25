@@ -247,6 +247,36 @@ describe("listImportCandidates", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("folds the live /models list into existingIds for cursor/zed so none show as new", async () => {
+    fakes.getProviderConnections.mockResolvedValue([{ id: "conn-1", isActive: true }]);
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        models: [
+          { id: "cursor-fast", name: "Cursor Fast" },
+          { id: "cursor-slow", name: "Cursor Slow" },
+        ],
+      }),
+    }));
+
+    const result = await listImportCandidates("cursor", { fetchImpl });
+    expect(result.source).toBe("connection");
+    expect(result.candidates.every((c) => c.alreadyImported)).toBe(true);
+  });
+
+  it("does not fold the live /models list into existingIds for a non-live-catalog provider", async () => {
+    fakes.getProviderConnections.mockResolvedValue([{ id: "conn-1", isActive: true }]);
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ models: [{ id: "some-model", name: "Some Model" }] }),
+    }));
+
+    const result = await listImportCandidates("openrouter", { fetchImpl });
+    expect(result.candidates.find((c) => c.id === "some-model").alreadyImported).toBe(false);
+  });
+
   it("unions existingIds from static catalog, custom models, and prefixed aliases", async () => {
     fakes.getProviderConnections.mockResolvedValue([{ id: "conn-1", isActive: true }]);
     fakes.getCustomModels.mockResolvedValue([
@@ -470,6 +500,118 @@ describe("runImport", () => {
   it("exports IMPORT_TEST_CONCURRENCY as 4", () => {
     expect(IMPORT_TEST_CONCURRENCY).toBe(4);
   });
+
+  it("forceKind overrides the stored type regardless of the model's own kind or the ping result's kind", async () => {
+    const addModel = vi.fn(async () => true);
+    const ping = vi.fn(async () => ({ ok: true, status: 200, kind: "embedding" }));
+
+    await runImport({
+      storageAlias: "oc",
+      models: [{ id: "m1", kind: "llm", name: "M1" }],
+      testFirst: true,
+      forceKind: "llm",
+      deps: { ping, addModel },
+    });
+
+    expect(addModel).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "m1", type: "llm" }),
+    );
+  });
+
+  it("forceKind also applies without testFirst", async () => {
+    const addModel = vi.fn(async () => true);
+
+    await runImport({
+      storageAlias: "oc",
+      models: [{ id: "m1", kind: "image", name: "M1" }],
+      testFirst: false,
+      forceKind: "llm",
+      deps: { ping: vi.fn(), addModel },
+    });
+
+    expect(addModel).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "m1", type: "llm" }),
+    );
+  });
+
+  it("stops starting new models once the signal is aborted, but still emits done (testFirst)", async () => {
+    const controller = new AbortController();
+    const addModel = vi.fn(async () => true);
+    let calls = 0;
+    const ping = vi.fn(async () => {
+      calls += 1;
+      // Abort right after the warm-up ping (for m0) so nothing else starts.
+      if (calls === 1) controller.abort();
+      return { ok: true, status: 200, kind: "llm" };
+    });
+
+    const models = Array.from({ length: 5 }, (_, i) => ({ id: `m${i}`, kind: "llm", name: `M${i}` }));
+    const events = [];
+    const result = await runImport({
+      storageAlias: "oc",
+      models,
+      testFirst: true,
+      concurrency: 1,
+      signal: controller.signal,
+      onEvent: (e) => events.push(e),
+      deps: { ping, addModel },
+    });
+
+    // Only the warm-up model (m0) is pinged — nothing else starts after abort.
+    expect(ping).toHaveBeenCalledTimes(1);
+    expect(result.imported).toEqual(["m0"]);
+    expect(events[events.length - 1].type).toBe("done");
+  });
+
+  it("stops starting new models once aborted before the run begins (no testFirst)", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const addModel = vi.fn(async () => true);
+
+    const result = await runImport({
+      storageAlias: "oc",
+      models: [{ id: "m1", kind: "llm", name: "M1" }, { id: "m2", kind: "llm", name: "M2" }],
+      testFirst: false,
+      signal: controller.signal,
+      deps: { ping: vi.fn(), addModel },
+    });
+
+    expect(addModel).not.toHaveBeenCalled();
+    expect(result.imported).toEqual([]);
+  });
+
+  it("with testFirst, fails tts models locally without pinging (ping.js has no tts probe)", async () => {
+    const addModel = vi.fn(async () => true);
+    const ping = vi.fn(async () => ({ ok: true, status: 200, kind: "llm" }));
+
+    const result = await runImport({
+      storageAlias: "oc",
+      models: [{ id: "voice-1", kind: "tts", name: "Voice 1" }],
+      testFirst: true,
+      deps: { ping, addModel },
+    });
+
+    expect(ping).not.toHaveBeenCalled();
+    expect(addModel).not.toHaveBeenCalled();
+    expect(result.imported).toEqual([]);
+    expect(result.failed).toEqual([
+      { id: "voice-1", error: "Can't test TTS models — import with 'Test before import' off" },
+    ]);
+  });
+
+  it("without testFirst, tts models import normally (no probe involved either way)", async () => {
+    const addModel = vi.fn(async () => true);
+
+    const result = await runImport({
+      storageAlias: "oc",
+      models: [{ id: "voice-1", kind: "tts", name: "Voice 1" }],
+      testFirst: false,
+      deps: { ping: vi.fn(), addModel },
+    });
+
+    expect(result.imported).toEqual(["voice-1"]);
+    expect(addModel).toHaveBeenCalledWith(expect.objectContaining({ id: "voice-1", type: "tts" }));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -537,6 +679,13 @@ describe("import auto rules", () => {
     await deleteImportRule("a");
     const all = await listImportRules();
     expect(Object.keys(all)).toEqual(["b"]);
+  });
+
+  it("getImportRule returns null for prototype-property-shaped ids like 'constructor'", async () => {
+    fakes.getSettings.mockResolvedValue({ autoModelImportRules: {} });
+    expect(await getImportRule("constructor")).toBeNull();
+    expect(await getImportRule("toString")).toBeNull();
+    expect(await getImportRule("hasOwnProperty")).toBeNull();
   });
 
   it("normalizes filters through normalizeImportFilters on save", async () => {

@@ -8,14 +8,20 @@ import { runImport } from "./runImport.js";
 import { listImportRules } from "./rules.js";
 import { applyImportFilters } from "@/shared/utils/importProviderModels.js";
 import { getSettings, updateSettings } from "@/lib/db/index.js";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 
 // Pure: does cfg (settings.autoModelImport) call for a run right now?
 // `now`'s LOCAL calendar day is what "already ran today" is measured against,
 // matching the hour also being read in local time (the dashboard's `hour`
 // picker is local-time too).
+const DEFAULT_AUTO_IMPORT_HOUR = 4;
+
 export function isAutoImportDue(cfg, now = new Date()) {
   if (!cfg || cfg.enabled !== true) return false;
-  if (now.getHours() < cfg.hour) return false;
+  const hour = Number.isInteger(cfg.hour) && cfg.hour >= 0 && cfg.hour <= 23
+    ? cfg.hour
+    : DEFAULT_AUTO_IMPORT_HOUR;
+  if (now.getHours() < hour) return false;
   if (!cfg.lastRunAt) return true;
 
   const last = new Date(cfg.lastRunAt);
@@ -50,7 +56,15 @@ export async function runAutoImportForProvider(providerId, rule, deps = {}) {
     }
 
     const models = filtered.map((c) => ({ id: c.id, kind: c.kind, name: c.name }));
-    const result = await doImport({ storageAlias, models, testFirst: rule?.testFirst === true });
+    const importArgs = { storageAlias, models, testFirst: rule?.testFirst === true };
+    // Compatible-node providers (openai-compatible-*/anthropic-compatible-*)
+    // always store imported models as "llm" — CompatibleModelsSection only
+    // displays llm rows. The probe itself still runs with the model's own
+    // kind; only the stored type is forced.
+    if (isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId)) {
+      importArgs.forceKind = "llm";
+    }
+    const result = await doImport(importArgs);
 
     return { providerId, imported: result.imported.length, failed: result.failed.length };
   } catch (error) {
@@ -92,8 +106,18 @@ export async function runAllAutoImports(deps = {}) {
     const at = new Date().toISOString();
     const settings = await loadSettings();
     const current = settings.autoModelImport || {};
+
+    // A sweep where every rule errored out (connection down, DB hiccup, …)
+    // didn't really "run" — leave lastRunAt alone so the next 15-minute tick
+    // retries today instead of waiting until tomorrow. Still persist
+    // lastResult so the settings card can show the errors.
+    const allProvidersErrored = providers.length > 0 && providers.every((p) => Boolean(p?.error));
     await saveSettings({
-      autoModelImport: { ...current, lastRunAt: at, lastResult: { at, providers } },
+      autoModelImport: {
+        ...current,
+        lastRunAt: allProvidersErrored ? current.lastRunAt : at,
+        lastResult: { at, providers },
+      },
     });
 
     return { busy: false, at, providers };

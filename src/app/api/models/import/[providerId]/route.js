@@ -4,6 +4,7 @@ import { runImport } from "@/lib/modelImport/runImport.js";
 import { getImportRule } from "@/lib/modelImport/rules.js";
 import { IMPORT_KINDS } from "@/shared/utils/importProviderModels.js";
 import { isKnownProvider } from "@/app/api/models/import/isKnownProvider.js";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 
 export const dynamic = "force-dynamic";
 
@@ -68,14 +69,17 @@ export async function POST(request, { params }) {
 
   const testFirst = body?.testFirst === true;
   const storageAlias = resolveStorageAlias(providerId);
+  const forceKind =
+    isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId) ? "llm" : null;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     async start(controller) {
       let closed = false;
       const onAbort = () => {
-        // Stop enqueueing on client disconnect; runImport itself is left to
-        // finish on its own (see route brief) rather than being cancelled.
+        // Stop enqueueing on client disconnect. runImport also gets the same
+        // signal: it stops starting new models once aborted, but lets any
+        // in-flight probe/import finish rather than cutting it off mid-call.
         closed = true;
       };
       request.signal.addEventListener("abort", onAbort, { once: true });
@@ -90,7 +94,7 @@ export async function POST(request, { params }) {
       };
 
       try {
-        await runImport({ storageAlias, models, testFirst, onEvent: emit });
+        await runImport({ storageAlias, models, testFirst, forceKind, signal: request.signal, onEvent: emit });
       } catch (error) {
         emit({ type: "error", error: error?.message || String(error) });
       } finally {

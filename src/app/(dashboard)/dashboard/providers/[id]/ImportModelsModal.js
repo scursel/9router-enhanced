@@ -129,6 +129,14 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
 
   const filteredCandidates = useMemo(() => applyImportFilters(candidates, filters), [candidates, filters]);
 
+  // A saved rule applies to every matching model on the next daily run, not
+  // just what's checked here — surface that gap so "N more" is never a
+  // surprise import later.
+  const additionalRuleMatches = useMemo(
+    () => filteredCandidates.filter((c) => !c.alreadyImported && !selected.has(c.id)).length,
+    [filteredCandidates, selected]
+  );
+
   const presentKinds = useMemo(
     () => IMPORT_KINDS.filter((kind) => candidates.some((c) => c.kind === kind)),
     [candidates]
@@ -261,7 +269,13 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
       setPhase("done");
       onImported();
     } catch (err) {
-      if (err?.name === "AbortError") return; // closed mid-run — nothing more to show
+      if (err?.name === "AbortError") {
+        // Cancel stops runImport from *starting* new models, but anything
+        // already in flight may have finished and landed in the DB — refresh
+        // the parent's model list rather than leaving it stale.
+        onImported();
+        return;
+      }
       setRunError(err?.message || String(err));
       setPhase("done");
     } finally {
@@ -304,6 +318,12 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
               onChange={setSaveRule}
               label={translate("Use these filters for daily auto-import")}
             />
+            {saveRule && additionalRuleMatches > 0 && (
+              <p className="text-[11px] text-text-muted pl-8">
+                {translate("Daily run will also import")} {additionalRuleMatches}{" "}
+                {translate("more matching models you didn't select")}
+              </p>
+            )}
             <Link href="/dashboard/profile" className="text-xs text-brand-500 hover:underline">
               {translate("Daily auto-import is configured in Settings")}
             </Link>

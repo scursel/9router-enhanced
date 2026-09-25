@@ -26,6 +26,8 @@ export async function runImport({
   testFirst = false,
   concurrency = IMPORT_TEST_CONCURRENCY,
   onEvent = () => {},
+  signal = null,
+  forceKind = null,
   deps = {},
 }) {
   const ping = deps.ping || pingModelWithFallback;
@@ -35,6 +37,7 @@ export async function runImport({
   const deduped = dedupeById(models);
   const imported = [];
   const failed = [];
+  const aborted = () => signal?.aborted === true;
 
   const emit = (event) => {
     try {
@@ -51,7 +54,7 @@ export async function runImport({
       await addModel({
         providerAlias: storageAlias,
         id: model.id,
-        type: kindOverride || model.kind || "llm",
+        type: forceKind || kindOverride || model.kind || "llm",
         name: model.name,
       });
       imported.push(model.id);
@@ -63,7 +66,18 @@ export async function runImport({
     }
   };
 
+  // ping.js has no dedicated tts probe (it falls back to an llm chat call,
+  // which just burns a call and always fails for a tts-only model) — so a
+  // tts model can never pass testFirst honestly. Fail it locally instead of
+  // spending an upstream call whose result is meaningless.
   const testAndImportModel = async (model) => {
+    if (model.kind === "tts") {
+      const message = "Can't test TTS models — import with 'Test before import' off";
+      failed.push({ id: model.id, error: message });
+      emit({ type: "failed", id: model.id, error: message });
+      return;
+    }
+
     emit({ type: "testing", id: model.id });
     let result;
     try {
@@ -88,7 +102,7 @@ export async function runImport({
   };
 
   if (testFirst) {
-    if (deduped.length > 0) {
+    if (deduped.length > 0 && !aborted()) {
       // Warm-up: ping the first model alone first (token refresh etc. happens
       // once, not once per concurrent worker), then run the rest through a
       // bounded pool.
@@ -98,7 +112,7 @@ export async function runImport({
       let cursor = 0;
       const workerCount = Math.min(concurrency, rest.length);
       const workers = Array.from({ length: workerCount }, async () => {
-        while (cursor < rest.length) {
+        while (cursor < rest.length && !aborted()) {
           const model = rest[cursor];
           cursor += 1;
           await testAndImportModel(model);
@@ -108,6 +122,7 @@ export async function runImport({
     }
   } else {
     for (const model of deduped) {
+      if (aborted()) break;
       await importModel(model);
     }
   }

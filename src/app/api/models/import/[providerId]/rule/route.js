@@ -11,8 +11,14 @@ export async function PUT(request, { params }) {
     return NextResponse.json({ error: "Unknown provider" }, { status: 404 });
   }
 
+  let body;
   try {
-    const body = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  try {
     const rule = await saveImportRule(providerId, { filters: body?.filters, testFirst: body?.testFirst });
     return NextResponse.json({ rule });
   } catch (error) {

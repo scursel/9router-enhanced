@@ -14,7 +14,11 @@ import {
   isAnthropicCompatibleProvider,
 } from "@/shared/constants/providers";
 import { getModelsByProviderId } from "open-sse/config/providerModels.js";
-import { buildImportCandidates } from "@/shared/utils/importProviderModels.js";
+import {
+  buildImportCandidates,
+  stripProviderPrefix,
+  LIVE_CATALOG_PROVIDERS,
+} from "@/shared/utils/importProviderModels.js";
 import { internalBaseUrl, getInternalHeaders } from "./internal.js";
 
 // Fetch an internal API endpoint with auth headers and throw on non-OK response.
@@ -80,6 +84,17 @@ export async function listImportCandidates(providerId, { fetchImpl = fetch } = {
   const existingIds = new Set();
   for (const model of getModelsByProviderId(providerId)) {
     if (model?.id) existingIds.add(model.id);
+  }
+
+  // cursor/zed's provider page shows the live /models list (not the static
+  // catalog) as its built-in model list once one is available — fold those
+  // same ids into existingIds so they don't show as "new" in the picker.
+  if (source === "connection" && LIVE_CATALOG_PROVIDERS.has(providerId)) {
+    for (const model of models) {
+      const rawId = model?.id || model?.name || model?.model;
+      const id = stripProviderPrefix(rawId, prefixes);
+      if (id) existingIds.add(id);
+    }
   }
 
   const customModels = await getCustomModels();

@@ -9,7 +9,7 @@ import { normalizeImportFilters } from "@/shared/utils/importProviderModels.js";
 export async function getImportRule(providerId) {
   const settings = await getSettings();
   const rules = settings.autoModelImportRules || {};
-  return rules[providerId] || null;
+  return Object.hasOwn(rules, providerId) ? rules[providerId] : null;
 }
 
 export async function listImportRules() {

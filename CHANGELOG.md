@@ -11,6 +11,7 @@ Interactive model discovery and daily auto-import. The provider page's old "Impo
 - **Daily auto-import rule**: "Use these filters for daily auto-import" checkbox saves the picker's filters + test setting; unchecking it deletes the rule.
 - **Settings card** (Profile page, "Daily Model Auto-Import"): enable toggle, run hour (server local time, default 04:00, disabled by default), "Run now", last-run summary per provider, list of providers with rules. Scheduler checks every 15 minutes (first check 2 minutes after start) and runs once per local day at/after the hour; each run imports only new models, never removes existing ones.
 - **API**: `GET/POST /api/models/import/{providerId}` (POST streams NDJSON progress), `PUT/DELETE /api/models/import/{providerId}/rule`, `GET/POST /api/models/import/auto`. Code: `src/lib/modelImport/` (candidates, runImport, rules, autoImport, scheduler), `src/shared/utils/importProviderModels.js` (filters), `ImportModelsModal.js`, `profile/AutoModelImportCard.js`. Settings keys: `autoModelImport`, `autoModelImportRules`.
+- Compatible providers (`openai-compatible-*`/`anthropic-compatible-*`) keep importing as `llm` regardless of what the test probe answers, since `CompatibleModelsSection` only displays `llm` rows; TTS models can't be tested before import (no probe route exists) — importing one with "Test before import" on now fails it with a clear message instead of a false negative.
 
 # v0.5.86-enhanced.2 (2026-09-25)
 

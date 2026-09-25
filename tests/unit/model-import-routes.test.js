@@ -40,6 +40,7 @@ const { PUT: rulePUT, DELETE: ruleDELETE } = await import(
   "@/app/api/models/import/[providerId]/rule/route.js"
 );
 const { GET: autoGET, POST: autoPOST } = await import("@/app/api/models/import/auto/route.js");
+const { isKnownProvider } = await import("@/app/api/models/import/isKnownProvider.js");
 
 const KNOWN_PROVIDER = "openrouter";
 const UNKNOWN_PROVIDER = "definitely-not-a-real-provider-xyz";
@@ -61,6 +62,22 @@ async function readNdjson(res) {
 beforeEach(() => {
   vi.clearAllMocks();
   resolveStorageAlias.mockImplementation((providerId) => `alias-${providerId}`);
+});
+
+// ---------------------------------------------------------------------------
+// isKnownProvider — prototype-pollution-shaped ids must not walk the
+// prototype chain (Object.hasOwn, not `in`).
+// ---------------------------------------------------------------------------
+describe("isKnownProvider", () => {
+  it("returns false for prototype-property-shaped ids like 'constructor'", () => {
+    expect(isKnownProvider("constructor")).toBe(false);
+    expect(isKnownProvider("toString")).toBe(false);
+    expect(isKnownProvider("hasOwnProperty")).toBe(false);
+  });
+
+  it("still returns true for a real registry provider", () => {
+    expect(isKnownProvider(KNOWN_PROVIDER)).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -177,6 +194,31 @@ describe("POST [providerId]", () => {
     expect(events.map((e) => e.type)).toEqual(["start", "imported", "done"]);
   });
 
+  it("passes forceKind:'llm' to runImport for an openai-compatible-* node id", async () => {
+    runImport.mockImplementation(async ({ onEvent }) => {
+      onEvent({ type: "done", imported: 0, failed: 0 });
+      return { imported: [], failed: [] };
+    });
+
+    await candidatesPOST(
+      postReq(COMPATIBLE_PROVIDER, { models: [{ id: "m1", kind: "embedding" }] }),
+      paramsFor(COMPATIBLE_PROVIDER),
+    );
+
+    expect(runImport).toHaveBeenCalledWith(expect.objectContaining({ forceKind: "llm" }));
+  });
+
+  it("does not force a kind for a regular registry provider", async () => {
+    runImport.mockImplementation(async ({ onEvent }) => {
+      onEvent({ type: "done", imported: 0, failed: 0 });
+      return { imported: [], failed: [] };
+    });
+
+    await candidatesPOST(postReq(KNOWN_PROVIDER, { models: [{ id: "m1" }] }), paramsFor(KNOWN_PROVIDER));
+
+    expect(runImport).toHaveBeenCalledWith(expect.objectContaining({ forceKind: null }));
+  });
+
   it("passes testFirst through only when strictly true, and keeps a valid kind/name", async () => {
     runImport.mockImplementation(async ({ onEvent }) => {
       onEvent({ type: "done", imported: 0, failed: 0 });
@@ -197,6 +239,40 @@ describe("POST [providerId]", () => {
         testFirst: false,
       }),
     );
+  });
+
+  it("passes the request's AbortSignal through to runImport", async () => {
+    runImport.mockImplementation(async ({ onEvent }) => {
+      onEvent({ type: "done", imported: 0, failed: 0 });
+      return { imported: [], failed: [] };
+    });
+
+    const controller = new AbortController();
+    const req = new Request(`http://localhost/api/models/import/${KNOWN_PROVIDER}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ models: [{ id: "m1" }] }),
+      signal: controller.signal,
+    });
+
+    await candidatesPOST(req, paramsFor(KNOWN_PROVIDER));
+
+    // req.signal isn't guaranteed to be the exact same object identity as
+    // controller.signal across Request implementations, so assert on the
+    // request's own signal and its abort-following behavior instead.
+    expect(runImport).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: req.signal }),
+    );
+    const passedSignal = runImport.mock.calls[0][0].signal;
+    expect(passedSignal.aborted).toBe(false);
+    controller.abort();
+    expect(passedSignal.aborted).toBe(true);
+  });
+
+  it("404s an unknown provider even when providerId is 'constructor'", async () => {
+    const res = await candidatesPOST(postReq("constructor", { models: [{ id: "a" }] }), paramsFor("constructor"));
+    expect(res.status).toBe(404);
+    expect(runImport).not.toHaveBeenCalled();
   });
 
   it("emits an error event and still closes cleanly when runImport throws", async () => {
@@ -243,6 +319,19 @@ describe("[providerId]/rule", () => {
   it("PUT 404s for an unknown provider", async () => {
     const res = await rulePUT(putReq(UNKNOWN_PROVIDER, {}), paramsFor(UNKNOWN_PROVIDER));
     expect(res.status).toBe(404);
+    expect(saveImportRule).not.toHaveBeenCalled();
+  });
+
+  it("PUT 400s with 'Invalid JSON body' on malformed JSON, like POST does", async () => {
+    const req = new Request(`http://localhost/api/models/import/${KNOWN_PROVIDER}/rule`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: "{not valid json",
+    });
+    const res = await rulePUT(req, paramsFor(KNOWN_PROVIDER));
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data).toEqual({ error: "Invalid JSON body" });
     expect(saveImportRule).not.toHaveBeenCalled();
   });
 

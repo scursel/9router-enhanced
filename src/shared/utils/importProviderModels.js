@@ -1,5 +1,12 @@
 import { classifyTier } from "@/shared/utils/modelTier.js";
 
+// Providers whose provider page shows the LIVE /models list (not the static
+// suggested-models catalog) as their built-in model list once one is
+// available. listImportCandidates() must fold that same live list into
+// existingIds for these providers, or every live model shows as "new" in the
+// import picker and re-importing duplicates it.
+export const LIVE_CATALOG_PROVIDERS = new Set(["cursor", "zed"]);
+
 export const IMPORT_KINDS = ["llm", "image", "embedding", "tts", "stt"];
 export const IMPORT_TIERS = ["free", "paid", "credits", "unknown"];
 export const DEFAULT_IMPORT_FILTERS = {
@@ -48,11 +55,15 @@ export function buildImportCandidates({
       tier = classifyTier({ ...model, id }, { providerId }).tier;
     }
 
-    // Extract context length (first finite positive from contextLength, context_length, context_window)
+    // Extract context length (first finite positive from contextLength, context_length,
+    // context_window) — accepts a numeric string ("128000") too, since some catalogs
+    // serialize it that way; anything else (bool, object, NaN, non-positive) is skipped.
     let contextLength = null;
     for (const field of [model?.contextLength, model?.context_length, model?.context_window]) {
-      if (typeof field === "number" && Number.isFinite(field) && field > 0) {
-        contextLength = field;
+      if (typeof field !== "number" && typeof field !== "string") continue;
+      const num = Number(field);
+      if (Number.isFinite(num) && num > 0) {
+        contextLength = num;
         break;
       }
     }
