@@ -55,6 +55,13 @@ export const STREAM_STALL_TIMEOUT_MS = envMs("STREAM_STALL_TIMEOUT_MS", 360 * 10
 // Time-to-first-token timeout (prompt prefill). Env: STREAM_FIRST_CHUNK_TIMEOUT_MS.
 export const STREAM_FIRST_CHUNK_TIMEOUT_MS = envMs("STREAM_FIRST_CHUNK_TIMEOUT_MS", 200 * 1000);
 
+// Budget for a combo member (one with a next member left) to produce its first
+// output before the combo falls over to the next one. Shorter than the
+// first-chunk timeout above, which still applies to the last member and to
+// plain requests, where there is nothing faster to fall back to.
+// Env: COMBO_STREAM_READINESS_TIMEOUT_MS.
+export const COMBO_STREAM_READINESS_TIMEOUT_MS = envMs("COMBO_STREAM_READINESS_TIMEOUT_MS", 60 * 1000);
+
 // Fetch connect timeout: abort if upstream doesn't return response headers within this duration
 export const FETCH_CONNECT_TIMEOUT_MS = envMs("FETCH_CONNECT_TIMEOUT_MS", 60 * 1000);
 

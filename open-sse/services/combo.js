@@ -8,6 +8,21 @@ import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
 import { parseModel } from "./model.js";
 import { saveComboAttemptFailure } from "../handlers/chatCore/requestDetail.js";
+import { COMBO_STREAM_READINESS_TIMEOUT_MS } from "../config/runtimeConfig.js";
+
+/**
+ * Dispatch options for one combo member attempt (fed to handleChatCore).
+ *
+ * A member that still has a next member behind it — in this combo or, for a
+ * nested combo, in its parent — should fail fast: no same-upstream retries,
+ * and a short budget for its stream to produce output. The last member keeps
+ * the historical retries and first-chunk timeout: there is nothing faster to
+ * fall back to, so giving up early would only turn a slow answer into an error.
+ */
+export function resolveMemberDispatchOptions(attemptUsage) {
+  if (!attemptUsage?.hasNextMember) return { skipUpstreamRetry: false, streamReadinessTimeoutMs: undefined };
+  return { skipUpstreamRetry: true, streamReadinessTimeoutMs: COMBO_STREAM_READINESS_TIMEOUT_MS };
+}
 
 /**
  * Persist the trace of ONE failed member attempt (D13/CB2).
@@ -366,6 +381,7 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       attemptUsage.attempt = i + 1;
       attemptUsage.reachedUpstream = false;
       attemptUsage.connectionId = undefined;
+      attemptUsage.hasNextMember = i < rotatedModels.length - 1 || !!attemptUsage.parentHasNextMember;
     }
     log.info("COMBO", `Trying model ${i + 1}/${rotatedModels.length}: ${modelStr}`);
 
@@ -422,7 +438,7 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       // signal: the combo's other members are different upstreams entirely.
       // The flag is only ever emitted together with `shouldFallback: false`, never
       // with `true` (invariant documented in checkFallbackError's JSDoc).
-      const { shouldFallback, cooldownMs } = checkFallbackError(result.status, errorText);
+      const { shouldFallback } = checkFallbackError(result.status, errorText);
 
       if (!shouldFallback) {
         // Account-level policy (unchanged): a request-shaped 4xx (400/406/413/422)
@@ -442,14 +458,10 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
         continue;
       }
 
-      // For transient errors (503/502/504), wait for cooldown before falling through
-      // so a briefly-overloaded provider gets a chance to recover rather than being
-      // skipped immediately (fixes: combo falls through on transient 503)
-      if (cooldownMs && cooldownMs > 0 && cooldownMs <= 5000 &&
-          (result.status === 503 || result.status === 502 || result.status === 504)) {
-        log.info("COMBO", `Model ${modelStr} transient ${result.status}, waiting ${cooldownMs}ms before next`);
-        await new Promise(r => setTimeout(r, cooldownMs));
-      }
+      // No wait here: the next attempt goes to a DIFFERENT member, so pausing
+      // for this one's cooldown only delayed the answer (the pause used to be
+      // up to 5 s on 502/503/504). The cooldown itself is recorded at account
+      // level, which is what keeps the next requests off this member.
 
       // Fallback to next model.
       // Status and message must describe the SAME failure: pinning the status to

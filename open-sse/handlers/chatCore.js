@@ -11,7 +11,8 @@ import { createRequestLogger } from "../utils/requestLogger.js";
 import { getModelTargetFormat, getModelSupportedFormats, getModelStrip, getModelUpstreamId, getModelType, PROVIDER_ID_TO_ALIAS } from "../config/providerModels.js";
 import { PROVIDERS } from "../config/providers.js";
 import { createErrorResult, parseUpstreamError, formatProviderError } from "../utils/error.js";
-import { HTTP_STATUS, TOKEN_SAVER_HEADER } from "../config/runtimeConfig.js";
+import { HTTP_STATUS, TOKEN_SAVER_HEADER, STREAM_FIRST_CHUNK_TIMEOUT_MS } from "../config/runtimeConfig.js";
+import { ensureStreamReadiness } from "../utils/streamReadiness.js";
 import { handleBypassRequest } from "../utils/bypassHandler.js";
 import { trackPendingRequest, appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
 import { triggerReactiveModelSync } from "@/lib/modelSync/reactive.js";
@@ -96,7 +97,7 @@ export function stripContinuityFields(body) {
   return body;
 }
 
-export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, onStreamComplete: onStreamCompleteCb, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, usageEventId, comboName }) {
+export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, onStreamComplete: onStreamCompleteCb, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, usageEventId, comboName, skipUpstreamRetry = false, streamReadinessTimeoutMs = STREAM_FIRST_CHUNK_TIMEOUT_MS }) {
   const { provider, model } = modelInfo;
   const requestStartTime = Date.now();
   // Stable per-session color so all lines of one CLI conversation share a tag
@@ -457,6 +458,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       signal: streamController.signal,
       log,
       proxyOptions,
+      skipUpstreamRetry,
     });
     providerResponse = result.response;
     providerUrl = result.url;
@@ -496,8 +498,11 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     return createErrorResult(HTTP_STATUS.BAD_GATEWAY, errMsg);
   }
 
-  // Handle 401/403 - try token refresh (skip for noAuth providers)
-  if (!executor.noAuth && (providerResponse.status === HTTP_STATUS.UNAUTHORIZED || providerResponse.status === HTTP_STATUS.FORBIDDEN)) {
+  // Handle 401/403 - try token refresh (skip for noAuth providers, and for
+  // credentials the executor cannot refresh — e.g. a plain API key, where the
+  // retry ladder only delays the fallback). Executors without the capability
+  // check keep the historical always-try behaviour.
+  if (!executor.noAuth && executor.canRefreshCredentials?.(credentials) !== false && (providerResponse.status === HTTP_STATUS.UNAUTHORIZED || providerResponse.status === HTTP_STATUS.FORBIDDEN)) {
     try {
       // F26/RH3: route the reactive refresh through the same single-flight
       // lock the proactive path uses (key = provider:connectionId), so N
@@ -543,6 +548,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
             signal: streamController.signal,
             log,
             proxyOptions,
+            skipUpstreamRetry,
           });
           if (retryResult.response.ok) {
             providerResponse = retryResult.response;
@@ -558,20 +564,10 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     }
   }
 
-  // Provider returned error
-  if (!providerResponse.ok) {
+  // Record + report one failed upstream attempt and build the error result the
+  // account / combo loop above falls back on.
+  const failUpstream = (statusCode, message, resetsAtMs) => {
     settlePending(true);
-    const { statusCode, message, resetsAtMs } = await parseUpstreamError(providerResponse, executor);
-    // T3.2/RB: upstream 404 == model_not_found (config/errorConfig.js maps the
-    // status; this block only ever sees the provider's own response, never a
-    // local-route 404). The account may have gained/lost this model since the
-    // last catalog sync, so kick off a fire-and-forget automatic resync for
-    // THIS connection (cooldown/dedupe/kill-switch live in the trigger). Not
-    // awaited: the original error below propagates exactly as before — the
-    // failing request is never retried or delayed by this hook.
-    if (statusCode === HTTP_STATUS.NOT_FOUND) {
-      triggerReactiveModelSync({ connectionId, provider, model }, { log });
-    }
     appendRequestLog({ model, provider, connectionId, status: `FAILED ${statusCode}` }).catch(() => { });
     saveRequestDetail(buildRequestDetail({
       provider, model, connectionId,
@@ -591,6 +587,22 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     }
     reqLogger.logError(new Error(message), finalBody || translatedBody);
     return createErrorResult(statusCode, errMsg, resetsAtMs);
+  };
+
+  // Provider returned error
+  if (!providerResponse.ok) {
+    const { statusCode, message, resetsAtMs } = await parseUpstreamError(providerResponse, executor);
+    // T3.2/RB: upstream 404 == model_not_found (config/errorConfig.js maps the
+    // status; this block only ever sees the provider's own response, never a
+    // local-route 404). The account may have gained/lost this model since the
+    // last catalog sync, so kick off a fire-and-forget automatic resync for
+    // THIS connection (cooldown/dedupe/kill-switch live in the trigger). Not
+    // awaited: the original error below propagates exactly as before — the
+    // failing request is never retried or delayed by this hook.
+    if (statusCode === HTTP_STATUS.NOT_FOUND) {
+      triggerReactiveModelSync({ connectionId, provider, model }, { log });
+    }
+    return failUpstream(statusCode, message, resetsAtMs);
   }
 
   const attemptUsageEventId = usageEventId || randomUUID();
@@ -616,6 +628,15 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     streamController.handleComplete();
     return result;
   }
+
+  // Hold the stream back until it produces real output: a 200 that turns out
+  // empty, carries only an error, or goes silent is still a failed attempt the
+  // account / combo loop can fall back on — but only while no byte has reached
+  // the client. Budget: short for a combo member with a next member to try,
+  // the first-chunk timeout otherwise. Non-SSE bodies pass through untouched.
+  const readiness = await ensureStreamReadiness(providerResponse, { timeoutMs: streamReadinessTimeoutMs });
+  if (!readiness.ok) return failUpstream(readiness.status, readiness.message);
+  providerResponse = readiness.response;
 
   // Streaming response
   // Enhanced: also notify onStreamCompleteCb (account resilience / semaphore release).

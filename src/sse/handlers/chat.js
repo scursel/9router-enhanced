@@ -15,7 +15,7 @@ import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
 import { getTransform as getPxpipeTransform } from "@/lib/pxpipe/loader.js";
 import { appendPxpipeEvent } from "@/lib/pxpipe/events.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
-import { handleComboChat, handleFusionChat, detectRequiredCapabilities } from "open-sse/services/combo.js";
+import { handleComboChat, handleFusionChat, detectRequiredCapabilities, resolveMemberDispatchOptions } from "open-sse/services/combo.js";
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
 import { handleBypassRequest } from "open-sse/utils/bypassHandler.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
@@ -237,6 +237,8 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // A repeat in the chain is treated as "not a combo", which falls through to
     // the existing 400 below instead of looping.
     const comboPath = attemptUsage?.comboPath || [];
+    // Read before the block below shadows `attemptUsage` with the nested combo's own.
+    const parentHasNextMember = !!attemptUsage?.hasNextMember;
     if (comboModels?.length && comboPath.includes(modelStr)) {
       log.warn("CHAT", `Cyclic combo reference ignored: "${modelStr}" already expanded in this request`, { comboPath });
     } else if (comboModels?.length) {
@@ -267,6 +269,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       const attemptUsage = {
         comboName: modelStr,
         comboPath: [...comboPath, modelStr],
+        // A nested combo's last member is not the end of the line when the
+        // outer combo still has members after this one: keep failing fast.
+        parentHasNextMember,
         apiKey: apiKey || undefined,
         endpoint: clientRawRequest?.endpoint || undefined,
       };
@@ -478,6 +483,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
         // D13/CB2: combo identity for the winning member's usage row.
         comboName: attemptUsage?.comboName || null,
+        // Fast failover while a next combo member is waiting: no same-upstream
+        // retries, short budget for the stream's first output.
+        ...resolveMemberDispatchOptions(attemptUsage),
         onCredentialsRefreshed: async (newCreds) => {
           await updateProviderCredentials(connectionId, {
             ...newCreds,

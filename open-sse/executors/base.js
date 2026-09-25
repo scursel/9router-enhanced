@@ -89,6 +89,14 @@ export class BaseExecutor {
     return null;
   }
 
+  // Whether a reactive 401/403 refresh can possibly succeed for these
+  // credentials. When it cannot, chatCore skips refreshWithRetry and its
+  // backoff (3 attempts, ~3 s) and fails over right away. An executor that
+  // overrides refreshCredentials is trusted to try unless it narrows this.
+  canRefreshCredentials(credentials) {
+    return this.refreshCredentials !== BaseExecutor.prototype.refreshCredentials;
+  }
+
   needsRefresh(credentials) {
     return shouldRefreshCredentials(this.provider, credentials);
   }
@@ -97,7 +105,11 @@ export class BaseExecutor {
     return { status: response.status, message: bodyText || `HTTP ${response.status}` };
   }
 
-  async execute({ model, body, stream, credentials, signal, log, proxyOptions = null }) {
+  // skipUpstreamRetry: set when this call is a combo member that still has a
+  // next member to try. Retrying the same failing upstream (2–3s apart, up to
+  // 3×) then only delays the fallback that answers the client; the provider's
+  // own baseUrls are still walked — those are other endpoints, not retries.
+  async execute({ model, body, stream, credentials, signal, log, proxyOptions = null, skipUpstreamRetry = false }) {
     const fallbackCount = this.getFallbackCount();
     let lastError = null;
     let lastStatus = 0;
@@ -109,6 +121,7 @@ export class BaseExecutor {
     // Schedule retry via retryConfig[statusKey]. Returns true when caller should `urlIndex--; continue`
     // response (optional) lets a subclass hook compute a dynamic delay (e.g. antigravity Retry-After).
     const tryRetry = async (urlIndex, statusKey, reason, response = null) => {
+      if (skipUpstreamRetry) return false;
       const { attempts, delayMs } = resolveRetryEntry(retryConfig[statusKey]);
       if (attempts <= 0 || retryAttemptsByUrl[urlIndex] >= attempts) return false;
       // Hook: subclass may derive delay from the response (headers/body). null → skip retry, use fallback.

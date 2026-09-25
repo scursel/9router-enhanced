@@ -105,3 +105,30 @@ describe("BaseExecutor.execute — computeRetryDelay hook veto", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("BaseExecutor.execute — skipUpstreamRetry (combo member with a next member to try)", () => {
+  it("does not retry a 503: one call, the 503 goes straight back to the combo loop", async () => {
+    const ex = makeExec({ baseUrl: "https://x/api", retry: { 503: { attempts: 3, delayMs: 0 } } });
+    fetchMock.mockResolvedValue(res(503));
+    const out = await ex.execute({ model: "m", body: {}, stream: false, credentials: creds, skipUpstreamRetry: true });
+    expect(out.response.status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a network error: throws after one call", async () => {
+    const ex = makeExec({ baseUrl: "https://x/api", retry: { 502: { attempts: 3, delayMs: 0 } } });
+    fetchMock.mockImplementationOnce(async () => { throw new Error("ECONNRESET"); });
+    await expect(
+      ex.execute({ model: "m", body: {}, stream: false, credentials: creds, skipUpstreamRetry: true })
+    ).rejects.toThrow("ECONNRESET");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still walks the provider's own baseUrls (a different endpoint, not a retry)", async () => {
+    const ex = makeExec({ baseUrls: ["https://a/api", "https://b/api"], retry: { 429: { attempts: 0 } } });
+    fetchMock.mockResolvedValueOnce(res(429)).mockResolvedValueOnce(res(200));
+    const out = await ex.execute({ model: "m", body: {}, stream: false, credentials: creds, skipUpstreamRetry: true });
+    expect(out.response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});

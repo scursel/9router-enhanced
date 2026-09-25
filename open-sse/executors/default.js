@@ -233,6 +233,12 @@ export class DefaultExecutor extends BaseExecutor {
       : this.refreshWithForm(grant.url(), params, proxyOptions);
   }
 
+  // Mirrors the guard below: without a refresh token (API-key providers)
+  // there is nothing to refresh.
+  canRefreshCredentials(credentials) {
+    return !!credentials?.refreshToken;
+  }
+
   async refreshCredentials(credentials, log, proxyOptions = null) {
     if (!credentials.refreshToken) return null;
 
