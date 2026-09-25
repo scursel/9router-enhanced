@@ -217,30 +217,6 @@ export function applyImportFilters(candidates = [], filters = {}) {
   return result;
 }
 
-export function collectImportableModels({
-  models = [],
-  existingIds = new Set(),
-  prefixes = [],
-  freeOnly = false,
-  providerId = null,
-} = {}) {
-  const out = [];
-  const seen = new Set(existingIds);
-  for (const model of models) {
-    const rawId = model?.id || model?.name || model?.model;
-    const id = stripProviderPrefix(rawId, prefixes);
-    if (!id || seen.has(id)) continue;
-    if (freeOnly) {
-      const tier = model?.tier || classifyTier({ ...model, id }, { providerId }).tier;
-      if (tier !== "free") continue;
-    }
-    seen.add(id);
-    const kind = ["image", "embedding", "tts", "stt"].includes(model?.kind) ? model.kind : "llm";
-    out.push({ id, kind, name: model?.name || id });
-  }
-  return out;
-}
-
 // Minimum-context select options for the import picker's filter bar
 // ("Any" / 32k / 128k / 200k / 1M), in display order.
 export const MIN_CONTEXT_OPTIONS = [

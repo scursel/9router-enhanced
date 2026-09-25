@@ -15,7 +15,7 @@ import { useCircuitBreakers } from "@/shared/hooks/useCircuitBreakers";
 import { translate } from "@/i18n/runtime";
 import { fetchSuggestedModels } from "@/shared/utils/providerModelsFetcher";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
-import { collectImportableModels } from "@/shared/utils/importProviderModels";
+import { connectionCanSyncCatalog } from "@/shared/utils/importProviderModels";
 import { readModelTestResult } from "@/shared/utils/modelTestResult";
 import ModelRow from "./ModelRow";
 import CompatibleModelsSection from "./CompatibleModelsSection";
@@ -712,6 +712,9 @@ export default function ProviderDetailPage() {
       console.log("Error adding custom model:", error);
     }
   };
+
+  // Import picker: needs a live connection to list, or a public catalog to browse.
+  const canImportModels = connections.some((conn) => conn.isActive !== false) || !!providerInfo?.modelsFetcher?.url;
 
   const handleModelsImported = async () => {
     await fetchCustomModels();
@@ -1461,8 +1464,8 @@ export default function ProviderDetailPage() {
           variant="ghost"
           icon="download"
           onClick={() => setShowImportModels(true)}
-          disabled={!(connections.some((conn) => conn.isActive !== false) || providerInfo?.modelsFetcher?.url)}
-          title={!(connections.some((conn) => conn.isActive !== false) || providerInfo?.modelsFetcher?.url) ? translate("Add a connection first") : undefined}
+          disabled={!canImportModels}
+          title={!canImportModels ? translate("Add a connection first") : undefined}
           className="border border-blue-500/40 text-blue-600 dark:text-blue-400 hover:bg-blue-500/5"
         >
           {translate("Import models")}

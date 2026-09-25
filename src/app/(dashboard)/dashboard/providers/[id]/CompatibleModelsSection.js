@@ -5,7 +5,6 @@ import { readModelTestResult } from "@/shared/utils/modelTestResult";
 import PropTypes from "prop-types";
 import { Button } from "@/shared/components";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
-import { collectImportableModels } from "@/shared/utils/importProviderModels";
 
 function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting, comboNames = [], selectable = false, selected = false, onToggleSelect }) {
   const borderColor = testStatus === "ok"
@@ -183,11 +182,17 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
         <Button size="sm" icon="add" onClick={handleAdd} disabled={!newModel.trim() || adding}>
           {adding ? "Adding..." : "Add"}
         </Button>
-        {canImport && (
-          <Button size="sm" variant="ghost" icon="download" onClick={onImportModels}>
-            Import models
-          </Button>
-        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          icon="download"
+          onClick={onImportModels}
+          disabled={!canImport}
+          title={canImport ? undefined : "Add a connection first"}
+          className="border border-blue-500/40 text-blue-600 dark:text-blue-400 hover:bg-blue-500/5"
+        >
+          Import models
+        </Button>
         {allModels.length > 0 && (
           <Button
             size="sm"

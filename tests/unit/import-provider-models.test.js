@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  collectImportableModels,
   connectionCanSyncCatalog,
   stripProviderPrefix,
   IMPORT_KINDS,
@@ -28,50 +27,17 @@ describe("stripProviderPrefix", () => {
   });
 });
 
-describe("collectImportableModels", () => {
-  const prefixes = ["cl", "cline"];
-  const existingIds = new Set(["already-there"]);
-
-  it("returns every listed id that is not already added", () => {
-    const models = [
-      { id: "anthropic/claude-sonnet-4.6" },
-      { id: "already-there" },
-      { id: "openai/gpt-5.4", pricing: { prompt: "0.001", completion: "0.002" } },
-    ];
-    expect(collectImportableModels({ models, existingIds, prefixes }).map((m) => m.id)).toEqual([
-      "anthropic/claude-sonnet-4.6",
-      "openai/gpt-5.4",
+describe("buildImportCandidates tier from id suffix", () => {
+  it("classifies ':free' and '-free' ids as free when no price is listed", () => {
+    const out = buildImportCandidates({
+      models: [{ id: "cl/meta/llama-4:free" }, { id: "qwen-coder-free" }, { id: "gpt-5.4" }],
+      prefixes: ["cl"],
+    });
+    expect(out.map((c) => [c.id, c.tier])).toEqual([
+      ["meta/llama-4:free", "free"],
+      ["qwen-coder-free", "free"],
+      ["gpt-5.4", "unknown"],
     ]);
-  });
-
-  it("keeps only free models when freeOnly is set", () => {
-    const models = [
-      { id: "openrouter/free-model:free" },
-      { id: "paid/model", pricing: { prompt: "0.001", completion: "0.002" } },
-      { id: "zero-price", pricing: { prompt: "0", completion: "0" } },
-      { id: "flagged", is_free: true },
-    ];
-    expect(
-      collectImportableModels({
-        models,
-        existingIds: new Set(),
-        prefixes,
-        freeOnly: true,
-        providerId: "cline",
-      }).map((m) => m.id),
-    ).toEqual(["openrouter/free-model:free", "zero-price", "flagged"]);
-  });
-
-  it("does not treat unknown-price models as free", () => {
-    const models = [{ id: "mystery-model" }, { id: "known:free" }];
-    expect(
-      collectImportableModels({
-        models,
-        existingIds: new Set(),
-        prefixes,
-        freeOnly: true,
-      }).map((m) => m.id),
-    ).toEqual(["known:free"]);
   });
 });
 
