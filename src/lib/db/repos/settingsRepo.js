@@ -62,6 +62,8 @@ const DEFAULT_SETTINGS = {
   pxpipeAutoInstall: true,
   pxpipeMinChars: 25000,
   pxpipeTimeoutMs: 15000,
+  autoModelImport: { enabled: false, hour: 4, lastRunAt: null, lastResult: null },
+  autoModelImportRules: {},
 };
 
 async function readRaw() {
