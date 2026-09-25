@@ -1,6 +1,6 @@
 // Route-level acceptance for the Zed live-model wiring:
 //   GET /api/providers/[connectionId]/models  →  resolveZedModels  →  UI rows
-// RUN WITH AN ISOLATED DB:  DATA_DIR=$(mktemp -d) npx vitest run ...
+// Runs against a throwaway DATA_DIR (tests/setup/isolate-data-dir.js).
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { GET } from "@/app/api/providers/[id]/models/route.js";
 import { createProviderConnection } from "@/models/index.js";

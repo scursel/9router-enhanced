@@ -22,6 +22,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Must run before any test imports src/lib/db — see the file header.
+    globalSetup: ["./setup/isolate-data-dir.js"],
     globals: true,
     include: ["**/*.test.js"],
     // Don't scan into git worktrees nested under .claude/ — they carry their
