@@ -1,4 +1,7 @@
-# Unreleased
+# v0.5.86-enhanced.4 (2026-09-25)
+
+## Tests no longer write to the real database
+- **Fake Zed / kimchi-nope accounts**: `unit/zed-live-models.test.js` created provider connections in the developer's real `~/.9router` on every `npx vitest run` (5 Zed + 1 kimchi-nope per run). A Vitest `globalSetup` now gives every run a throwaway `DATA_DIR` and deletes it afterwards. Existing junk accounts (emails `zed-live-m*@example.com`, `guard-*@example.com`) can be deleted from the dashboard.
 
 ## Model import picker
 - **Account fallback when listing models**: the picker tries up to 3 active accounts (healthy ones first) and moves past an account whose `/models` comes back empty, e.g. a Zed account with a dead token. If none answers, the provider's warning is shown instead of "No models match".
