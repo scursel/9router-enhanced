@@ -1,4 +1,4 @@
-# Unreleased
+# v0.5.86-enhanced.3 (2026-09-25)
 
 Interactive model discovery and daily auto-import. The provider page's old "Import models" / "Import free" split button is now a single "Import models" button that opens a picker dialog, available with a connection or a public catalog. The picker filters and tests models before import; filters can be saved as a daily auto-import rule that runs on a schedule.
 
