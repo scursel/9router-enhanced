@@ -152,8 +152,12 @@ describe("listImportCandidates", () => {
       { id: "conn-inactive", isActive: false },
       { id: "conn-active", isActive: true },
     ]);
-    const fetchImpl = vi.fn(async (url) => {
+    fakes.getApiKeys.mockResolvedValue([{ key: "test-key", isActive: true }]);
+    const fetchImpl = vi.fn(async (url, init) => {
       expect(String(url)).toContain("/api/providers/conn-active/models");
+      // Verify internal headers are sent
+      expect(init?.headers).toBeDefined();
+      expect(init.headers["x-9r-cli-token"]).toBe("fake-machine-id");
       return {
         ok: true,
         status: 200,
@@ -192,10 +196,14 @@ describe("listImportCandidates", () => {
 
   it("falls back to the suggested-models catalog when no active connection but modelsFetcher exists", async () => {
     fakes.getProviderConnections.mockResolvedValue([]);
-    const fetchImpl = vi.fn(async (url) => {
+    fakes.getApiKeys.mockResolvedValue([{ key: "test-key", isActive: true }]);
+    const fetchImpl = vi.fn(async (url, init) => {
       expect(String(url)).toContain("/api/providers/suggested-models?");
       expect(String(url)).toContain("url=");
       expect(String(url)).toContain("type=");
+      // Verify internal headers are sent
+      expect(init?.headers).toBeDefined();
+      expect(init.headers["x-9r-cli-token"]).toBe("fake-machine-id");
       return { ok: true, status: 200, json: async () => ({ data: [{ id: "model-b", name: "Model B" }] }) };
     });
 
@@ -204,6 +212,28 @@ describe("listImportCandidates", () => {
     expect(result.source).toBe("catalog");
     expect(result.connectionId).toBeNull();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws when the suggested-models catalog responds non-OK", async () => {
+    fakes.getProviderConnections.mockResolvedValue([]);
+    const fetchImpl = vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: "unauthorized" }),
+    }));
+
+    await expect(listImportCandidates("alicode", { fetchImpl })).rejects.toThrow("unauthorized");
+  });
+
+  it("falls back to HTTP status when catalog body has no error field", async () => {
+    fakes.getProviderConnections.mockResolvedValue([]);
+    const fetchImpl = vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({}),
+    }));
+
+    await expect(listImportCandidates("alicode", { fetchImpl })).rejects.toThrow("HTTP 503");
   });
 
   it("reports source none with no connection and no modelsFetcher", async () => {

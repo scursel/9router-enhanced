@@ -17,6 +17,17 @@ import { getModelsByProviderId } from "open-sse/config/providerModels.js";
 import { buildImportCandidates } from "@/shared/utils/importProviderModels.js";
 import { internalBaseUrl, getInternalHeaders } from "./internal.js";
 
+// Fetch an internal API endpoint with auth headers and throw on non-OK response.
+async function fetchInternalEndpoint(url, fetchImpl = fetch) {
+  const headers = await getInternalHeaders();
+  const res = await fetchImpl(url, { headers });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
+  return body;
+}
+
 // Custom (openai-compatible-*/anthropic-compatible-*) connections store their
 // custom models under the connection's own provider id, not a registry alias
 // — everything else uses the registry alias as its storage key.
@@ -48,20 +59,20 @@ export async function listImportCandidates(providerId, { fetchImpl = fetch } = {
   if (activeConnection) {
     source = "connection";
     connectionId = activeConnection.id;
-    const headers = await getInternalHeaders();
-    const res = await fetchImpl(`${internalBaseUrl()}/api/providers/${activeConnection.id}/models`, { headers });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(body.error || `HTTP ${res.status}`);
-    }
+    const body = await fetchInternalEndpoint(
+      `${internalBaseUrl()}/api/providers/${activeConnection.id}/models`,
+      fetchImpl,
+    );
     models = body.models || [];
   } else {
     const fetcher = AI_PROVIDERS[providerId]?.modelsFetcher;
     if (fetcher?.url && fetcher?.type) {
       source = "catalog";
       const params = new URLSearchParams({ url: fetcher.url, type: fetcher.type });
-      const res = await fetchImpl(`${internalBaseUrl()}/api/providers/suggested-models?${params}`);
-      const body = await res.json().catch(() => ({}));
+      const body = await fetchInternalEndpoint(
+        `${internalBaseUrl()}/api/providers/suggested-models?${params}`,
+        fetchImpl,
+      );
       models = body.data || [];
     }
   }
