@@ -75,6 +75,7 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
 
   const [candidates, setCandidates] = useState([]);
   const [rule, setRule] = useState(null);
+  const [listWarning, setListWarning] = useState(null);
 
   const [filters, setFilters] = useState(DEFAULT_IMPORT_FILTERS);
   const [testFirst, setTestFirst] = useState(true);
@@ -105,6 +106,7 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
       .then((data) => {
         if (cancelled) return;
         setCandidates(Array.isArray(data?.candidates) ? data.candidates : []);
+        setListWarning(data?.warning || null);
         if (data?.rule) {
           setRule(data.rule);
           setFilters(normalizeImportFilters(data.rule.filters));
@@ -468,7 +470,11 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
           {/* Candidate list */}
           <div className="flex flex-col gap-1.5 max-h-[50vh] overflow-y-auto custom-scrollbar pr-1">
             {filteredCandidates.length === 0 && (
-              <div className="text-center py-8 text-text-muted text-sm">{translate("No models match these filters")}</div>
+              <div className="text-center py-8 text-text-muted text-sm break-words">
+                {candidates.length === 0 && listWarning
+                  ? listWarning
+                  : translate("No models match these filters")}
+              </div>
             )}
             {filteredCandidates.map((c) => {
               const contextLabel = formatContextLength(c.contextLength);

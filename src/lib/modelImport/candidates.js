@@ -41,6 +41,10 @@ export function resolveStorageAlias(providerId) {
     : getProviderAlias(providerId);
 }
 
+// Account health values (credentialHealth/tokenHealth) that mean "don't try first".
+const UNHEALTHY_STATUSES = new Set(["error", "expired", "unavailable"]);
+export const MAX_CONNECTION_ATTEMPTS = 3;
+
 export function importPrefixes(providerId) {
   const prefixes = [resolveStorageAlias(providerId), providerId, getProviderAlias(providerId)];
   if (providerId === "qoder" || providerId === "qoder-cn") {
@@ -54,20 +58,38 @@ export async function listImportCandidates(providerId, { fetchImpl = fetch } = {
   const prefixes = importPrefixes(providerId);
 
   const connections = await getProviderConnections({ provider: providerId });
-  const activeConnection = connections.find((c) => c.isActive !== false) || null;
+  const activeConnections = connections
+    .filter((c) => c.isActive !== false)
+    // Stable sort: keeps priority order within the healthy and unhealthy groups.
+    .sort((a, b) => Number(UNHEALTHY_STATUSES.has(a.testStatus)) - Number(UNHEALTHY_STATUSES.has(b.testStatus)));
 
   let source = "none";
   let connectionId = null;
   let models = [];
+  let warning;
 
-  if (activeConnection) {
+  if (activeConnections.length > 0) {
     source = "connection";
-    connectionId = activeConnection.id;
-    const body = await fetchInternalEndpoint(
-      `${internalBaseUrl()}/api/providers/${activeConnection.id}/models`,
-      fetchImpl,
-    );
-    models = body.models || [];
+    // Account pools (zed, kimchi) hold 100+ accounts and the first one may have a
+    // dead token: /models then answers 200 with an empty list and a warning.
+    // Try a few accounts, healthiest first, before calling the provider empty.
+    let lastError = null;
+    let answered = false;
+    for (const conn of activeConnections.slice(0, MAX_CONNECTION_ATTEMPTS)) {
+      let body;
+      try {
+        body = await fetchInternalEndpoint(`${internalBaseUrl()}/api/providers/${conn.id}/models`, fetchImpl);
+      } catch (error) {
+        lastError = error;
+        continue;
+      }
+      answered = true;
+      connectionId = conn.id;
+      models = body.models || [];
+      warning = models.length > 0 ? undefined : body.warning;
+      if (models.length > 0) break;
+    }
+    if (!answered) throw lastError;
   } else {
     const fetcher = AI_PROVIDERS[providerId]?.modelsFetcher;
     if (fetcher?.url && fetcher?.type) {
@@ -112,5 +134,5 @@ export async function listImportCandidates(providerId, { fetchImpl = fetch } = {
 
   const candidates = buildImportCandidates({ models, existingIds, prefixes, providerId });
 
-  return { providerId, storageAlias, source, connectionId, candidates };
+  return { providerId, storageAlias, source, connectionId, candidates, ...(warning ? { warning } : {}) };
 }
