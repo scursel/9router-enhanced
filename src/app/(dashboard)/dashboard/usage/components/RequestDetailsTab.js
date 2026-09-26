@@ -5,6 +5,7 @@ import Card from "@/shared/components/Card";
 import Button from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
 import Pagination from "@/shared/components/Pagination";
+import ErrorReason from "@/shared/components/ErrorReason";
 import { cn } from "@/shared/utils/cn";
 import { AI_PROVIDERS, getProviderByAlias } from "@/shared/constants/providers";
 
@@ -376,6 +377,14 @@ export default function RequestDetailsTab() {
                 )}>
                   {selectedDetail.status}
                 </span>
+                {selectedDetail.status !== "success" && (
+                  <ErrorReason
+                    error={selectedDetail.response?.error ?? selectedDetail.status}
+                    status={selectedDetail.response?.status}
+                    compact
+                    className="mt-1"
+                  />
+                )}
               </div>
               <div>
                 <span className="text-text-muted">Latency:</span>{" "}

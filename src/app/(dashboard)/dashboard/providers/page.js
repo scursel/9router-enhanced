@@ -21,6 +21,8 @@ import {
 } from "@/shared/constants/providers";
 import Link from "next/link";
 import { getErrorCode, getRelativeTime } from "@/shared/utils";
+import { describeProviderError } from "@/shared/utils/errorReason";
+import { translate } from "@/i18n/runtime";
 import { useNotificationStore } from "@/store/notificationStore";
 import { useHeaderSearchStore } from "@/store/headerSearchStore";
 import ModelAvailabilityBadge from "./components/ModelAvailabilityBadge";
@@ -29,7 +31,10 @@ import AddCompatibleModal from "./components/AddCompatibleModal";
 import { STATUS_FILTER_OPTIONS, matchesStatusFilter } from "./utils";
 import { useCircuitBreakers } from "@/shared/hooks/useCircuitBreakers";
 
-function getStatusDisplay(connected, error, errorCode) {
+// Connection error tags that stand for a standard HTTP status.
+const TAG_STATUS = { AUTH: 401, "5XX": 503, NET: 0 };
+
+function getStatusDisplay(connected, error, errorCode, errorReason = null) {
   const parts = [];
   if (connected > 0) {
     parts.push(
@@ -39,9 +44,12 @@ function getStatusDisplay(connected, error, errorCode) {
     );
   }
   if (error > 0) {
-    const errText = errorCode
-      ? `${error} Error (${errorCode})`
-      : `${error} Error`;
+    const reasonTitle = errorReason || (errorCode ? describeProviderError(null, errorCode)?.title : null);
+    const errText = reasonTitle
+      ? `${error} ${translate("Error")} · ${translate(reasonTitle)}`
+      : errorCode
+        ? `${error} Error (${errorCode})`
+        : `${error} Error`;
     parts.push(
       <Badge key="error" variant="error" size="sm" dot>
         {errText}
@@ -210,11 +218,18 @@ export default function ProvidersPage() {
       (a, b) => new Date(b.lastErrorAt || 0) - new Date(a.lastErrorAt || 0),
     )[0];
     const errorCode = latestError ? getConnectionErrorTag(latestError) : null;
+    // Readable reason from the account's real error text; the tag (AUTH, 5XX,
+    // NET, ...) is only a fallback when the text is empty or unrecognised.
+    const errorReason = latestError
+      ? (describeProviderError(latestError.lastError, latestError.errorCode)?.title
+        || describeProviderError(null, TAG_STATUS[errorCode])?.title
+        || null)
+      : null;
     const errorTime = latestError?.lastErrorAt
       ? getRelativeTime(latestError.lastErrorAt)
       : null;
 
-    return { connected, error, total, errorCode, errorTime, allDisabled };
+    return { connected, error, total, errorCode, errorReason, errorTime, allDisabled };
   };
 
   const matchStatus = (stats, isNoAuth) =>
@@ -708,7 +723,7 @@ function pausedLabel(count) {
 }
 
 function ProviderCard({ providerId, provider, stats, authType, onToggle, pausedCount = 0 }) {
-  const { connected, error, errorCode, errorTime, allDisabled } = stats;
+  const { connected, error, errorCode, errorReason, errorTime, allDisabled } = stats;
   const isNoAuth = !!provider.noAuth;
 
   const dotColors = {
@@ -765,7 +780,7 @@ function ProviderCard({ providerId, provider, stats, authType, onToggle, pausedC
                   <Badge variant="success" size="sm" dot>Ready</Badge>
                 ) : (
                   <>
-                    {getStatusDisplay(connected, error, errorCode)}
+                    {getStatusDisplay(connected, error, errorCode, errorReason)}
                     {pausedCount > 0 && (
                       <Badge variant="warning" size="sm">
                         {pausedLabel(pausedCount)}
@@ -831,7 +846,7 @@ function ApiKeyProviderCard({
   onToggle,
   pausedCount = 0,
 }) {
-  const { connected, error, errorCode, errorTime, allDisabled } = stats;
+  const { connected, error, errorCode, errorReason, errorTime, allDisabled } = stats;
   const isCompatible = providerId.startsWith(OPENAI_COMPATIBLE_PREFIX);
   const isAnthropicCompatible = providerId.startsWith(
     ANTHROPIC_COMPATIBLE_PREFIX,
@@ -898,7 +913,7 @@ function ApiKeyProviderCard({
                   </Badge>
                 ) : (
                   <>
-                    {getStatusDisplay(connected, error, errorCode)}
+                    {getStatusDisplay(connected, error, errorCode, errorReason)}
                     {pausedCount > 0 && (
                       <Badge variant="warning" size="sm">
                         {pausedLabel(pausedCount)}

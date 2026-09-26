@@ -15,6 +15,8 @@
  */
 import { useState } from "react";
 import PropTypes from "prop-types";
+import { translate } from "@/i18n/runtime";
+import { describeProviderError } from "@/shared/utils/errorReason";
 import {
   chipLabel,
   chipTone,
@@ -24,13 +26,32 @@ import {
   subComboNoticeLines,
 } from "./comboStats.js";
 
+// `member.lastErrorStatus` is stored as "error:<code>" (see comboStats.js/
+// memberRowView) — not a bare HTTP status, so it is normalized here rather
+// than inside the pure, i18n-free comboStats helpers. Falls back to plain
+// errorText (unchanged wording, still unit-tested) when no reason matches.
+function errorDisplayText(rawMember, viewErrorText) {
+  if (viewErrorText === "—") return viewErrorText;
+  const status = rawMember?.lastErrorStatus;
+  const match = String(status ?? "").match(/(\d{3})/);
+  if (!match) return viewErrorText;
+  const info = describeProviderError(null, Number(match[1]));
+  const title = info?.title ? translate(info.title) : null;
+  if (!title) return viewErrorText;
+  return viewErrorText.replace(String(status), `${title} (${match[1]})`);
+}
+
 export default function ComboStatsBadge({ entry = null, coverage = null, range = "24h" }) {
   const [expanded, setExpanded] = useState(false);
 
   const partial = coverageBadgeLabel({ coverage }) === "parcial";
   const tone = chipTone(entry ? entry.successRate : null);
   const label = chipLabel(entry);
-  const members = sortMembersByFailure(entry ? entry.members : []).map((m) => memberRowView(m));
+  const rawMembers = sortMembersByFailure(entry ? entry.members : []);
+  const members = rawMembers.map((m) => {
+    const view = memberRowView(m);
+    return { ...view, errorText: errorDisplayText(m, view.errorText) };
+  });
   // CB5/NIT-2: sub-combo names flagged by the aggregate — rendered as text
   // lines, never as numbers (see subComboNoticeLines for the entry-less gap).
   const subComboNotices = subComboNoticeLines(entry);

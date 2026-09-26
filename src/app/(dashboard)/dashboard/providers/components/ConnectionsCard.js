@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getStatusVariant as getConnectionStatusVariant } from "@/shared/utils/connectionStatus";
 import PropTypes from "prop-types";
-import { Card, Badge, Button, Modal, Select, Toggle, EditConnectionModal, ConfirmModal } from "@/shared/components";
+import { Card, Badge, Button, Modal, Select, Toggle, EditConnectionModal, ConfirmModal, ErrorReason } from "@/shared/components";
 
 // ── CooldownTimer ──────────────────────────────────────────────
 function CooldownTimer({ until }) {
@@ -32,7 +32,6 @@ CooldownTimer.propTypes = { until: PropTypes.string.isRequired };
 // ── ConnectionRow ──────────────────────────────────────────────
 function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMoveUp, onMoveDown, onToggleActive, onUpdateProxy, onEdit, onDelete }) {
   const [showProxyDropdown, setShowProxyDropdown] = useState(false);
-  const [showFullError, setShowFullError] = useState(false);
   const [updatingProxy, setUpdatingProxy] = useState(false);
   const [isCooldown, setIsCooldown] = useState(false);
   const proxyDropdownRef = useRef(null);
@@ -121,16 +120,12 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
             {hasAnyProxy && <Badge variant={proxyBadgeVariant} size="sm">Proxy</Badge>}
             {isCooldown && connection.isActive !== false && <CooldownTimer until={modelLockUntil} />}
             {connection.lastError && connection.isActive !== false && (
-              <button
-                type="button"
-                onClick={() => setShowFullError((v) => !v)}
-                title={showFullError ? "Click to collapse" : connection.lastError}
-                aria-expanded={showFullError}
-                className="inline-flex max-w-[300px] items-start gap-1 text-left text-xs text-red-500"
-              >
-                <span className={showFullError ? "whitespace-pre-wrap break-words" : "min-w-0 truncate"}>{connection.lastError}</span>
-                <span className="shrink-0 underline underline-offset-2 opacity-70">{showFullError ? "less" : "more"}</span>
-              </button>
+              <ErrorReason
+                error={connection.lastError}
+                status={connection.errorCode ?? connection.lastErrorCode}
+                compact
+                className="max-w-[300px] text-xs"
+              />
             )}
             <span className="text-xs text-text-muted">#{connection.priority}</span>
           </div>
