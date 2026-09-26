@@ -128,17 +128,19 @@ describe("generic provider probe fallback", () => {
       expect(mocks.updateProviderConnection).toHaveBeenCalledWith("dahl-conn", expect.objectContaining({ testStatus: "active" }));
     });
 
+    // dahl got an explicit /models validation case upstream (v0.5.91), so the
+    // generic chain is exercised with a registry provider that has none.
     it("walks the probe chain when an endpoint does not exist on the provider", async () => {
-      mocks.getProviderConnectionById.mockResolvedValue(connectionFor("dahl"));
+      mocks.getProviderConnectionById.mockResolvedValue(connectionFor("orcarouter"));
       global.fetch = vi.fn()
         .mockResolvedValueOnce(jsonRes({ error: "not found" }, 404))
         .mockResolvedValueOnce(jsonRes({ choices: [{ message: { content: "pong" } }] }));
 
-      const result = await testSingleConnection("dahl-conn");
+      const result = await testSingleConnection("orcarouter-conn");
 
       expect(result.valid).toBe(true);
       expect(global.fetch).toHaveBeenCalledTimes(2);
-      expect(global.fetch.mock.calls[1][0]).toBe("https://inference.dahl.global/v1/chat/completions");
+      expect(global.fetch.mock.calls[1][0]).toBe("https://api.orcarouter.ai/v1/chat/completions");
     });
 
     it("retries with a shaped body when the endpoint validates the body before the key", async () => {

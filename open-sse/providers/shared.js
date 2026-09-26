@@ -90,6 +90,22 @@ export function selectAnthropicBeta(model = "", body = null, clientBeta = "") {
   return flags.join(",");
 }
 
+export function mergeAnthropicBeta(...values) {
+  const flags = values.flatMap((v) => (typeof v === "string" ? v.split(",") : [])).map((f) => f.trim()).filter(Boolean);
+  return [...new Set(flags)].join(",");
+}
+
+// Client anthropic-beta flags to forward. Upstream merges them all; the fork keeps
+// the long-context flag (context-1m-*) only for opus/sonnet, because in a combo the
+// member serving the request may be a model that rejects it (CLIENT_CONTEXT_BETA).
+export function forwardableClientBeta(model = "", clientBeta = "") {
+  if (typeof clientBeta !== "string") return "";
+  const heavy = /^claude-(opus|sonnet)/.test(model);
+  return clientBeta.split(",").map((f) => f.trim())
+    .filter((f) => f && (heavy || !CLIENT_CONTEXT_BETA.test(f)))
+    .join(",");
+}
+
 // Shared baseUrls
 export const KIMI_CODING_BASE_URL = "https://api.kimi.com/coding/v1/messages";
 

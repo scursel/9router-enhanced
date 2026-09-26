@@ -1,5 +1,24 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`GOLDEN buildHeaders (default executor providers) > agnes → headers (apiKey / oauth) 1`] = `
+{
+  "apiKey": {
+    "Accept": "text/event-stream",
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+  },
+  "nonStream": {
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+  },
+  "oauth": {
+    "Accept": "text/event-stream",
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+  },
+}
+`;
+
 exports[`GOLDEN buildHeaders (default executor providers) > alicode → headers (apiKey / oauth) 1`] = `
 {
   "apiKey": {
@@ -127,6 +146,25 @@ exports[`GOLDEN buildHeaders (default executor providers) > api-airforce → hea
 `;
 
 exports[`GOLDEN buildHeaders (default executor providers) > assemblyai → headers (apiKey / oauth) 1`] = `
+{
+  "apiKey": {
+    "Accept": "text/event-stream",
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+  },
+  "nonStream": {
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+  },
+  "oauth": {
+    "Accept": "text/event-stream",
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+  },
+}
+`;
+
+exports[`GOLDEN buildHeaders (default executor providers) > atria → headers (apiKey / oauth) 1`] = `
 {
   "apiKey": {
     "Accept": "text/event-stream",
@@ -365,10 +403,10 @@ exports[`GOLDEN buildHeaders (default executor providers) > cline → headers (a
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
     "HTTP-Referer": "https://cline.bot",
-    "User-Agent": "9Router/0.5.86-enhanced.4",
+    "User-Agent": "9Router/0.5.91-enhanced.1",
     "X-CLIENT-TYPE": "9router",
-    "X-CLIENT-VERSION": "0.5.86-enhanced.4",
-    "X-CORE-VERSION": "0.5.86-enhanced.4",
+    "X-CLIENT-VERSION": "0.5.91-enhanced.1",
+    "X-CORE-VERSION": "0.5.91-enhanced.1",
     "X-IS-MULTIROOT": "false",
     "X-PLATFORM": "linux",
     "X-PLATFORM-VERSION": "v24.15.0",
@@ -378,10 +416,10 @@ exports[`GOLDEN buildHeaders (default executor providers) > cline → headers (a
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
     "HTTP-Referer": "https://cline.bot",
-    "User-Agent": "9Router/0.5.86-enhanced.4",
+    "User-Agent": "9Router/0.5.91-enhanced.1",
     "X-CLIENT-TYPE": "9router",
-    "X-CLIENT-VERSION": "0.5.86-enhanced.4",
-    "X-CORE-VERSION": "0.5.86-enhanced.4",
+    "X-CLIENT-VERSION": "0.5.91-enhanced.1",
+    "X-CORE-VERSION": "0.5.91-enhanced.1",
     "X-IS-MULTIROOT": "false",
     "X-PLATFORM": "linux",
     "X-PLATFORM-VERSION": "v24.15.0",
@@ -392,10 +430,10 @@ exports[`GOLDEN buildHeaders (default executor providers) > cline → headers (a
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
     "HTTP-Referer": "https://cline.bot",
-    "User-Agent": "9Router/0.5.86-enhanced.4",
+    "User-Agent": "9Router/0.5.91-enhanced.1",
     "X-CLIENT-TYPE": "9router",
-    "X-CLIENT-VERSION": "0.5.86-enhanced.4",
-    "X-CORE-VERSION": "0.5.86-enhanced.4",
+    "X-CLIENT-VERSION": "0.5.91-enhanced.1",
+    "X-CORE-VERSION": "0.5.91-enhanced.1",
     "X-IS-MULTIROOT": "false",
     "X-PLATFORM": "linux",
     "X-PLATFORM-VERSION": "v24.15.0",
@@ -411,10 +449,10 @@ exports[`GOLDEN buildHeaders (default executor providers) > clinepass → header
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
     "HTTP-Referer": "https://cline.bot",
-    "User-Agent": "9Router/0.5.86-enhanced.4",
+    "User-Agent": "9Router/0.5.91-enhanced.1",
     "X-CLIENT-TYPE": "9router",
-    "X-CLIENT-VERSION": "0.5.86-enhanced.4",
-    "X-CORE-VERSION": "0.5.86-enhanced.4",
+    "X-CLIENT-VERSION": "0.5.91-enhanced.1",
+    "X-CORE-VERSION": "0.5.91-enhanced.1",
     "X-IS-MULTIROOT": "false",
     "X-PLATFORM": "linux",
     "X-PLATFORM-VERSION": "v24.15.0",
@@ -424,10 +462,10 @@ exports[`GOLDEN buildHeaders (default executor providers) > clinepass → header
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
     "HTTP-Referer": "https://cline.bot",
-    "User-Agent": "9Router/0.5.86-enhanced.4",
+    "User-Agent": "9Router/0.5.91-enhanced.1",
     "X-CLIENT-TYPE": "9router",
-    "X-CLIENT-VERSION": "0.5.86-enhanced.4",
-    "X-CORE-VERSION": "0.5.86-enhanced.4",
+    "X-CLIENT-VERSION": "0.5.91-enhanced.1",
+    "X-CORE-VERSION": "0.5.91-enhanced.1",
     "X-IS-MULTIROOT": "false",
     "X-PLATFORM": "linux",
     "X-PLATFORM-VERSION": "v24.15.0",
@@ -438,10 +476,10 @@ exports[`GOLDEN buildHeaders (default executor providers) > clinepass → header
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
     "HTTP-Referer": "https://cline.bot",
-    "User-Agent": "9Router/0.5.86-enhanced.4",
+    "User-Agent": "9Router/0.5.91-enhanced.1",
     "X-CLIENT-TYPE": "9router",
-    "X-CLIENT-VERSION": "0.5.86-enhanced.4",
-    "X-CORE-VERSION": "0.5.86-enhanced.4",
+    "X-CLIENT-VERSION": "0.5.91-enhanced.1",
+    "X-CORE-VERSION": "0.5.91-enhanced.1",
     "X-IS-MULTIROOT": "false",
     "X-PLATFORM": "linux",
     "X-PLATFORM-VERSION": "v24.15.0",
@@ -876,7 +914,7 @@ exports[`GOLDEN buildHeaders (default executor providers) > kimi → headers (ap
     "X-Msh-Device-Model": "Linux x64",
     "X-Msh-Device-Name": "hermes",
     "X-Msh-Platform": "9router",
-    "X-Msh-Version": "0.5.86-enhanced.4",
+    "X-Msh-Version": "0.5.91-enhanced.1",
     "x-api-key": "<CRED>",
   },
   "nonStream": {
@@ -887,7 +925,7 @@ exports[`GOLDEN buildHeaders (default executor providers) > kimi → headers (ap
     "X-Msh-Device-Model": "Linux x64",
     "X-Msh-Device-Name": "hermes",
     "X-Msh-Platform": "9router",
-    "X-Msh-Version": "0.5.86-enhanced.4",
+    "X-Msh-Version": "0.5.91-enhanced.1",
     "x-api-key": "<CRED>",
   },
   "oauth": {
@@ -899,7 +937,7 @@ exports[`GOLDEN buildHeaders (default executor providers) > kimi → headers (ap
     "X-Msh-Device-Model": "Linux x64",
     "X-Msh-Device-Name": "hermes",
     "X-Msh-Platform": "9router",
-    "X-Msh-Version": "0.5.86-enhanced.4",
+    "X-Msh-Version": "0.5.91-enhanced.1",
     "x-api-key": "<CRED>",
   },
 }
@@ -1341,6 +1379,25 @@ exports[`GOLDEN buildHeaders (default executor providers) > together → headers
 }
 `;
 
+exports[`GOLDEN buildHeaders (default executor providers) > tokenharbor → headers (apiKey / oauth) 1`] = `
+{
+  "apiKey": {
+    "Accept": "text/event-stream",
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+  },
+  "nonStream": {
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+  },
+  "oauth": {
+    "Accept": "text/event-stream",
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+  },
+}
+`;
+
 exports[`GOLDEN buildHeaders (default executor providers) > tokenrouter → headers (apiKey / oauth) 1`] = `
 {
   "apiKey": {
@@ -1477,6 +1534,13 @@ exports[`GOLDEN buildHeaders (default executor providers) > zed → headers (api
 }
 `;
 
+exports[`GOLDEN buildUrl (default executor providers) > agnes → url (stream + non-stream) 1`] = `
+{
+  "nonStream": "https://apihub.agnes-ai.com/v1/chat/completions",
+  "stream": "https://apihub.agnes-ai.com/v1/chat/completions",
+}
+`;
+
 exports[`GOLDEN buildUrl (default executor providers) > alicode → url (stream + non-stream) 1`] = `
 {
   "nonStream": "https://custom.example.com/v1",
@@ -1523,6 +1587,13 @@ exports[`GOLDEN buildUrl (default executor providers) > assemblyai → url (stre
 {
   "nonStream": "https://api.assemblyai.com/v1/audio/transcriptions",
   "stream": "https://api.assemblyai.com/v1/audio/transcriptions",
+}
+`;
+
+exports[`GOLDEN buildUrl (default executor providers) > atria → url (stream + non-stream) 1`] = `
+{
+  "nonStream": "https://api.atria-asi.ai/v1/chat/completions",
+  "stream": "https://api.atria-asi.ai/v1/chat/completions",
 }
 `;
 
@@ -1894,6 +1965,13 @@ exports[`GOLDEN buildUrl (default executor providers) > together → url (stream
 {
   "nonStream": "https://api.together.xyz/v1/chat/completions",
   "stream": "https://api.together.xyz/v1/chat/completions",
+}
+`;
+
+exports[`GOLDEN buildUrl (default executor providers) > tokenharbor → url (stream + non-stream) 1`] = `
+{
+  "nonStream": "https://tokenharbor.ai/v1/chat/completions",
+  "stream": "https://tokenharbor.ai/v1/chat/completions",
 }
 `;
 

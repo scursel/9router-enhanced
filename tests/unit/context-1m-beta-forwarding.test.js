@@ -5,7 +5,9 @@
  * untouched" — but the claude executor rebuilt Anthropic-Beta from a fixed
  * list, so the 1M flag never reached Anthropic on any route, combo or not.
  * The client's context-1m flags now join the list for opus/sonnet members
- * (the models that accept the long-context beta).
+ * (the models that accept the long-context beta). Since upstream v0.5.91 the
+ * client's other beta flags are merged too (official behavior); the fork keeps
+ * only the long-context flag gated to opus/sonnet.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -23,12 +25,19 @@ describe("context-1m beta forwarding", () => {
   it("forwards the client's context-1m flag to an opus/sonnet member", () => {
     const h = new DefaultExecutor("claude").buildHeaders(creds("context-1m-2025-08-07,fine-grained-tool-streaming-2025-05-14"), true, undefined, "claude-sonnet-4-5");
     expect(flags(h)).toContain("context-1m-2025-08-07");
-    expect(flags(h), "only the context flag is taken from the client").not.toContain("fine-grained-tool-streaming-2025-05-14");
+    expect(flags(h), "other client flags are merged (upstream v0.5.91)").toContain("fine-grained-tool-streaming-2025-05-14");
   });
 
   it("does not add it to models that don't take the long-context beta", () => {
-    const h = new DefaultExecutor("claude").buildHeaders(creds("context-1m-2025-08-07"), true, undefined, "claude-haiku-4-5-20251001");
+    const h = new DefaultExecutor("claude").buildHeaders(creds("context-1m-2025-08-07,fine-grained-tool-streaming-2025-05-14"), true, undefined, "claude-haiku-4-5-20251001");
     expect(flags(h)).not.toContain("context-1m-2025-08-07");
+    expect(flags(h), "the other client flags still pass").toContain("fine-grained-tool-streaming-2025-05-14");
+  });
+
+  it("gates the long-context flag on the plain anthropic provider too", () => {
+    const h = new DefaultExecutor("anthropic").buildHeaders(creds("context-1m-2025-08-07,x-flag-2026"), true, undefined, "claude-haiku-4-5-20251001");
+    expect(h["Anthropic-Beta"] || "").not.toMatch(/context-1m/);
+    expect(h["Anthropic-Beta"]).toContain("x-flag-2026");
   });
 
   it("is absent when the client did not ask for it", () => {

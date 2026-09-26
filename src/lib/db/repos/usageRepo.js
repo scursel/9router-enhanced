@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { createHash } from "node:crypto";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { getMeta, setMeta } from "../helpers/metaStore.js";
@@ -24,8 +25,9 @@ const NOT_FAILURE_SQL = `(status IS NULL OR status NOT LIKE 'error%')`;
 
 function maskApiKey(key) {
   if (!key || typeof key !== "string") return null;
-  if (key.length <= 8) return key.charAt(0) + "***";
-  return key.slice(0, 8) + "***";
+  if (key.length <= 12) return key.charAt(0) + "***";
+  // Keep the tail: keys sharing a machine-id prefix (team keys) must not collide.
+  return key.slice(0, 8) + "***" + key.slice(-4);
 }
 
 const PENDING_TIMEOUT_MS = 60 * 1000;
@@ -593,6 +595,19 @@ function loadDaysInRange(adapter, maxDays) {
   return adapter.all(`SELECT dateKey, data FROM usageDaily WHERE dateKey >= ? ORDER BY dateKey ASC`, [cutoffKey]);
 }
 
+// byApiKey buckets are keyed by the FULL api key internally (upstream v0.5.91:
+// masking collided team keys that share a prefix into one bucket). The raw key
+// must never reach the dashboard JSON (AUDIT-002), so the bucket ids sent out
+// replace it with a one-way hash; the rows already carry apiKeyMasked/keyName.
+export function publicApiKeyBuckets(byApiKey) {
+  return Object.fromEntries(Object.entries(byApiKey || {}).map(([bucket, row]) => {
+    const cut = bucket.indexOf("|");
+    if (cut <= 0) return [bucket, row];
+    const id = "key_" + createHash("sha256").update(bucket.slice(0, cut)).digest("hex").slice(0, 16);
+    return [id + bucket.slice(cut), row];
+  }));
+}
+
 export async function getUsageStats(period = "all") {
   const db = await getAdapter();
 
@@ -880,7 +895,9 @@ export async function getUsageStats(period = "all") {
         const keyInfo = apiKeyMap[r.apiKey];
         const keyName = keyInfo?.name || r.apiKey.slice(0, 8) + "...";
         const apiKeyMasked = maskApiKey(r.apiKey);
-        const akKey = `${apiKeyMasked}|${r.model}|${r.provider || "unknown"}`;
+        // Key by the FULL api key (same as the daily rollup + lastUsed overlay)
+        // — masking here collided all keys sharing a prefix into one bucket.
+        const akKey = `${r.apiKey}|${r.model}|${r.provider || "unknown"}`;
         if (!stats.byApiKey[akKey]) {
           stats.byApiKey[akKey] = { requests: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, cost: 0, rawModel: r.model, provider: providerDisplayName, providerId: r.provider, apiKeyMasked, keyName, apiKeyKey: apiKeyMasked, lastUsed: r.timestamp };
         }
@@ -908,6 +925,7 @@ export async function getUsageStats(period = "all") {
   }
 
   stats.totalRequests = Object.values(stats.byProvider).reduce((sum, p) => sum + (p.requests || 0), 0);
+  stats.byApiKey = publicApiKeyBuckets(stats.byApiKey);
   return stats;
 }
 

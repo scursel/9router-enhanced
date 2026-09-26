@@ -125,9 +125,12 @@ import p119 from "./selfhosted-embedding.js";
 import p120 from "./fish-audio.js";
 import p121 from "./alitp-intl.js";
 import p122 from "./xquik.js";
-import p128 from "./bai.js";
-import p125 from "./orcarouter.js";
-import p127 from "./dahl.js";
+import p131 from "./orcarouter.js";
+import p132 from "./tokenharbor.js";
+import p133 from "./dahl.js";
+import p134 from "./atria.js";
+import p135 from "./agnes.js";
+import p136 from "./bai.js";
 export default [
   p0,
   p1,
@@ -253,7 +256,10 @@ export default [
   p120,
   p121,
   p122,
-  p128,
-  p125,
-  p127,
+  p131,
+  p132,
+  p133,
+  p134,
+  p135,
+  p136,
 ];
