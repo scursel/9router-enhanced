@@ -1,15 +1,37 @@
 import { NextResponse } from "next/server";
 import { getModelAliases, setModelAlias, getCustomModels } from "@/models";
+import { getModelMeta } from "@/lib/db/index.js";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
 import { AI_MODELS } from "@/shared/constants/config";
 import { getProviderAlias } from "@/shared/constants/providers";
-import { getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
+import { getCapabilitiesForModel, hasKnownLimits } from "open-sse/providers/capabilities.js";
+
+// Facts measured at the provider (import picker / Detect button) beat the
+// name-based estimate; the *Source fields tell the dashboard which is which:
+// "provider" | "tested" (measured), "catalog" (known table), "estimated" (pattern guess).
+function withMeasuredFacts(caps, meta, provider, model) {
+  const out = { ...caps };
+  if (meta?.contextWindow) {
+    out.contextWindow = meta.contextWindow;
+    out.contextSource = meta.contextSource || "provider";
+  } else {
+    out.contextSource = hasKnownLimits(provider, model) ? "catalog" : "estimated";
+  }
+  if (typeof meta?.reasoning === "boolean") {
+    out.reasoning = meta.reasoning;
+    out.reasoningSource = meta.reasoningSource || "provider";
+  } else {
+    out.reasoningSource = "catalog";
+  }
+  return out;
+}
 
 // GET /api/models - Get models with aliases
 export async function GET() {
   try {
     const modelAliases = await getModelAliases();
     const disabled = await getDisabledModels();
+    const meta = await getModelMeta();
 
     // Canonical map is {alias: "provider/model"}; invert it to render the alias per model
     const aliasByModel = {};
@@ -35,13 +57,13 @@ export async function GET() {
           fullModel,
           routedModel,
           alias: aliasByModel[routedModel] || aliasByModel[fullModel] || m.model,
-          caps: {
+          caps: withMeasuredFacts({
             vision: c.vision,
             search: c.search,
             reasoning: c.reasoning,
             contextWindow: c.contextWindow,
             maxOutput: c.maxOutput,
-          },
+          }, meta[`${providerAlias}|${m.model}`] || meta[`${m.provider}|${m.model}`], m.provider, m.model),
         };
       });
 
@@ -61,14 +83,14 @@ export async function GET() {
         fullModel,
         routedModel: fullModel,
         alias: aliasByModel[fullModel] || m.id,
-        caps: {
+        caps: withMeasuredFacts({
           vision: c.vision,
           search: c.search,
           reasoning: c.reasoning,
           contextWindow: c.contextWindow,
           maxOutput: c.maxOutput,
           ...(m.caps || {}),
-        },
+        }, meta[`${m.providerAlias}|${m.id}`], m.providerAlias, m.id),
       });
     }
 

@@ -1167,5 +1167,21 @@
   "Top up credits or billing at the provider.": "Adicione créditos ou regularize o pagamento no provedor.",
   "Wait for the quota to reset or upgrade the plan.": "Aguarde a cota ser reiniciada ou atualize o plano.",
   "Activate the product, plan or deposit the provider asks for.": "Ative o produto ou plano, ou faça o depósito que o provedor exige.",
-  "The provider refused the request; see the details.": "O provedor recusou a requisição; veja os detalhes."
+  "The provider refused the request; see the details.": "O provedor recusou a requisição; veja os detalhes.",
+  "Add to a combo": "Adicionar a um combo",
+  "Search combos…": "Buscar combos…",
+  "No combos found": "Nenhum combo encontrado",
+  "Combo name": "Nome do combo",
+  "New combo…": "Novo combo…",
+  "Already in this combo": "Já está neste combo",
+  "Failed to update the combo": "Falha ao atualizar o combo",
+  "Failed to create the combo": "Falha ao criar o combo",
+  "Detect context and reasoning": "Detectar contexto e raciocínio",
+  "Detecting...": "Detectando...",
+  "Context": "Contexto",
+  "Reported by the provider": "Informado pelo provedor",
+  "Detected by test": "Detectado por teste",
+  "From the model catalog": "Do catálogo de modelos",
+  "Estimated from the model name": "Estimado pelo nome do modelo",
+  "No new data found": "Nenhum dado novo encontrado"
 }

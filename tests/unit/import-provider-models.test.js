@@ -560,3 +560,18 @@ describe("MIN_CONTEXT_OPTIONS", () => {
     expect(MIN_CONTEXT_OPTIONS.map((o) => o.value)).toEqual([0, 32000, 128000, 200000, 1000000]);
   });
 });
+
+describe("detectReasoning", () => {
+  it("reads explicit flags and OpenRouter-style supported_parameters", async () => {
+    const { detectReasoning, buildImportCandidates } = await import("@/shared/utils/importProviderModels.js");
+    expect(detectReasoning({ supported_parameters: ["tools", "reasoning", "include_reasoning"] })).toBe(true);
+    expect(detectReasoning({ supported_parameters: ["tools", "temperature"] })).toBe(false);
+    expect(detectReasoning({ supported_parameters: [] })).toBeNull();
+    expect(detectReasoning({ capabilities: { reasoning: true } })).toBe(true);
+    expect(detectReasoning({ supports_reasoning: false })).toBe(false);
+    expect(detectReasoning({ id: "plain" })).toBeNull();
+    const [c] = buildImportCandidates({ models: [{ id: "m", context_length: "200000", supported_parameters: ["reasoning"] }] });
+    expect(c.contextLength).toBe(200000);
+    expect(c.reasoning).toBe(true);
+  });
+});

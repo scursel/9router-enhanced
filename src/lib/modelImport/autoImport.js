@@ -55,7 +55,7 @@ export async function runAutoImportForProvider(providerId, rule, deps = {}) {
       return { providerId, imported: 0, failed: 0 };
     }
 
-    const models = filtered.map((c) => ({ id: c.id, kind: c.kind, name: c.name }));
+    const models = filtered.map((c) => ({ id: c.id, kind: c.kind, name: c.name, contextLength: c.contextLength, reasoning: c.reasoning }));
     const importArgs = { storageAlias, models, testFirst: rule?.testFirst === true };
     // Compatible-node providers (openai-compatible-*/anthropic-compatible-*)
     // always store imported models as "llm" — CompatibleModelsSection only

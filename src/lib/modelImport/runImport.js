@@ -3,7 +3,7 @@
 // never lands silently. Progress streams out through onEvent so a route can
 // forward it as SSE.
 import { pingModelWithFallback } from "@/app/api/models/test/ping.js";
-import { addCustomModel } from "@/lib/db/index.js";
+import { addCustomModel, setModelMeta } from "@/lib/db/index.js";
 import { internalBaseUrl } from "./internal.js";
 
 export const IMPORT_TEST_CONCURRENCY = 4;
@@ -32,6 +32,7 @@ export async function runImport({
 }) {
   const ping = deps.ping || pingModelWithFallback;
   const addModel = deps.addModel || addCustomModel;
+  const saveMeta = deps.saveMeta || ((...args) => setModelMeta(...args));
   const baseUrl = deps.baseUrl || internalBaseUrl();
 
   const deduped = dedupeById(models);
@@ -58,6 +59,14 @@ export async function runImport({
         name: model.name,
       });
       imported.push(model.id);
+      // Context window / reasoning as the provider's own list reported them.
+      if (model.contextLength || typeof model.reasoning === "boolean") {
+        try {
+          await saveMeta(storageAlias, model.id, {
+            contextWindow: model.contextLength, reasoning: model.reasoning, source: "provider",
+          });
+        } catch { /* metadata is a nicety; the import itself succeeded */ }
+      }
       emit({ type: "imported", id: model.id });
     } catch (error) {
       const message = error?.message || String(error);

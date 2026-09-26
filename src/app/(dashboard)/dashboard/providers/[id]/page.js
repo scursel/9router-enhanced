@@ -10,7 +10,7 @@ import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS,
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
 import { getThinkingLevels } from "open-sse/providers/thinkingLevels.js";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
-import { useModelCaps } from "@/shared/hooks/useModelCaps";
+import { useModelCaps, refreshModelCaps } from "@/shared/hooks/useModelCaps";
 import { useCircuitBreakers } from "@/shared/hooks/useCircuitBreakers";
 import { translate } from "@/i18n/runtime";
 import { fetchSuggestedModels } from "@/shared/utils/providerModelsFetcher";
@@ -721,6 +721,7 @@ export default function ProviderDetailPage() {
   const handleModelsImported = async () => {
     await fetchCustomModels();
     if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("customModelChanged"));
+    refreshModelCaps();
   };
 
   const deleteCustomModelNow = async (modelId, type, providerAliasOverride) => {
@@ -1362,6 +1363,10 @@ export default function ProviderDetailPage() {
           comboNamesFor={comboNamesFor}
           candidatesForModelId={candidatesForModelId}
           onImportModels={() => setShowImportModels(true)}
+          providerId={providerId}
+          getCaps={getCaps}
+          combos={combos}
+          onComboChanged={fetchCombos}
         />
       );
     }
@@ -1417,6 +1422,9 @@ export default function ProviderDetailPage() {
             selectable={selectingModels}
             selected={selectedCustomModelIds.has(model.id)}
             onToggleSelect={() => toggleCustomModelSelected(model.id)}
+            providerId={providerId}
+            combos={combos}
+            onComboChanged={fetchCombos}
           />
         ))}
 
@@ -1448,6 +1456,9 @@ export default function ProviderDetailPage() {
               selectable={selectingModels}
               selected={selectedCustomModelIds.has(model.id)}
               onToggleSelect={() => toggleCustomModelSelected(model.id)}
+              providerId={providerId}
+              combos={combos}
+              onComboChanged={fetchCombos}
             />
           );
         })}

@@ -37,6 +37,19 @@ function loadModelCaps() {
   return inflight;
 }
 
+// Drop the shared cache and re-fetch /api/models, pushing the fresh result to
+// every mounted useModelCaps() instance. Callers (Detect button, model import)
+// use this after writing new measured facts so the dashboard reflects them
+// without a page reload — piggybacks on the same "customModelChanged" bus the
+// hook already listens to below, so a single fetch serves every listener.
+export function refreshModelCaps() {
+  cache = null;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("customModelChanged"));
+  }
+  return loadModelCaps();
+}
+
 // Resolve caps from a "provider/model" string or a bare model id.
 function resolveCaps(byFull, byId, key) {
   if (!key) return null;

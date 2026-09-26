@@ -30,6 +30,26 @@ export function stripProviderPrefix(modelId, prefixes = []) {
   return id;
 }
 
+const REASONING_PARAMS = new Set(["reasoning", "include_reasoning", "reasoning_effort", "thinking"]);
+
+/**
+ * Whether the provider's /models row says the model reasons.
+ * true/false when the row carries the information, null when it does not
+ * (then only a real probe — the dashboard's Detect button — can tell).
+ */
+export function detectReasoning(model) {
+  if (!model || typeof model !== "object") return null;
+  for (const flag of [model.reasoning, model.supports_reasoning, model.thinking,
+    model.capabilities?.reasoning, model.capabilities?.thinking]) {
+    if (typeof flag === "boolean") return flag;
+  }
+  const params = model.supported_parameters ?? model.supportedParameters;
+  if (Array.isArray(params) && params.length > 0) {
+    return params.some((p) => REASONING_PARAMS.has(String(p).toLowerCase()));
+  }
+  return null;
+}
+
 export function buildImportCandidates({
   models = [],
   existingIds = new Set(),
@@ -94,6 +114,7 @@ export function buildImportCandidates({
       kind,
       tier,
       contextLength,
+      reasoning: detectReasoning(model),
       pricing,
       alreadyImported,
     });

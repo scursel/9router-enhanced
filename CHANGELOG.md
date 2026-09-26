@@ -1,3 +1,12 @@
+# v0.5.91-enhanced.3 (2026-09-26)
+
+## Model context, reasoning and add-to-combo on the provider page
+- Each model shows its context window **on that provider** (e.g. `262k`) and whether it reasons, with where the value came from: reported by the provider, detected by test, model catalog, or estimated from the name (`~`).
+- The import picker and the daily auto-import save the context window and reasoning the provider's `/models` list reports (OpenRouter-style `context_length` / `supported_parameters`).
+- A **Detect** button per model reads the context window from the provider list and makes one small real request asking for reasoning; an outage stays unknown instead of "no reasoning".
+- Measured values override the name-based estimates in `/api/models` (and so in combo capability views).
+- A **+** at each model adds it to an existing combo (models already in a combo are marked) or to a new one.
+
 # v0.5.91-enhanced.2 (2026-09-26)
 
 ## Readable provider errors in the dashboard
