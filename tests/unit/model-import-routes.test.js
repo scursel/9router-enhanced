@@ -186,7 +186,7 @@ describe("POST [providerId]", () => {
     expect(runImport).toHaveBeenCalledWith(
       expect.objectContaining({
         storageAlias: `alias-${KNOWN_PROVIDER}`,
-        models: [{ id: "m1", kind: "llm", name: "m1" }],
+        models: [{ id: "m1", kind: "llm", name: "m1" , contextLength: null, reasoning: null }],
         testFirst: false,
       }),
     );
@@ -227,7 +227,7 @@ describe("POST [providerId]", () => {
 
     await candidatesPOST(
       postReq(KNOWN_PROVIDER, {
-        models: [{ id: "m1", kind: "embedding", name: "My Model" }],
+        models: [{ id: "m1", kind: "embedding", name: "My Model" , contextLength: null, reasoning: null }],
         testFirst: "yes",
       }),
       paramsFor(KNOWN_PROVIDER),
@@ -235,7 +235,7 @@ describe("POST [providerId]", () => {
 
     expect(runImport).toHaveBeenCalledWith(
       expect.objectContaining({
-        models: [{ id: "m1", kind: "embedding", name: "My Model" }],
+        models: [{ id: "m1", kind: "embedding", name: "My Model" , contextLength: null, reasoning: null }],
         testFirst: false,
       }),
     );

@@ -23,7 +23,9 @@ function normalizeModels(models) {
 
     const kind = IMPORT_KINDS.includes(model.kind) ? model.kind : "llm";
     const name = typeof model.name === "string" && model.name.trim() ? model.name : id;
-    out.push({ id, kind, name });
+    const contextLength = Number.isInteger(model.contextLength) && model.contextLength > 0 ? model.contextLength : null;
+    const reasoning = typeof model.reasoning === "boolean" ? model.reasoning : null;
+    out.push({ id, kind, name, contextLength, reasoning });
   }
   return out;
 }

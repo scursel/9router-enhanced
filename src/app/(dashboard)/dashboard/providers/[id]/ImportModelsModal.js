@@ -208,7 +208,7 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
   const handleImport = async () => {
     const modelsToImport = candidates
       .filter((c) => selected.has(c.id))
-      .map((c) => ({ id: c.id, kind: c.kind, name: c.name }));
+      .map((c) => ({ id: c.id, kind: c.kind, name: c.name, contextLength: c.contextLength, reasoning: c.reasoning }));
     if (modelsToImport.length === 0) return;
 
     // Persist or clear the daily auto-import rule alongside the import

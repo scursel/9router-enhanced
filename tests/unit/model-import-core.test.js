@@ -17,6 +17,7 @@ vi.mock("@/lib/db/index.js", () => ({
   getCustomModels: fakes.getCustomModels,
   getModelAliases: fakes.getModelAliases,
   addCustomModel: fakes.addCustomModel,
+  setModelMeta: vi.fn(async () => ({})),
   getSettings: fakes.getSettings,
   updateSettings: fakes.updateSettings,
 }));
@@ -754,3 +755,22 @@ describe("import auto rules", () => {
     expect(saved.testFirst).toBe(false);
   });
 });
+
+describe("runImport — provider metadata", () => {
+  it("saves the context window and reasoning the provider list reported", async () => {
+    const { runImport } = await import("@/lib/modelImport/runImport.js");
+    const saveMeta = vi.fn(async () => ({}));
+    const addModel = vi.fn(async () => true);
+    await runImport({
+      storageAlias: "openrouter",
+      models: [
+        { id: "a", kind: "llm", name: "A", contextLength: 200000, reasoning: true },
+        { id: "b", kind: "llm", name: "B", contextLength: null, reasoning: null },
+      ],
+      deps: { addModel, saveMeta },
+    });
+    expect(saveMeta).toHaveBeenCalledTimes(1);
+    expect(saveMeta).toHaveBeenCalledWith("openrouter", "a", { contextWindow: 200000, reasoning: true, source: "provider" });
+  });
+});
+

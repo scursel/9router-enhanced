@@ -45,6 +45,9 @@ export {
   getMitmAlias, setMitmAliasAll,
 } from "./repos/aliasRepo.js";
 
+// Measured model facts (context window, reasoning) per provider+model
+export { getModelMeta, getModelMetaFor, setModelMeta } from "./repos/modelMetaRepo.js";
+
 // Pricing
 export {
   getPricing, getPricingForModel, updatePricing, resetPricing, resetAllPricing,
