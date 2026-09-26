@@ -587,7 +587,7 @@ default_subagent_model = "${effectiveSubagentModel}"
                             <button
                               onClick={() => handleDeleteProfile(p.name)}
                               disabled={deletingProfile === p.name}
-                              className="p-1 text-text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity rounded"
+                              className="p-1 text-text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity rounded"
                               title="Delete model"
                             >
                               <span className="material-symbols-outlined text-[15px]">close</span>
