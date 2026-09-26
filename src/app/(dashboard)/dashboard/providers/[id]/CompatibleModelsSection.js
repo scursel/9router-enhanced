@@ -42,7 +42,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-0.5">
           <AddToComboButton fullModel={fullModel} combos={combos} comboNames={comboNames} onChanged={onComboChanged} />
-          <p className="text-sm font-medium truncate">{modelId}</p>
+          <p className="min-w-0 break-all text-sm font-medium sm:truncate sm:break-normal">{modelId}</p>
         </div>
         {comboNames.length > 0 && (
           <span className="mt-0.5 inline-flex items-center gap-0.5 rounded bg-primary/10 px-1 py-px font-mono text-[9px] text-primary" title={`Used in: ${comboNames.join(", ")}`}>
@@ -57,7 +57,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
           </span>
         )}
         <div className="flex min-w-0 flex-wrap items-center gap-1 mt-1">
-          <code className="text-xs text-text-muted font-mono bg-sidebar px-1.5 py-0.5 rounded">{fullModel}</code>
+          <code className="min-w-0 break-all rounded bg-sidebar px-1.5 py-0.5 font-mono text-xs text-text-muted">{fullModel}</code>
           <div className="relative group/btn">
             <button
               onClick={() => onCopy(fullModel, `model-${modelId}`)}

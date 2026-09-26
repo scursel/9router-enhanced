@@ -20,7 +20,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
 
   return (
     <div className={`group min-w-0 max-w-full rounded-lg border px-3 py-2 ${borderColor} hover:bg-sidebar/50`}>
-      <div className="flex min-w-0 items-start gap-2 sm:items-center">
+      <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1 sm:flex-nowrap sm:items-center">
         {selectable && (
           <input
             type="checkbox"
@@ -43,9 +43,9 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
               combos={combos}
               comboNames={comboNames}
               onChanged={onComboChanged}
-              buttonClassName="rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-sidebar hover:text-primary sm:opacity-0 sm:group-hover:opacity-100"
+              buttonClassName="rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-sidebar hover:text-primary pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"
             />
-            <code className="max-w-[64vw] truncate rounded bg-sidebar px-1.5 py-0.5 font-mono text-xs text-text-muted sm:max-w-[360px]">{displayModel}</code>
+            <code className="min-w-0 break-all rounded bg-sidebar px-1.5 py-0.5 font-mono text-xs text-text-muted sm:max-w-[360px] sm:truncate sm:break-normal">{displayModel}</code>
           </div>
           <span className="flex min-w-0 flex-wrap items-center text-[9px] gap-1 pl-1">
             {model.name && <span className="truncate text-[9px] italic text-text-muted/70">{model.name}</span>}
@@ -64,11 +64,13 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
             <CapacityBadges caps={caps ? { ...caps, reasoning: false } : caps} colorOverride="text-text-muted/70" size={12} />
           </span>
         </div>
+        {/* Phones: actions get their own line so the model id is never cut. */}
+        <div className="flex basis-full items-center justify-end gap-0.5 sm:basis-auto sm:shrink-0">
         {providerId && (
           <DetectMetaButton
             providerId={providerId}
             modelId={model.id}
-            buttonClassName="rounded p-0.5 text-text-muted transition-opacity opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-sidebar hover:text-primary"
+            buttonClassName="rounded p-0.5 text-text-muted transition-opacity opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 hover:bg-sidebar hover:text-primary"
           />
         )}
         {onTest && (
@@ -76,7 +78,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
             <button
               onClick={onTest}
               disabled={isTesting}
-              className={`rounded p-0.5 text-text-muted transition-opacity hover:bg-sidebar hover:text-primary ${isTesting ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover:opacity-100"}`}
+              className={`rounded p-0.5 text-text-muted transition-opacity hover:bg-sidebar hover:text-primary ${isTesting ? "opacity-100" : "opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"}`}
             >
               <span className="material-symbols-outlined text-sm" style={isTesting ? { animation: "spin 1s linear infinite" } : undefined}>
                 {isTesting ? "progress_activity" : "science"}
@@ -103,7 +105,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
         {isCustom ? (
           <button
             onClick={onDeleteAlias}
-            className="ml-auto rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100"
+            className="ml-auto rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"
             title="Remove custom model"
           >
             <span className="material-symbols-outlined text-sm">close</span>
@@ -111,12 +113,13 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
         ) : onDisable ? (
           <button
             onClick={onDisable}
-            className="ml-auto rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100"
+            className="ml-auto rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"
             title="Disable this model"
           >
             <span className="material-symbols-outlined text-sm">close</span>
           </button>
         ) : null}
+        </div>
       </div>
     </div>
   );

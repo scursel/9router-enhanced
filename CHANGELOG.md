@@ -1,3 +1,14 @@
+# v0.5.91-enhanced.4 (2026-09-26)
+
+## Dashboard fits phone screens
+- Header: smaller icon buttons and spacing on phones so the page title is no longer cut to a few letters; the provider search no longer pushes the menu off screen.
+- Pages and cards use tighter padding on phones, giving content more width.
+- Provider page: model ids wrap instead of showing "open…", and the model actions move to their own line; the connection checkbox lines up with its row.
+- Actions that only appeared on mouse hover (test, remove, add to combo, detect, row actions) are always visible on touch screens.
+- Endpoint: the API key text no longer overlaps its toggle and buttons; the local URL gets more room.
+- Quota: each quota shows name, reset time and hide button on one line and the bar with the full used/total on the next, instead of "0…" / "US$…".
+- Translator, Skills, PXPIPE and Chat: no more content running past the right edge (file names, copy buttons, period tabs, History/Clear bar).
+
 # v0.5.91-enhanced.3 (2026-09-26)
 
 ## Model context, reasoning and add-to-combo on the provider page
