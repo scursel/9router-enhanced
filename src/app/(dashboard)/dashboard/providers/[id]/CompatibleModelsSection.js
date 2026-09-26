@@ -3,10 +3,13 @@
 import { useState } from "react";
 import { readModelTestResult } from "@/shared/utils/modelTestResult";
 import PropTypes from "prop-types";
-import { Button } from "@/shared/components";
+import { Button, CapacityBadges } from "@/shared/components";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
+import ModelMetaChips from "./ModelMetaChips";
+import AddToComboButton from "./AddToComboButton";
+import DetectMetaButton from "./DetectMetaButton";
 
-function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting, comboNames = [], selectable = false, selected = false, onToggleSelect }) {
+function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting, comboNames = [], selectable = false, selected = false, onToggleSelect, providerId, caps, combos, onComboChanged }) {
   const borderColor = testStatus === "ok"
     ? "border-green-500/40"
     : testStatus === "error"
@@ -37,11 +40,20 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
         {testStatus === "ok" ? "check_circle" : testStatus === "error" ? "cancel" : "smart_toy"}
       </span>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{modelId}</p>
+        <div className="flex items-center gap-0.5">
+          <AddToComboButton fullModel={fullModel} combos={combos} comboNames={comboNames} onChanged={onComboChanged} />
+          <p className="text-sm font-medium truncate">{modelId}</p>
+        </div>
         {comboNames.length > 0 && (
           <span className="mt-0.5 inline-flex items-center gap-0.5 rounded bg-primary/10 px-1 py-px font-mono text-[9px] text-primary" title={`Used in: ${comboNames.join(", ")}`}>
             <span className="material-symbols-outlined text-[10px]">layers</span>
             <span className="truncate">{comboNames.slice(0, 2).join(", ")}{comboNames.length > 2 ? ` +${comboNames.length - 2}` : ""}</span>
+          </span>
+        )}
+        {caps && (
+          <span className="mt-0.5 flex flex-wrap items-center gap-1">
+            <ModelMetaChips caps={caps} />
+            <CapacityBadges caps={{ ...caps, reasoning: false }} colorOverride="text-text-muted/70" size={12} />
           </span>
         )}
         <div className="flex min-w-0 flex-wrap items-center gap-1 mt-1">
@@ -75,6 +87,13 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
               </span>
             </div>
           )}
+          {providerId && (
+            <DetectMetaButton
+              providerId={providerId}
+              modelId={modelId}
+              buttonClassName="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary transition-colors"
+            />
+          )}
         </div>
       </div>
       <button
@@ -88,7 +107,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
   );
 }
 
-export default function CompatibleModelsSection({ providerStorageAlias, providerDisplayAlias, modelAliases, customModels, copied, onCopy, onDeleteAlias, onAddCustomModel, onDeleteCustomModel, onBulkDeleteCustomModels, connections, isAnthropic, comboNamesFor, candidatesForModelId, onImportModels }) {
+export default function CompatibleModelsSection({ providerStorageAlias, providerDisplayAlias, modelAliases, customModels, copied, onCopy, onDeleteAlias, onAddCustomModel, onDeleteCustomModel, onBulkDeleteCustomModels, connections, isAnthropic, comboNamesFor, candidatesForModelId, onImportModels, providerId, getCaps, combos, onComboChanged }) {
   const [newModel, setNewModel] = useState("");
   const [adding, setAdding] = useState(false);
   const [testingModelId, setTestingModelId] = useState(null);
@@ -248,6 +267,10 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
               selectable={selecting}
               selected={selectedIds.has(id)}
               onToggleSelect={() => toggleSelected(id)}
+              providerId={providerId}
+              caps={getCaps?.(`${providerStorageAlias}/${id}`)}
+              combos={combos}
+              onComboChanged={onComboChanged}
             />
           ))}
         </div>
@@ -275,4 +298,8 @@ CompatibleModelsSection.propTypes = {
   comboNamesFor: PropTypes.func.isRequired,
   candidatesForModelId: PropTypes.func.isRequired,
   onImportModels: PropTypes.func.isRequired,
+  providerId: PropTypes.string,
+  getCaps: PropTypes.func,
+  combos: PropTypes.arrayOf(PropTypes.object),
+  onComboChanged: PropTypes.func,
 };

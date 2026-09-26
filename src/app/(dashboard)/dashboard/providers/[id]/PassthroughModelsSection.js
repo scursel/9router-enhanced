@@ -2,10 +2,13 @@
 
 import { useState } from "react";
 import PropTypes from "prop-types";
-import { Button } from "@/shared/components";
+import { Button, CapacityBadges } from "@/shared/components";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
+import ModelMetaChips from "./ModelMetaChips";
+import AddToComboButton from "./AddToComboButton";
+import DetectMetaButton from "./DetectMetaButton";
 
-function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting }) {
+function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting, providerId, caps, combos, comboNames = [], onComboChanged }) {
   const borderColor = testStatus === "ok"
     ? "border-green-500/40"
     : testStatus === "error"
@@ -28,7 +31,16 @@ function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias
       </span>
 
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{modelId}</p>
+        <div className="flex items-center gap-0.5">
+          <AddToComboButton fullModel={fullModel} combos={combos} comboNames={comboNames} onChanged={onComboChanged} />
+          <p className="text-sm font-medium truncate">{modelId}</p>
+        </div>
+        {caps && (
+          <span className="mt-0.5 flex flex-wrap items-center gap-1">
+            <ModelMetaChips caps={caps} />
+            <CapacityBadges caps={{ ...caps, reasoning: false }} colorOverride="text-text-muted/70" size={12} />
+          </span>
+        )}
 
         <div className="flex items-center gap-1 mt-1">
         <code className="text-xs text-text-muted font-mono bg-sidebar px-1.5 py-0.5 rounded">{fullModel}</code>
@@ -61,6 +73,13 @@ function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias
               </span>
             </div>
           )}
+          {providerId && (
+            <DetectMetaButton
+              providerId={providerId}
+              modelId={modelId}
+              buttonClassName="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary transition-colors"
+            />
+          )}
         </div>
       </div>
 
@@ -85,9 +104,14 @@ PassthroughModelRow.propTypes = {
   onTest: PropTypes.func,
   testStatus: PropTypes.oneOf(["ok", "error"]),
   isTesting: PropTypes.bool,
+  providerId: PropTypes.string,
+  caps: PropTypes.object,
+  combos: PropTypes.arrayOf(PropTypes.object),
+  comboNames: PropTypes.arrayOf(PropTypes.string),
+  onComboChanged: PropTypes.func,
 };
 
-export default function PassthroughModelsSection({ providerAlias, modelAliases, customModels, copied, onCopy, onDeleteAlias, onAddCustomModel, onDeleteCustomModel }) {
+export default function PassthroughModelsSection({ providerAlias, modelAliases, customModels, copied, onCopy, onDeleteAlias, onAddCustomModel, onDeleteCustomModel, providerId, getCaps, combos, onComboChanged }) {
   const [newModel, setNewModel] = useState("");
   const [adding, setAdding] = useState(false);
 
@@ -154,6 +178,10 @@ export default function PassthroughModelsSection({ providerAlias, modelAliases, 
               copied={copied}
               onCopy={onCopy}
               onDeleteAlias={() => source === "custom" ? onDeleteCustomModel(id) : onDeleteAlias(alias)}
+              providerId={providerId}
+              caps={getCaps?.(`${providerAlias}/${id}`)}
+              combos={combos}
+              onComboChanged={onComboChanged}
             />
           ))}
         </div>
@@ -171,4 +199,8 @@ PassthroughModelsSection.propTypes = {
   onDeleteAlias: PropTypes.func.isRequired,
   onAddCustomModel: PropTypes.func.isRequired,
   onDeleteCustomModel: PropTypes.func.isRequired,
+  providerId: PropTypes.string,
+  getCaps: PropTypes.func,
+  combos: PropTypes.arrayOf(PropTypes.object),
+  onComboChanged: PropTypes.func,
 };
