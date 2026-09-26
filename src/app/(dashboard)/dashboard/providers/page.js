@@ -31,7 +31,10 @@ import AddCompatibleModal from "./components/AddCompatibleModal";
 import { STATUS_FILTER_OPTIONS, matchesStatusFilter } from "./utils";
 import { useCircuitBreakers } from "@/shared/hooks/useCircuitBreakers";
 
-function getStatusDisplay(connected, error, errorCode) {
+// Connection error tags that stand for a standard HTTP status.
+const TAG_STATUS = { AUTH: 401, "5XX": 503, NET: 0 };
+
+function getStatusDisplay(connected, error, errorCode, errorReason = null) {
   const parts = [];
   if (connected > 0) {
     parts.push(
@@ -41,9 +44,9 @@ function getStatusDisplay(connected, error, errorCode) {
     );
   }
   if (error > 0) {
-    const reasonTitle = errorCode ? describeProviderError(null, errorCode)?.title : null;
+    const reasonTitle = errorReason || (errorCode ? describeProviderError(null, errorCode)?.title : null);
     const errText = reasonTitle
-      ? `${error} Error · ${translate(reasonTitle)}`
+      ? `${error} ${translate("Error")} · ${translate(reasonTitle)}`
       : errorCode
         ? `${error} Error (${errorCode})`
         : `${error} Error`;
@@ -215,11 +218,18 @@ export default function ProvidersPage() {
       (a, b) => new Date(b.lastErrorAt || 0) - new Date(a.lastErrorAt || 0),
     )[0];
     const errorCode = latestError ? getConnectionErrorTag(latestError) : null;
+    // Readable reason from the account's real error text; the tag (AUTH, 5XX,
+    // NET, ...) is only a fallback when the text is empty or unrecognised.
+    const errorReason = latestError
+      ? (describeProviderError(latestError.lastError, latestError.errorCode)?.title
+        || describeProviderError(null, TAG_STATUS[errorCode])?.title
+        || null)
+      : null;
     const errorTime = latestError?.lastErrorAt
       ? getRelativeTime(latestError.lastErrorAt)
       : null;
 
-    return { connected, error, total, errorCode, errorTime, allDisabled };
+    return { connected, error, total, errorCode, errorReason, errorTime, allDisabled };
   };
 
   const matchStatus = (stats, isNoAuth) =>
@@ -713,7 +723,7 @@ function pausedLabel(count) {
 }
 
 function ProviderCard({ providerId, provider, stats, authType, onToggle, pausedCount = 0 }) {
-  const { connected, error, errorCode, errorTime, allDisabled } = stats;
+  const { connected, error, errorCode, errorReason, errorTime, allDisabled } = stats;
   const isNoAuth = !!provider.noAuth;
 
   const dotColors = {
@@ -770,7 +780,7 @@ function ProviderCard({ providerId, provider, stats, authType, onToggle, pausedC
                   <Badge variant="success" size="sm" dot>Ready</Badge>
                 ) : (
                   <>
-                    {getStatusDisplay(connected, error, errorCode)}
+                    {getStatusDisplay(connected, error, errorCode, errorReason)}
                     {pausedCount > 0 && (
                       <Badge variant="warning" size="sm">
                         {pausedLabel(pausedCount)}
@@ -836,7 +846,7 @@ function ApiKeyProviderCard({
   onToggle,
   pausedCount = 0,
 }) {
-  const { connected, error, errorCode, errorTime, allDisabled } = stats;
+  const { connected, error, errorCode, errorReason, errorTime, allDisabled } = stats;
   const isCompatible = providerId.startsWith(OPENAI_COMPATIBLE_PREFIX);
   const isAnthropicCompatible = providerId.startsWith(
     ANTHROPIC_COMPATIBLE_PREFIX,
@@ -903,7 +913,7 @@ function ApiKeyProviderCard({
                   </Badge>
                 ) : (
                   <>
-                    {getStatusDisplay(connected, error, errorCode)}
+                    {getStatusDisplay(connected, error, errorCode, errorReason)}
                     {pausedCount > 0 && (
                       <Badge variant="warning" size="sm">
                         {pausedLabel(pausedCount)}
