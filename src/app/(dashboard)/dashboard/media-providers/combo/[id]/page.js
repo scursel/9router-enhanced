@@ -3,7 +3,7 @@
 import { useParams, notFound, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Card, Button, Input, Toggle, ModelSelectModal } from "@/shared/components";
+import { Card, Button, Input, Toggle, ModelSelectModal, ErrorReason } from "@/shared/components";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import { AI_PROVIDERS, MEDIA_PROVIDER_KINDS } from "@/shared/constants/providers";
 
@@ -342,7 +342,7 @@ export default function ComboDetailPage() {
             {curlExample}
           </pre>
           {testError && (
-            <p className="mt-3 text-xs text-red-500 break-words">{testError}</p>
+            <ErrorReason error={testError} className="mt-3" />
           )}
           {testResult && (
             <div className="mt-3 flex flex-col gap-3">

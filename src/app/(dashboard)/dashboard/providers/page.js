@@ -21,6 +21,8 @@ import {
 } from "@/shared/constants/providers";
 import Link from "next/link";
 import { getErrorCode, getRelativeTime } from "@/shared/utils";
+import { describeProviderError } from "@/shared/utils/errorReason";
+import { translate } from "@/i18n/runtime";
 import { useNotificationStore } from "@/store/notificationStore";
 import { useHeaderSearchStore } from "@/store/headerSearchStore";
 import ModelAvailabilityBadge from "./components/ModelAvailabilityBadge";
@@ -39,9 +41,12 @@ function getStatusDisplay(connected, error, errorCode) {
     );
   }
   if (error > 0) {
-    const errText = errorCode
-      ? `${error} Error (${errorCode})`
-      : `${error} Error`;
+    const reasonTitle = errorCode ? describeProviderError(null, errorCode)?.title : null;
+    const errText = reasonTitle
+      ? `${error} Error · ${translate(reasonTitle)}`
+      : errorCode
+        ? `${error} Error (${errorCode})`
+        : `${error} Error`;
     parts.push(
       <Badge key="error" variant="error" size="sm" dot>
         {errText}

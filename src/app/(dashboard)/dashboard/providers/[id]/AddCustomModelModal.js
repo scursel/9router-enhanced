@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { readModelTestResult } from "@/shared/utils/modelTestResult";
 import PropTypes from "prop-types";
-import { Button, Modal, Select, Toggle } from "@/shared/components";
+import { Button, Modal, Select, Toggle, ErrorReason } from "@/shared/components";
 import { CAPACITY_META, STT_TRANSPORT_META, STT_TRANSPORTS } from "@/shared/constants/models";
 
 const defaultCaps = () => Object.fromEntries(Object.keys(CAPACITY_META).map((key) => [key, false]));
@@ -153,10 +153,14 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
           </div>
         )}
         {testStatus === "error" && (
-          <div className="flex items-start gap-2 text-sm text-red-500">
-            <span className="material-symbols-outlined text-base shrink-0">cancel</span>
-            <span>{testError || "Model not reachable"}</span>
-          </div>
+          testError ? (
+            <ErrorReason error={testError} />
+          ) : (
+            <div className="flex items-start gap-2 text-sm text-red-500">
+              <span className="material-symbols-outlined text-base shrink-0">cancel</span>
+              <span>Model not reachable</span>
+            </div>
+          )
         )}
 
         <div className="flex gap-2 pt-1">

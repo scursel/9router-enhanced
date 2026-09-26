@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import Link from "next/link";
-import { Button, Modal, Badge, Toggle, Select, Input } from "@/shared/components";
+import { Button, Modal, Badge, Toggle, Select, Input, ErrorReason } from "@/shared/components";
 import { translate } from "@/i18n/runtime";
 import { cn } from "@/shared/utils/cn";
 import {
@@ -540,14 +540,13 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
               return (
                 <div
                   key={m.id}
-                  title={p.status === "failed" ? p.error : undefined}
                   className="flex items-center gap-3 px-3 py-2 rounded-lg border border-black/10 dark:border-white/10"
                 >
                   <StatusIcon status={p.status} />
                   <div className="flex-1 min-w-0">
                     <div className="font-mono text-xs text-text-main truncate">{m.id}</div>
                     {p.status === "failed" && p.error && (
-                      <div className="text-[11px] text-red-500 truncate">{p.error}</div>
+                      <ErrorReason error={p.error} compact className="text-[11px]" />
                     )}
                   </div>
                 </div>

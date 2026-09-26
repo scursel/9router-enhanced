@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { Badge, Button, Card, CardSkeleton, Input, Modal, Toggle, ConfirmModal } from "@/shared/components";
+import { Badge, Button, Card, CardSkeleton, Input, Modal, Toggle, ConfirmModal, ErrorReason } from "@/shared/components";
 import { useNotificationStore } from "@/store/notificationStore";
 
 function getStatusVariant(status) {
@@ -732,8 +732,8 @@ export default function ProxyPoolsPage() {
                   ) : null}
                   <p className="text-[11px] text-text-muted mt-1">
                     Last tested: {formatDateTime(pool.lastTestedAt)}
-                    {pool.lastError ? ` · ${pool.lastError}` : ""}
                   </p>
+                  {pool.lastError && <ErrorReason error={pool.lastError} compact className="mt-1 text-[11px]" />}
                   </div>
                 </div>
 

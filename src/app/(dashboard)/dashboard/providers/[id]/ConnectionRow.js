@@ -3,13 +3,14 @@
 import { useState, useEffect, useRef } from "react";
 import { getStatusVariant as getConnectionStatusVariant } from "@/shared/utils/connectionStatus";
 import PropTypes from "prop-types";
-import { Badge, Toggle, Tooltip } from "@/shared/components";
+import { Badge, Toggle, Tooltip, ErrorReason } from "@/shared/components";
+import { describeProviderError } from "@/shared/utils/errorReason";
+import { translate } from "@/i18n/runtime";
 import CooldownTimer from "./CooldownTimer";
 import CircuitBreakerBadge from "../components/CircuitBreakerBadge";
 
 export default function ConnectionRow({ connection, affectedCombos = [], proxyPools, isOAuth, isFirst, isLast, onMoveUp, onMoveDown, onToggleActive, onUpdateProxy, onEdit, onDelete, oneByOneStatus = null, autoPing = null, circuitBreaker = null, onResetCircuit = null, onCatalogSynced = null, canSyncCatalog = false }) {
   const [showProxyDropdown, setShowProxyDropdown] = useState(false);
-  const [showFullError, setShowFullError] = useState(false);
   const [updatingProxy, setUpdatingProxy] = useState(false);
   const [syncingModels, setSyncingModels] = useState(false);
   const [catalogMessage, setCatalogMessage] = useState("");
@@ -155,6 +156,8 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
     : catalog.lastError ? "stale"
     : !catalog.lastSuccessAt ? "never-synced"
     : "ok";
+  const catalogErrorReason = catalog?.lastError ? describeProviderError(catalog.lastError) : null;
+  const catalogErrorTitle = catalogErrorReason?.title ? translate(catalogErrorReason.title) : null;
   const stale = (() => {
     const ts = Date.parse(catalog?.lastSuccessAt || "");
     if (!Number.isFinite(ts)) return false;
@@ -234,16 +237,12 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
             )}
             {isCooldown && connection.isActive !== false && <CooldownTimer until={modelLockUntil} />}
             {connection.lastError && connection.isActive !== false && (
-              <button
-                type="button"
-                onClick={() => setShowFullError((v) => !v)}
-                title={showFullError ? "Click to collapse" : connection.lastError}
-                aria-expanded={showFullError}
-                className="inline-flex max-w-full items-start gap-1 text-left text-xs text-red-500 sm:max-w-[300px]"
-              >
-                <span className={showFullError ? "whitespace-pre-wrap break-words" : "min-w-0 truncate"}>{connection.lastError}</span>
-                <span className="shrink-0 underline underline-offset-2 opacity-70">{showFullError ? "less" : "more"}</span>
-              </button>
+              <ErrorReason
+                error={connection.lastError}
+                status={connection.errorCode ?? connection.lastErrorCode}
+                compact
+                className="max-w-full text-xs sm:max-w-[300px]"
+              />
             )}
             <span className="text-xs text-text-muted">#{connection.priority}</span>
             {connection.globalPriority && (
@@ -259,7 +258,7 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
                 <Badge
                   variant={status === "error" || status === "stale" ? "error" : status === "ok" ? "success" : "default"}
                   size="sm"
-                  title={status === "error" ? `Sync failed: ${catalog.lastError || "unknown error"}` : `Last sync: ${formatSyncDate(catalog.lastSuccessAt)}`}
+                  title={status === "error" ? `Sync failed: ${catalogErrorTitle || catalog.lastError || "unknown error"}` : `Last sync: ${formatSyncDate(catalog.lastSuccessAt)}`}
                 >
                   {status === "never-synced" ? "Not yet synced" : status === "error" ? "Sync failed" : status === "stale" ? "Stale" : `${availableCount} models`}
                 </Badge>
@@ -372,7 +371,11 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
             </div>
           )}
           {catalog && status === "error" && (
-            <p className="mt-1 text-xs text-red-500">Last sync failed{syncingModels ? " — retrying…" : `: ${catalog.lastError || "unknown error"}`}. Previous model list kept.</p>
+            <div className="mt-1 flex flex-wrap items-start gap-1 text-xs text-red-500">
+              <span>Last sync failed{syncingModels ? " — retrying…" : ":"}</span>
+              {!syncingModels && <ErrorReason error={catalog.lastError} compact className="text-xs" />}
+              <span>Previous model list kept.</span>
+            </div>
           )}
           {catalogMessage && <p className="mt-1 text-xs text-text-muted" role="status" aria-live="polite">{catalogMessage}</p>}
         </div>
