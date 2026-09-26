@@ -111,6 +111,12 @@ describe("describeProviderError", () => {
     expect(describeProviderError({ error: { message: "Rate limit exceeded", code: 429 } }).reason).toBe("rate_limited");
   });
 
+  it("describes a bare status code (combo stats keep only the code)", () => {
+    expect(describeProviderError(null, 402).reason).toBe("no_credits");
+    expect(describeProviderError("", 429).reason).toBe("rate_limited");
+    expect(describeProviderError(null, 418)?.reason ?? null).toBeNull();
+  });
+
   it("every reason has a title and a hint", () => {
     for (const [key, info] of Object.entries(ERROR_REASONS)) {
       expect(info.title, key).toBeTruthy();

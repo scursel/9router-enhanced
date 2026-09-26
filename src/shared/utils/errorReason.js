@@ -130,7 +130,8 @@ function normalize(input, explicitStatus) {
   } else {
     text = String(input ?? "");
   }
-  const raw = text.trim();
+  // Some stores keep only the status (combo member stats): describe the code.
+  const raw = text.trim() || (status ? `HTTP ${status}` : "");
   if (!raw) return null;
 
   // "[402]: ...", "HTTP 401: ...", "ERROR 429 · ..."
