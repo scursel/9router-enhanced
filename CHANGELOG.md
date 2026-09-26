@@ -1,3 +1,11 @@
+# v0.5.91-enhanced.2 (2026-09-26)
+
+## Readable provider errors in the dashboard
+- Provider errors show the reason in plain words — "Out of credits", "Invalid or expired credentials", "Too many requests", "Model not found", "Provider unavailable", "Subscription or activation required", ... (17 standard reasons, translated) — with a one-line hint, instead of a bare code or the provider's raw JSON/HTML. The original error is one click away.
+- Applied to the providers list, account cards, model tests, the import picker, combo member stats, proxy pools and request details.
+- `describeProviderError()` (`src/shared/utils/errorReason.js`) reads stored errors (`[402]: {...}`, `HTTP 401`, HTML error pages, network failures, bare status codes); checked against the 672 errors stored on a live instance (670 classified).
+- Dashboard only: the `/v1` API responses are unchanged.
+
 # v0.5.91-enhanced.1 (2026-09-26 — upstream v0.5.91 sync)
 
 Merged upstream `v0.5.91` (38 commits). Where the fork had built the same thing, the official version was adopted: the `bai` and `dahl` registry entries (upstream's are richer: aliases, GLM-5.3 Flash on dahl), the Zed live-models test isolation (the fork's global `DATA_DIR` guard stays as a second layer), Claude CLI 2.1.280 and GPT-6 Sol/Luna (already identical).
