@@ -10,8 +10,8 @@ describe("resolveProviderDisplayName", () => {
   });
 
   it("uses registry display names", () => {
-    expect(resolveProviderDisplayName("bai")).toBe("b.ai");
-    expect(resolveProviderDisplayName("dahl")).toBe("Dahl");
+    expect(resolveProviderDisplayName("bai")).toBe("B.AI"); // upstream v0.5.91 registry name
+    expect(resolveProviderDisplayName("dahl")).toBe("Dahl Inference");
     expect(resolveProviderDisplayName("openrouter")).toMatch(/openrouter/i);
   });
 

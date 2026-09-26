@@ -69,6 +69,10 @@ export const SYNCABLE_MODELS_FETCHER_TYPES = new Set([
   "openai",
   "openrouter-free",
   "opencode-free",
+  // opencode.ai/zen/go/v1/models answers the OpenAI list shape; upstream (v0.5.91)
+  // gave it its own type for the suggested-models filter, and the account
+  // catalog sync must keep treating it as syncable.
+  "opencode-go",
 ]);
 
 export function resolveModelsUrl(connection) {

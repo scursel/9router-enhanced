@@ -1,24 +1,30 @@
 export default {
   id: "bai",
-  priority: 60,
+  priority: 120,
   alias: "bai",
+  aliases: [
+    "b-ai",
+  ],
+  uiAlias: "bai",
   display: {
-    name: "b.ai",
-    icon: "hub",
-    color: "#2563EB",
+    name: "B.AI",
+    icon: "account_balance",
+    color: "#0369A1",
     textIcon: "BA",
-    website: "https://docs.b.ai",
-    notice: { text: "OpenAI-compatible model gateway. New models appear automatically after sync.", apiKeyUrl: "https://docs.b.ai" },
+    website: "https://b.ai",
+    notice: {
+      text: "OpenAI-compatible gateway with one of the larger catalogues here. Accepts a bearer token or an x-api-key header. Model ids are fetched live from the provider.",
+      apiKeyUrl: "https://b.ai",
+    },
   },
   category: "apikey",
   authType: "apikey",
-  authModes: ["apikey"],
   transport: {
     baseUrl: "https://api.b.ai/v1/chat/completions",
     validateUrl: "https://api.b.ai/v1/models",
-    headers: {},
   },
-  models: [],
+  // No ids hardcoded: the catalogue is large and rotates, so the live endpoint
+  // is the source of truth and any id is accepted via passthroughModels.
   modelsFetcher: { url: "https://api.b.ai/v1/models", type: "openai" },
   passthroughModels: true,
 };

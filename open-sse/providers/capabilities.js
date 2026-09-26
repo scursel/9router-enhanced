@@ -522,13 +522,19 @@ function splitMember(member) {
  * @param {(member: string) => ({provider: string|null, model: string}|null)} [options.resolveMember]
  *   maps a member string to the provider id + model to look up (connection
  *   prefixes, model aliases). Default: split on the first "/". null = skip.
+ * @param {(member: string) => (object|null)} [options.resolveCaps]
+ *   optional member → caps override (upstream v0.5.91). The synced model catalog is
+ *   server-only, so the dashboard passes the server's answer (/api/models via
+ *   useModelCaps); it is merged over the local tables and marks the limits as known.
+ *   A function as the third argument is accepted as resolveCaps (upstream's signature).
  * @returns {object|null} full capabilities object, or null when no member resolves
  */
 export function aggregateComboCapabilities(comboModels, comboLookup = null, options = {}) {
-  return aggregate(comboModels, comboLookup, options.resolveMember || splitMember, 0, new Set());
+  const opts = typeof options === "function" ? { resolveCaps: options } : (options || {});
+  return aggregate(comboModels, comboLookup, opts.resolveMember || splitMember, 0, new Set(), opts.resolveCaps || null);
 }
 
-function aggregate(comboModels, comboLookup, resolveMember, depth, visited) {
+function aggregate(comboModels, comboLookup, resolveMember, depth, visited, resolveCaps = null) {
   if (!Array.isArray(comboModels) || comboModels.length === 0 || depth >= MAX_COMBO_NESTING_DEPTH) return null;
 
   const members = []; // { caps, limitsKnown }
@@ -540,14 +546,18 @@ function aggregate(comboModels, comboLookup, resolveMember, depth, visited) {
       // twice by different paths still counts — only a cycle is cut.
       if (visited.has(member)) continue;
       visited.add(member);
-      const nested = aggregate(comboLookup[member], comboLookup, resolveMember, depth + 1, visited);
+      const nested = aggregate(comboLookup[member], comboLookup, resolveMember, depth + 1, visited, resolveCaps);
       visited.delete(member);
       if (nested) members.push({ caps: nested, limitsKnown: nested.limitsKnown });
       continue;
     }
     const target = resolveMember(member);
     if (!target?.model) continue;
-    members.push(lookupCapabilities(target.provider, target.model));
+    const found = lookupCapabilities(target.provider, target.model);
+    const override = resolveCaps?.(member);
+    members.push(override
+      ? { caps: { ...found.caps, ...override }, limitsKnown: found.limitsKnown || Number.isFinite(override.contextWindow) }
+      : found);
   }
   if (members.length === 0) return null;
 
@@ -592,7 +602,8 @@ const MODALITY_KEYS = ["vision", "pdf", "audioInput", "videoInput"];
 // The server bundles this module into every route chunk that needs it, and each
 // copy carries its own module state, so an install landing in the copy the
 // startup hook imported stays invisible to the copy resolving requests. The slot
-// lives on globalThis instead; the local binding is the fast path.
+// lives on globalThis instead, and every read goes through it: caching it locally
+// would keep a reader alive in other copies after setCatalogSource(null).
 let catalogSource = null;
 
 /**
@@ -606,9 +617,8 @@ export function setCatalogSource(source) {
 }
 
 function getCatalogSource() {
-  if (catalogSource) return catalogSource;
-  if (typeof globalThis === "undefined") return null;
-  return (catalogSource = globalThis.__9rCatalogSource || null);
+  if (typeof globalThis === "undefined") return catalogSource;
+  return globalThis.__9rCatalogSource || null;
 }
 
 // Apply the synced catalog + name heuristic on top of a table-resolved result.

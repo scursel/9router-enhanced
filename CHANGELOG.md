@@ -1,3 +1,47 @@
+# v0.5.91-enhanced.1 (2026-09-26 — upstream v0.5.91 sync)
+
+Merged upstream `v0.5.91` (38 commits). Where the fork had built the same thing, the official version was adopted: the `bai` and `dahl` registry entries (upstream's are richer: aliases, GLM-5.3 Flash on dahl), the Zed live-models test isolation (the fork's global `DATA_DIR` guard stays as a second layer), Claude CLI 2.1.280 and GPT-6 Sol/Luna (already identical).
+
+## Kept from the fork on purpose
+- **API keys never reach the usage JSON.** Upstream keys the live `byApiKey` stats by the full API key to stop team keys (shared prefix) colliding. The buckets stay keyed that way internally, but `getUsageStats` now replaces the key with a one-way hash before `/api/usage/*` returns it (the daily-rollup path had the same exposure).
+- **`anthropic-beta` forwarding:** the client's flags are merged as upstream now does, except `context-1m-*`, which stays gated to opus/sonnet (`forwardableClientBeta`) because a combo member may reject it.
+- **Combo `maxOutput` stays the minimum across members** (upstream reports the maximum); upstream's server-side `resolveCaps` override is merged into the fork's aggregate.
+
+## Merge fixes
+- `opencode-go`: both sides added a `modelsFetcher`; upstream's (`type: "opencode-go"`) wins and that type is now syncable per account, which the fork's silently-overridden entry used to provide.
+- Registry index renumbered (`p131`–`p136`) so fork and upstream providers do not share import slots; duplicate `bai`/`dahl` model-list configs removed.
+- STT: fork usage recording and token refresh kept alongside upstream's Gemini Live transport; `chat.js` keeps the fork's 503 on account exhaustion and now also returns the last upstream's rate-limit headers.
+
+# v0.5.91 (2026-09-26)
+
+## Features
+- **Providers**: add Token Harbor provider and four OpenAI-compatible aggregator providers (dahl, atria, agnes, bai)
+- **Claude**: forward `x-claude-code-session-id` on OAuth requests; merge client `anthropic-beta` flags and forward rate-limit headers; return thinking text to OpenAI-format clients
+- **Codex**: add GPT-6 Sol and Luna support
+- **CLI Tools**: support multiple model profiles for Codex CLI
+- **Hermes**: multi-role model config (delegation + auxiliary slots)
+- **OpenCode Go**: complete the Go catalog (40 models) with auto-fetch + family endpoint regex
+- **Usage**: show and redeem free limit resets for cc accounts
+- **Cline**: expose the `cline-free/*` tier and price it at zero
+- **Combos**: display vision adapter models in an ordered table view
+
+## Fixes
+- **Claude**: decloak tool names when `toolNameMap` misses (#4342); update spoofed cli version to 2.1.280 to support Opus 5.5
+- **Providers API**: make POST `/api/providers` O(1) and refuse silent key overwrite (#4350)
+- **Capabilities**: stop caching the catalog source per module copy (#4351)
+- **OAuth**: stop Zed paste-token crash and add IDE auto-import (#4359)
+- **Dashboard**: resolve combo limits with the server's capabilities (#4360); lazy-load charts and `marked`, preload in background on idle
+- **Responses**: carry the streamed output items in `response.completed` (#4307)
+- **STT**: dispatch live-API-only Gemini models over the Live WebSocket transport (#4006)
+- **Gemini**: guard terminal model turns and unresponded functionCalls in `normalizeGeminiContents`
+- **Command Code**: replay raw byte chunks to preserve all NDJSON lines
+- **Translator**: stop emitting empty `<think>` markers into OpenAI content
+- **CLI Tools**: refresh Codex settings after apply (#4347); keep existing `ANTHROPIC_AUTH_TOKEN` when applying Claude settings
+- **Tray**: native arm64 macOS menubar binary, no Rosetta required
+- **CLI**: filter model selector by active connections and noAuth providers
+- **Usage**: key live byApiKey stats by full api key to prevent team-key collision and preserve API key usage attribution
+- **Tailscale**: cap enable-flow health wait at 20s
+
 # v0.5.86-enhanced.4 (2026-09-25)
 
 ## Tests no longer write to the real database

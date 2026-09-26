@@ -2,7 +2,7 @@ import {
   extractApiKey, isValidApiKey,
   getProviderCredentials, markAccountUnavailable, clearAccountError,
 } from "../services/auth.js";
-import { getSettings } from "@/lib/localDb";
+import { getSettings, getCustomModels } from "@/lib/localDb";
 import { getModelInfo } from "../services/model.js";
 import { handleSttCore } from "open-sse/handlers/sttCore.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
@@ -28,6 +28,23 @@ function tokensFromTranscription(payload) {
       : null);
 }
 
+// Custom-model transport marker: models registered through
+// /api/models/custom may pin a specialized STT transport (e.g.
+// "gemini-live"). The engine dispatches on the marker itself, so the app
+// layer only resolves it — same getModelInfo-style provider+model pairing,
+// restricted to type "stt" records.
+async function resolveCustomModelTransport(provider, model) {
+  try {
+    const customModels = await getCustomModels();
+    const hit = customModels.find((c) => c && c.type === "stt"
+      && c.providerAlias === provider && c.id === model
+      && typeof c.transport === "string" && c.transport.trim());
+    return hit ? hit.transport.trim() : null;
+  } catch {
+    return null; // DB unreadable → built-in registry marker still applies
+  }
+}
+
 export async function handleStt(request) {
   let formData;
   try {
@@ -39,7 +56,7 @@ export async function handleStt(request) {
   const modelStr = formData.get("model");
   log.request("POST", `/v1/audio/transcriptions | ${modelStr}`);
 
-  const endpoint = new URL(request.url).pathname;
+  const endpoint = request.url ? new URL(request.url).pathname : "/v1/audio/transcriptions";
   const apiKey = extractApiKey(request);
   const settings = await getSettings();
   if (settings.requireApiKey) {
@@ -57,9 +74,11 @@ export async function handleStt(request) {
   const { provider, model } = modelInfo;
   log.info("ROUTING", `Provider: ${provider}, Model: ${model}`);
 
+  const modelTransport = await resolveCustomModelTransport(provider, model);
+
   // noAuth providers
   if (!CREDENTIALED_PROVIDERS.has(provider)) {
-    const result = await handleSttCore({ provider, model, formData, sttConfig: AI_PROVIDERS[provider]?.sttConfig });
+    const result = await handleSttCore({ provider, model, formData, sttConfig: AI_PROVIDERS[provider]?.sttConfig, transport: modelTransport });
     if (result.success) {
       recordModalityUsage({ provider, model, endpoint, apiKey, response: result.response, fromPayload: tokensFromTranscription });
       return result.response;
@@ -97,7 +116,7 @@ export async function handleStt(request) {
       log.warn("TOKEN", `${provider} | token refresh failed: ${err?.message || err}`);
     }
 
-    const result = await handleSttCore({ provider, model, formData, credentials: refreshedCredentials, sttConfig: AI_PROVIDERS[provider]?.sttConfig });
+    const result = await handleSttCore({ provider, model, formData, credentials: refreshedCredentials, sttConfig: AI_PROVIDERS[provider]?.sttConfig, transport: modelTransport });
 
     if (result.success) {
       try {

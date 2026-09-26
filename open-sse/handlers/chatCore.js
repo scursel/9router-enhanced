@@ -13,6 +13,7 @@ import { PROVIDERS } from "../config/providers.js";
 import { createErrorResult, parseUpstreamError, formatProviderError } from "../utils/error.js";
 import { HTTP_STATUS, TOKEN_SAVER_HEADER, STREAM_FIRST_CHUNK_TIMEOUT_MS } from "../config/runtimeConfig.js";
 import { ensureStreamReadiness } from "../utils/streamReadiness.js";
+import { upstreamResponseHeaders } from "../utils/upstreamHeaders.js";
 import { handleBypassRequest } from "../utils/bypassHandler.js";
 import { trackPendingRequest, appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
 import { triggerReactiveModelSync } from "@/lib/modelSync/reactive.js";
@@ -566,7 +567,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
 
   // Record + report one failed upstream attempt and build the error result the
   // account / combo loop above falls back on.
-  const failUpstream = (statusCode, message, resetsAtMs) => {
+  const failUpstream = (statusCode, message, resetsAtMs, headers) => {
     settlePending(true);
     appendRequestLog({ model, provider, connectionId, status: `FAILED ${statusCode}` }).catch(() => { });
     saveRequestDetail(buildRequestDetail({
@@ -586,7 +587,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       log.errorLine(reqTag, "✗", `ERROR ${statusCode} · ${provider}/${model} · ${Date.now() - requestStartTime}ms${urlStr}\n    ${errMsg}`);
     }
     reqLogger.logError(new Error(message), finalBody || translatedBody);
-    return createErrorResult(statusCode, errMsg, resetsAtMs);
+    return createErrorResult(statusCode, errMsg, resetsAtMs, headers);
   };
 
   // Provider returned error
@@ -602,7 +603,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     if (statusCode === HTTP_STATUS.NOT_FOUND) {
       triggerReactiveModelSync({ connectionId, provider, model }, { log });
     }
-    return failUpstream(statusCode, message, resetsAtMs);
+    // Upstream (v0.5.91): pass the provider's rate-limit headers through to the client.
+    return failUpstream(statusCode, message, resetsAtMs, upstreamResponseHeaders(providerResponse.headers));
   }
 
   const attemptUsageEventId = usageEventId || randomUUID();
