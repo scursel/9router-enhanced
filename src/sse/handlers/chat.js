@@ -17,6 +17,7 @@ import { appendPxpipeEvent } from "@/lib/pxpipe/events.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { upstreamResponseHeaders } from "open-sse/utils/upstreamHeaders.js";
 import { handleComboChat, handleFusionChat, detectRequiredCapabilities, resolveMemberDispatchOptions } from "open-sse/services/combo.js";
+import { createSoftErrorContinuePolicy } from "open-sse/services/softErrorGuard.js";
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
 import { handleBypassRequest } from "open-sse/utils/bypassHandler.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
@@ -52,6 +53,11 @@ import {
 // Read per request so it can be tuned without a restart.
 const CAPACITY_PROBE_MS = 2000;
 const CAPACITY_WAIT_DEFAULT_MS = 60_000;
+
+// Real combos only: a member answering 2xx with an upstream error notice as
+// its text ("…accounts that have not been recharged…") makes the combo try
+// the next member instead of returning the notice. Off: COMBO_SOFT_ERROR_GUARD=off.
+const softErrorContinue = createSoftErrorContinuePolicy({ log });
 
 function resolveCapacityWaitMs() {
   const raw = Number(process.env.ACCOUNT_CAPACITY_WAIT_MS);
@@ -173,7 +179,8 @@ export async function handleChat(request, clientRawRequest = null) {
       comboName: modelStr,
       attemptUsage,
       comboStrategy,
-      comboStickyLimit
+      comboStickyLimit,
+      shouldContinueOnSuccess: softErrorContinue,
     });
   }
 
@@ -287,7 +294,8 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         comboName: modelStr,
         attemptUsage,
         comboStrategy,
-        comboStickyLimit
+        comboStickyLimit,
+        shouldContinueOnSuccess: softErrorContinue,
       });
     }
     log.warn("CHAT", "Invalid model format", { model: modelStr });

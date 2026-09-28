@@ -38,6 +38,15 @@ export function resolveMemberDispatchOptions(attemptUsage) {
  * Never awaited and wrapped twice over (here and in the writer): a reporting
  * gap must not change the response nor stop the fallback chain (F12 pattern).
  */
+// A soft-missed 2xx that will not be returned: release its upstream stream.
+function discardBody(response) {
+  try {
+    response?.body?.cancel?.().catch?.(() => {});
+  } catch {
+    // already consumed or locked — nothing to release
+  }
+}
+
 function recordAttemptFailure(attemptUsage, status, error) {
   try {
     if (!attemptUsage?.comboName || !attemptUsage.reachedUpstream) return;
@@ -398,11 +407,14 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
             cont = false;
           }
           if (cont) {
+            discardBody(lastSoftSuccess);
             lastSoftSuccess = result;
+            recordAttemptFailure(attemptUsage, result.status, new Error("2xx rejected by the continue policy (soft miss)"));
             log.warn("COMBO", `Model ${modelStr} soft-miss (continue policy), trying next`);
             continue;
           }
         }
+        discardBody(lastSoftSuccess);
         log.info("COMBO", `Model ${modelStr} succeeded`);
         return result;
       }
@@ -487,6 +499,7 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
     log.info("COMBO", "All models soft-missed; returning last success envelope");
     return lastSoftSuccess;
   }
+  discardBody(lastSoftSuccess);
 
   // All models failed
   // Use 503 (Service Unavailable) rather than 406 (Not Acceptable) — 406 implies
