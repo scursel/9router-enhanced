@@ -1,3 +1,12 @@
+# v0.5.91-enhanced.7 (2026-09-28)
+
+## Combos skip a member whose "success" is an error notice
+- Some free providers answer HTTP 200 with their error message as the reply (aihubmix: "Sorry, to prevent abuse of free resources, accounts that have not been recharged…"). The combo took that as a success, showed the notice to the user and never tried the next member. Chat combos now recognise these notices and move on to the next member.
+- Only phrasings specific to provider notices count (recharge, insufficient balance/credit, quota exceeded, prevent abuse, invalid API key, 余额不足…), and only in a short reply or at the very start of a longer one. A reply that merely talks about rate limits is left alone.
+- Streams: the router holds back at most the first 60 characters (or 8 s) while it checks, and not at all once the model starts reasoning or calling tools. What the user receives is unchanged.
+- A skipped member counts as a failed attempt in the combo stats. If every member answers with a notice, the last one is returned, as before.
+- Turn it off without a restart with `COMBO_SOFT_ERROR_GUARD=off`.
+
 # v0.5.91-enhanced.6 (2026-09-28)
 
 ## Combo success % and usage now count agent traffic
