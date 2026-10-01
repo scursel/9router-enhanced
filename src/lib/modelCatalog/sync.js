@@ -37,6 +37,7 @@ export const PROVIDER_ALIASES = {
   "hunyuan": "tencent",
   "doubao": "volcengine",
   "cloudflare-ai": "cloudflare-workers-ai",
+  "alitp-intl": "alibaba-token-plan",
 };
 
 // 9router provider id -> models.dev provider id(s) carrying per-model COST, used
