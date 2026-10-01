@@ -64,6 +64,8 @@ const DEFAULT_SETTINGS = {
   pxpipeTimeoutMs: 15000,
   autoModelImport: { enabled: false, hour: 4, lastRunAt: null, lastResult: null },
   autoModelImportRules: {},
+  // Per-provider user header overrides applied at dispatch: { [providerId]: { headers: {..} } }
+  providerOverrides: {},
 };
 
 async function readRaw() {

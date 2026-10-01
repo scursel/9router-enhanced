@@ -1,5 +1,6 @@
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS, getModelKind } from "@/shared/constants/models";
 import {
+  ALIAS_TO_ID,
   AI_PROVIDERS,
   getProviderAlias,
   isAnthropicCompatibleProvider,
@@ -42,6 +43,15 @@ async function resolveQoderLiveModels(conn, provider) {
   if (!models.length) return null;
   return { models: models.map((m) => ({ id: m.id, name: m.name })) };
 }
+
+// Combo seats use UI aliases; the model registry also has transport aliases.
+// Capability overrides and catalog limits are keyed by provider id.
+const ALIAS_TO_PROVIDER_ID = {
+  ...Object.fromEntries(
+    Object.entries(PROVIDER_ID_TO_ALIAS).map(([id, alias]) => [alias, id])
+  ),
+  ...ALIAS_TO_ID,
+};
 
 // Per-provider live model resolvers. Each receives a connection record and
 // returns { models: [{ id, name? }, ...] } | null on failure.
@@ -276,6 +286,10 @@ function comboMatchesKinds(combo, kindFilter) {
 // account's synced catalogue, a live resolver or a compatible node's own
 // /models reports: hundreds per aggregator, almost none of them curated, but
 // tooling that audits routability (combo pruner, reconcilers) needs them.
+// (Upstream v0.5.95 also publishes combo context/max-output limits here via
+// comboSeatLimits(); our aggregateComboCapabilities already does that with a
+// richer resolver — custom connection prefixes + model aliases — so the fork
+// block below is kept and upstream's static-seat helpers are not ported.)
 export const MODELS_SCOPE_VISIBLE = "visible";
 export const MODELS_SCOPE_ALL = "all";
 
@@ -341,7 +355,6 @@ export async function buildModelsList(kindFilter, options = {}) {
     if (!activeConnectionByProvider.has(conn.provider)) activeConnectionByProvider.set(conn.provider, conn);
   }
 
-
   const models = [];
   // Only LLM combos are nestable targets: a web combo answers a different kind
   // of request and has no member limits to inherit.
@@ -365,7 +378,9 @@ export async function buildModelsList(kindFilter, options = {}) {
       entry.kind = combo.kind;
     } else if ((combo.kind || LLM_KIND) === LLM_KIND) {
       // Inherit from the members: without this a combo is an id with no limits,
-      // so clients guess its window from the name and guess high.
+      // so clients guess its window from the name and guess high. The resolver
+      // maps custom connection prefixes and model aliases back to provider ids
+      // (upstream's static-seat comboSeatCapabilities covers only static aliases).
       const caps = aggregateComboCapabilities(combo.models, comboMembersByName, { resolveMember: resolveComboMember });
       if (caps) {
         entry.capabilities = caps;
@@ -378,11 +393,8 @@ export async function buildModelsList(kindFilter, options = {}) {
 
   if (connections.length === 0) {
     // DB unavailable -> return static models, filtered by per-model kind
-    const aliasToProviderId = Object.fromEntries(
-      Object.entries(PROVIDER_ID_TO_ALIAS).map(([id, alias]) => [alias, id])
-    );
     for (const [alias, providerModels] of Object.entries(PROVIDER_MODELS)) {
-      const providerId = aliasToProviderId[alias] || alias;
+      const providerId = ALIAS_TO_PROVIDER_ID[alias] || alias;
       if (!providerMatchesKinds(providerId, kindFilter)) continue;
       for (const model of providerModels) {
         if (!kindFilter.includes(modelKind(model))) continue;

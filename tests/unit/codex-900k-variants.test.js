@@ -36,6 +36,8 @@ describe("Codex -900k context variants", () => {
   });
 
   it("keeps the base id as the default Codex model", () => {
-    expect(getProviderModels("cx")[0].id).toBe("gpt-6-astra");
+    // Upstream v0.5.95 listed gpt-6.1-sol first (new flagship default);
+    // the invariant this test guards is that no opt-in -900k id leads the list.
+    expect(getProviderModels("cx")[0].id).toBe("gpt-6.1-sol");
   });
 });

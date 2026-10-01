@@ -1,5 +1,5 @@
 import { PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
-import { getProviderAlias } from "@/shared/constants/providers";
+import { ALIAS_TO_ID, getProviderAlias } from "@/shared/constants/providers";
 
 // Combo members are stored as the model picker's `{prefix}/{model}` strings,
 // where the prefix may be a connection's custom prefix, the provider's static
@@ -10,6 +10,11 @@ export function buildProviderIdByPrefix(connections = []) {
   for (const [providerId, alias] of Object.entries(PROVIDER_ID_TO_ALIAS)) {
     byPrefix.set(providerId, providerId);
     if (alias) byPrefix.set(alias, providerId);
+  }
+  // Transport aliases (registry-level, same convention as upstream's
+  // ALIAS_TO_PROVIDER_ID in api/v1/models/route.js): prefix also resolves.
+  for (const [alias, providerId] of Object.entries(ALIAS_TO_ID || {})) {
+    if (alias && providerId) byPrefix.set(alias, providerId);
   }
   for (const conn of connections) {
     const providerId = conn?.provider;

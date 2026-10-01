@@ -351,7 +351,8 @@ describe("handleImageGenerationCore", () => {
         headers: expect.objectContaining({
           authorization: "Bearer codex-token",
           "chatgpt-account-id": "account-123",
-          version: "0.155.0",
+          // registry/codex.js CODEX_CLI_VERSION (upstream v0.5.95: 0.159.0)
+          version: "0.159.0",
         }),
       })
     );

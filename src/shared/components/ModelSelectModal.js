@@ -23,9 +23,10 @@ const NO_AUTH_PROVIDER_IDS = Object.keys(FREE_PROVIDERS).filter(id => FREE_PROVI
 
 // Providers with per-account live catalogs via /api/providers/[id]/models.
 // Static registry stays as fallback when live fetch fails or is empty.
-// Cline/ClinePass are passthrough: their live listing is not shown as chips,
-// so fetching it here would only waste a /models round-trip.
-const LIVE_CATALOG_PROVIDERS = ["cursor"];
+// zed added in #4244 (upstream v0.5.95): its backend customResolver already
+// returns live models but the frontend omitted it, hiding Zed entirely from the
+// Combo picker. Cline/ClinePass are now included upstream as well.
+const LIVE_CATALOG_PROVIDERS = ["cursor", "cline", "clinepass", "zed"];
 
 // Stable identity for the "nothing live" state so callers that memoize on the
 // returned array keep a referentially stable value between renders.
@@ -122,8 +123,14 @@ export default function ModelSelectModal({
     return map;
   }, [activeProviders]);
   const cursorConnectionIds = liveConnectionIdsByProvider.cursor;
+  const clineConnectionIds = liveConnectionIdsByProvider.cline;
+  const clinepassConnectionIds = liveConnectionIdsByProvider.clinepass;
+  const zedConnectionIds = liveConnectionIdsByProvider.zed;
 
   const cursorModels = useLiveProviderModels(isOpen, cursorConnectionIds, "Cursor");
+  const clineModels = useLiveProviderModels(isOpen, clineConnectionIds, "Cline");
+  const clinepassModels = useLiveProviderModels(isOpen, clinepassConnectionIds, "ClinePass");
+  const zedModels = useLiveProviderModels(isOpen, zedConnectionIds, "Zed");
 
   // Fetch all modal metadata concurrently when the modal opens. Results are applied
   // per endpoint (one failing endpoint degrades to its fallback without blocking the
@@ -335,8 +342,12 @@ export default function ModelSelectModal({
         // Account catalog first: routing strips combo members missing from a
         // fully catalogued account, so offering stale registry ids (Token Plan
         // qwen3.8-max-preview vs live qwen3.8-max) lets the user save a member
-        // that will never run. Cursor still overrides via live fetch.
-        const liveModels = providerId === "cursor" ? cursorModels : [];
+        // that will never run. Live catalog providers (upstream: cursor, cline,
+        // clinepass, zed) override via live fetch.
+        const liveModels = providerId === "cursor" ? cursorModels
+          : providerId === "cline" ? clineModels
+          : providerId === "clinepass" ? clinepassModels
+          : providerId === "zed" ? zedModels : [];
         const hardcodedModels = resolvePickerModels({
           liveModels,
           storedModels: modelsFromStoredCatalog(activeProviders, providerId),
@@ -410,7 +421,7 @@ export default function ModelSelectModal({
     });
 
     return groups;
-  }, [filteredActiveProviders, modelAliases, allProviders, providerNodes, customModels, disabledModels, kindFilter, activeProviders, cursorModels]);
+  }, [filteredActiveProviders, modelAliases, allProviders, providerNodes, customModels, disabledModels, kindFilter, activeProviders, cursorModels, clineModels, clinepassModels, zedModels]);
 
   // Filter combos by search query (and hide combos when kindFilter is set — combos are LLM-only by design)
   const filteredCombos = useMemo(() => {

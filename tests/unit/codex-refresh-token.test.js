@@ -147,8 +147,10 @@ describe("Codex Refresh Token", () => {
     it("should return provider-specific lead time for OAuth providers", async () => {
       const { getRefreshLeadMs } = await import("../../open-sse/services/tokenRefresh.js");
 
-      // Synced with CLIProxyAPI refresh_registry
-      expect(getRefreshLeadMs("codex")).toBe(5 * 24 * 60 * 60 * 1000);   // 5 days
+      // Upstream v0.5.95 (0bc7f86e): access tokens live ~1h, so a 5-day lead
+      // rotated the refresh token on EVERY call — reuse revokes the whole
+      // OpenAI session. Refresh only near actual expiry (10 min lead).
+      expect(getRefreshLeadMs("codex")).toBe(10 * 60 * 1000);            // 10 minutes
       expect(getRefreshLeadMs("claude")).toBe(4 * 60 * 60 * 1000);       // 4 hours
       expect(getRefreshLeadMs("iflow")).toBe(24 * 60 * 60 * 1000);       // 24 hours
       expect(getRefreshLeadMs("kimi")).toBe(5 * 60 * 1000);              // 5 minutes

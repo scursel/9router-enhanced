@@ -203,7 +203,7 @@ export async function handleChat(request, clientRawRequest = null) {
     });
   }
 
-  return handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey);
+  return handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey, null, contextMarker ? `${modelStr.slice(modelStr.indexOf("/") + 1)}[${contextMarker}]` : null);
 }
 
 // Panel/judge dispatcher for a fusion combo. Carries the chain of combos
@@ -230,8 +230,11 @@ function fusionMemberHandler(clientRawRequest, request, apiKey, comboPath) {
  *   dispatched to, and `reachedUpstream` flipped only once the breaker/capacity
  *   gates are behind us — that is what separates "this member failed" from
  *   "this member was never called", and only the former earns a usage line.
+ * @param {string|null} [requestedModel] - (upstream v0.5.95) the model string the
+ *   client actually asked for (context-marker stripped), used for credential
+ *   selection; falls back to the resolved model.
  */
-async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, attemptUsage = null) {
+async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, attemptUsage = null, requestedModel = null) {
   const modelInfo = await getModelInfo(modelStr);
 
   // If provider is null, this might be a combo name - check and handle
@@ -321,7 +324,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let lastHeaders = null;
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
+    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { requestedModel: requestedModel || model });
 
     // All accounts unavailable
     if (!credentials || credentials.allRateLimited) {
@@ -490,6 +493,8 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         pxpipeTransform: chatSettings.pxpipeEnabled ? await getPxpipeTransform() : null,
         onPxpipeEvent: appendPxpipeEvent,
         providerThinking,
+        // Per-provider user overrides (custom headers / connect timeout) from settings
+        providerOverrides: (chatSettings.providerOverrides || {})[provider] || null,
         // Detect source format by endpoint + body
         sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
         // D13/CB2: combo identity for the winning member's usage row.
