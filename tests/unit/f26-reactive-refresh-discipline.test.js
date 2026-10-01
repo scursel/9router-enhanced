@@ -370,11 +370,14 @@ describe("E — usage route treats the invalid_grant sentinel as a refresh failu
       refreshToken: "RT-dead",
     };
 
-    const result = await refreshAndUpdateCredentials(connection, true, null);
+    // Upstream v0.5.95 (0bc7f86e) surfaces the dead token family as a thrown
+    // re-authorize error instead of letting the caller retry with it.
+    await expect(refreshAndUpdateCredentials(connection, true, null)).rejects.toThrow(
+      "Refresh token invalid or reused. Please re-authorize the connection."
+    );
 
-    // RED: refreshed===true and updateProviderConnection called with {updatedAt}
-    // because the truthy sentinel slipped past `if (!refreshResult)`.
-    expect(result.refreshed).toBe(false);
+    // The invariant this test guards: a truthy sentinel never counts as a
+    // refresh, and updateProviderConnection is never called with it.
     expect(updateMock).not.toHaveBeenCalled();
   });
 });

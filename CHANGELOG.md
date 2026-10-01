@@ -1,3 +1,54 @@
+# v0.5.95-enhanced.1 (2026-10-01 — upstream v0.5.95 sync)
+
+Merged upstream `v0.5.95` (45 commits). Where the fork had built the same thing, the official version was adopted: the model-registry slots for tokenharbor/dahl/atria/agnes/bai (renumbered p125–p133 alongside the new tinyfish/v1m/muse entries), the tool dedup signature (`dedupeTools(tools, { clientTool, model })`, now covering same-name DeepSeek models), the catalog overlay on canonical capability entries (routed through the fork's `refine()`), the zed/cline live-catalog providers in the model selector, the credential re-read before a usage refresh plus its invalid_grant throw (replacing the fork's silent fallback), the `xhigh` thinking clamp keyed off `supportedLevels` (the fork's `minimal → low` mapping stays), the capability tables for Sonnet 5.5/Opus 5.5/GPT-5.4+/devin-cli, and the ghost-model removal in the codex registry (gpt-5.4/mini/spark; the fork's opt-in `-900k` ids stay).
+
+## Kept from the fork on purpose
+- **API keys never reach the usage JSON** — `publicApiKeyBuckets()` replaces the full key with a one-way hash before `/api/usage/*` returns the buckets.
+- **`anthropic-beta` gating** — `forwardableClientBeta` keeps `context-1m-*` scoped to opus/sonnet models.
+- **Combo `contextWindow`/`maxOutput` stay the minimum across members** in `aggregateComboCapabilities`; `/v1/models` publishes them from that aggregate through `makeComboMemberResolver` (which also resolves custom connection prefixes and model aliases). Upstream's static-seat `comboSeatLimits`/`comboSeatCapabilities` were therefore not ported — only their `ALIAS_TO_ID` transport-alias mapping, absorbed into the resolver.
+- **`applyJsonSchemaFallback` stays pure** — upstream still mutates `sys.content`, which accumulated the schema prompt on every retry (F27/RM9).
+- **Per-account circuit breakers, capacity gates, `skipUpstreamRetry` and the stream-readiness budget** in `handleSingleModelChat` — the fork flow replaces upstream's simpler per-account call; upstream's `providerOverrides` setting was merged into it.
+- **Combo soft-error guard** (`COMBO_SOFT_ERROR_GUARD`), stream usage on finish-close (`finalizeOnClientClose`), `/v1/models` visible-scope filtering (`?scope=all`), model meta/detect/add-to-combo, readable provider errors and the mobile/icon layout — all unchanged.
+
+## Merge fixes
+- Registry index: adopted upstream slots for tokenharbor (p125), dahl (p126), atria (p127), agnes (p129), bai (p130), tinyfish (p131), v1m (p132) and muse (p133); fork-only orcarouter moved to p136 (p134/p135 stay vacant as the upstream-side buffer).
+- `accountFallback.checkFallbackError` keeps the fork's auth-status and literal-404 pre-checks and gains upstream's per-provider rule filter (`provider` parameter threaded through `auth.js`).
+- `open-sse/utils/stream.js`: upstream's deferred-`response.completed` watchdog now drives the fork's `finalizeStream()`; both state machines coexist (`finishForwarded` + `completionFlushTimer`).
+- `ModelSelectModal`: upstream's standalone `fetchCombos` was dropped — the fork's concurrent `fetchModalData` already fetches `/api/combos`.
+- Codex registry: upstream removed the ghost gpt-5.4/mini/spark models (#4202); the fork's opt-in `-900k` ids (and `CODEX_900K_CAPS`) are preserved.
+
+## Baselines
+- `tests/__baseline__/providers-baseline.json`: muse entry added (upstream); the fork's orcarouter entry is preserved.
+
+# v0.5.95 (2026-10-01)
+
+## Features
+- **Providers**: add Meta Muse provider with OAuth login and model catalog; add v1m System One provider
+- **GLM**: add Z.ai OAuth login to GLM Coding (dual-auth)
+- **Codex**: add GPT-6.1 Sol; expose 1M context variants for GPT-6 and GPT-5.6; add gpt-daybreak/reserve models and route bare `gpt-5.x`/`gpt-6.x` slugs to codex
+- **Claude**: add Claude Sonnet 5.5 (plus `claude-opus-5.5` models in the Kiro registry)
+- **CLI**: add `connect` command for remote 9Router servers
+- **Providers**: per-provider custom header overrides from the registry
+- **Agnes**: seed the 2.5/3.0 model ids in the registry
+- **Usage**: sync `?provider=` URL param with provider filter for bookmarkable deep links (#4395)
+- **Dashboard**: drop NEW badges in sidebar, mark 9Remote as HOT
+
+## Fixes
+- **Claude**: preserve intentional prefill from non-messages[] source formats; keep a trailing user turn so cleanup never yields assistant prefill
+- **Claude**: cache a tool loop's final tool results with the 4th breakpoint
+- **Claude**: resolve Sonnet 5.x to adaptive thinking so no forged thinking placeholders are sent; inject unsigned thinking placeholders for opencode-go DeepSeek `/messages` (#4436)
+- **Thinking**: add `xhigh` to claude-adaptive thinking levels
+- **Claude**: keep a user turn whose only block is `container_upload`
+- **Capabilities**: publish real GPT-6/GPT-5.4+ context windows and combo token limits
+- **Responses**: wait for real usage before emitting `response.completed`, bounded by a 3s watchdog
+- **Codex**: stop refresh-token reuse that logs accounts out on auto-ping; preserve hosted web search on GPT-6 Sol/Luna; remove ghost models
+- **Grok CLI**: send Grok CLI 1.0.44 so proxy stops returning HTTP 426
+- **Proxy**: auto-fallback to insecure TLS on self-signed cert errors; hold strictProxy when no proxy resolves
+- **Translator**: strip `errorMessage` and other non-standard schema keywords from Gemini tool schemas; dedupe same-name tools for DeepSeek models (#3333)
+- **Codebuddy**: parse the 6004 rate limit error and extract `resetsAtMs`; forward `recurring` for codebuddy-intl quota packs (#4422)
+- **CLI Tools**: replace `sk_9router` placeholder with first active dashboard API key
+- **Dashboard**: exclude hidden providers from usage stats provider list
+- **Capabilities**: add deepseek-v4-1-flash vision alias; add zed to live catalog providers
 # v0.5.91-enhanced.7 (2026-09-28)
 
 ## Combos skip a member whose "success" is an error notice
@@ -74,6 +125,7 @@ Merged upstream `v0.5.91` (38 commits). Where the fork had built the same thing,
 # v0.5.91 (2026-09-26)
 
 ## Features
+- **Web Search & Fetch**: add TinyFish Search and Fetch with one API-key connection, normalized results, and official provider icon
 - **Providers**: add Token Harbor provider and four OpenAI-compatible aggregator providers (dahl, atria, agnes, bai)
 - **Claude**: forward `x-claude-code-session-id` on OAuth requests; merge client `anthropic-beta` flags and forward rate-limit headers; return thinking text to OpenAI-format clients
 - **Codex**: add GPT-6 Sol and Luna support

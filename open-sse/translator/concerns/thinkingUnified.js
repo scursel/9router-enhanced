@@ -273,8 +273,13 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display) {
       else delete body.thinking;
       const level = toLevel(eff);
       // Anthropic's effort enum starts at "low": "minimal" (client, small budget,
-      // or "none" clamped on a can't-disable model) is a 400.
-      body.output_config = { effort: level === "xhigh" || level === "auto" ? "high" : level === "minimal" ? "low" : level };
+      // or "none" clamped on a can't-disable model) is a 400 (fork).
+      // xhigh is model-gated (Opus/Sonnet 4.6 reject it) — clamp when not advertised (upstream v0.5.95).
+      body.output_config = { effort:
+        level === "auto" ? "high"
+        : level === "minimal" ? "low"
+        : level === "xhigh" && !supportedLevels?.includes("xhigh") ? "high"
+        : level };
       break;
     }
     case "claude-budget": {

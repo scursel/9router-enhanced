@@ -91,7 +91,7 @@ export function getQuotaCooldown(backoffLevel = 0) {
  *   answer stops the loop AND waits, and a caller that read the flag as
  *   "rotate anyway" would do the worst of both (rotate and lock).
  */
-export function checkFallbackError(status, errorText, backoffLevel = 0) {
+export function checkFallbackError(status, errorText, backoffLevel = 0, provider = null) {
   // Request-caused error: propagate immediately, no account fallback, no lock.
   // Checked before text rules because the HTTP status is the authoritative
   // origin signal (text substrings are heuristics that can co-occur with 4xx).
@@ -179,6 +179,7 @@ export function checkFallbackError(status, errorText, backoffLevel = 0) {
   }
 
   for (const rule of ERROR_RULES) {
+    if (rule.provider && rule.provider !== provider) continue;
     // Text-based rule: match substring in error message
     if (rule.text && lowerError && lowerError.includes(rule.text)) {
       if (rule.backoff) {
