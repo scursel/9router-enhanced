@@ -281,3 +281,40 @@ describe("getCapabilitiesForModel — codebuddy-cn provider overrides", () => {
     expect(caps.thinkingFormat).toBe("deepseek");
   });
 });
+
+describe("getCapabilitiesForModel — Qwen3.8 Flash context window", () => {
+  it.each([
+    "qwen3.8-flash",
+    "Qwen/Qwen3.8-Flash",
+    "qwen3.8-flash:free",
+    "qwen3.8-omni-flash",
+    "qwen3.8-omni-flash:free",
+  ])("%s advertises the 1M window, not the generic *qwen* 262k", (id) => {
+    expect(getCapabilitiesForModel(null, id)).toMatchObject({
+      reasoning: true,
+      thinkingFormat: "qwen",
+      contextWindow: 1000000,
+    });
+  });
+
+  it("qwen3.8-omni-flash keeps audio and video input", () => {
+    expect(getCapabilitiesForModel(null, "qwen3.8-omni-flash")).toMatchObject({
+      vision: true, audioInput: true, videoInput: true,
+    });
+  });
+
+  it.each(["qwen3.8-flash-next", "qwen3.8-flash-next@eu"])(
+    "%s stays at 262144 (the -next line really is 262k upstream)", (id) => {
+      expect(getCapabilitiesForModel(null, id).contextWindow).toBe(262144);
+    });
+
+  it("qwen3.8-flash-next-nvfp4 keeps its 400k window", () => {
+    expect(getCapabilitiesForModel(null, "qwen3.8-flash-next-nvfp4")).toMatchObject({
+      contextWindow: 400000, maxOutput: 120000,
+    });
+  });
+
+  it("qwen3-omni keeps its real 262144 window", () => {
+    expect(getCapabilitiesForModel(null, "qwen3-omni-flash").contextWindow).toBe(262144);
+  });
+});
