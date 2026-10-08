@@ -16,6 +16,7 @@ import { recordModalityUsage, estimateTextTokens } from "../utils/mediaUsage.js"
 import { handleComboChat } from "open-sse/services/combo.js";
 import { getComboModels } from "../services/model.js";
 import { getComboByName } from "@/lib/localDb";
+import { getKeyAccessContext, enforceKeyAccessProvider } from "../services/keyAccess.js";
 import { assertPublicUrlResolved } from "@/shared/utils/ssrfGuard.js";
 import { assertWebComboKind, resolveWebProviderId, runWebCombo } from "../services/webRouting.js";
 
@@ -108,6 +109,16 @@ export async function handleFetch(request) {
   // Combo expansion: providerInput may be a combo name → run fallback/round-robin across providers.
   // Use the local catalog-aware path so unavailable members are skipped (same as chat).
   const comboModels = await getComboModels(providerInput);
+
+  // Per-key access control: the provider IS the model here, so a
+  // restricted key needs the provider id (or the combo) on its list.
+  const keyAccessDenied = await enforceKeyAccessProvider(
+    await getKeyAccessContext(request),
+    providerInput,
+    comboModels?.length ? comboModels : null
+  );
+  if (keyAccessDenied) return keyAccessDenied;
+
   if (comboModels?.length) {
     const combo = await getComboByName(providerInput);
     const kindCheck = assertWebComboKind(combo, providerInput, "webFetch");

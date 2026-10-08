@@ -30,12 +30,18 @@ const KNOWN_PUBLIC_KEYS = [
   // open-sse/providers/registry/windsurf.js). Firebase Web keys are client
   // identifiers restricted in the Firebase console, not credentials.
   "AIzaSyDsOl-1XpT5err0Tcn0TFFod1H8gVGIycY",
+  // Standard AWS example key used in tests (tests/unit/aws-credentials.test.js)
+  "AKIAIOSFODNN7EXAMPLE",
 ];
 
 const CONTENT_PATTERNS = [
   { re: /\bsk-(?:proj|ant|svcacct)-[A-Za-z0-9_-]{10,}/, label: "OpenAI/Anthropic-style API key" },
   { re: /\bsk-[A-Za-z0-9]{20,}\b/, label: "OpenAI-style API key" },
-  { re: /\bAKIA[0-9A-Z]{16}\b/, label: "AWS access key id" },
+  {
+    re: /\bAKIA[0-9A-Z]{16}\b/,
+    label: "AWS access key id",
+    allow: (line) => KNOWN_PUBLIC_KEYS.some((k) => line.includes(k)),
+  },
   { re: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b/, label: "GitHub token" },
   { re: /\bgithub_pat_[A-Za-z0-9_]{22,}\b/, label: "GitHub fine-grained PAT" },
   { re: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/, label: "Slack token" },

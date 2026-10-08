@@ -8,6 +8,7 @@ import {
 } from "@/shared/constants/providers";
 import { getProviderConnections, getCombos, getCustomModels, getModelAliases } from "@/lib/localDb";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
+import { getKeyAccessContext, filterModelsListForKey } from "@/sse/services/keyAccess.js";
 import { resolveKiroModels } from "open-sse/services/kiroModels.js";
 import { resolveKimchiModels } from "open-sse/services/kimchiModels.js";
 import { resolveQoderModels, routableQoderModels } from "open-sse/services/qoderModels.js";
@@ -827,6 +828,7 @@ export async function GET(request) {
     const tierFilter = url?.searchParams?.get("tier");
     const freeOnly = tierFilter === "free";
     let data = await buildModelsList([LLM_KIND], { skipDynamicFetch, scope: modelsScopeFromRequest(request) });
+    data = await filterModelsListForKey(await getKeyAccessContext(request), data);
     if (freeOnly) data = data.filter((m) => m?.tier === "free");
     return Response.json({ object: "list", data }, {
       headers: { "Access-Control-Allow-Origin": "*" },

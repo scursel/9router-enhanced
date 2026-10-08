@@ -3,6 +3,7 @@ export default {
   name: "usage-event-id",
   up(db) {
     const cols = db.all("PRAGMA table_info(usageHistory)");
+    if (!cols || cols.length === 0) return;
     const hasUsageEventId = cols.some((c) => c.name === "usageEventId");
     if (!hasUsageEventId) {
       db.exec("ALTER TABLE usageHistory ADD COLUMN usageEventId TEXT");

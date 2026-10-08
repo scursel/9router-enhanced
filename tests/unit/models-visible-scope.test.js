@@ -17,8 +17,11 @@ const mocks = vi.hoisted(() => ({
   getProviderConnectionById: vi.fn(),
   getDisabledModels: vi.fn(),
   resolveClineModels: vi.fn(),
+  getApiKeyByKey: vi.fn(),
 }));
 
+vi.mock("@/lib/db/repos/apiKeysRepo.js", () => ({ getApiKeyByKey: mocks.getApiKeyByKey }));
+vi.mock("@/lib/db/repos/combosRepo.js", () => ({ getCombos: mocks.getCombos }));
 vi.mock("@/lib/localDb", () => ({
   getProviderConnections: mocks.getProviderConnections,
   getCombos: mocks.getCombos,
@@ -88,6 +91,8 @@ beforeEach(() => {
   mocks.getModelAliases.mockResolvedValue({});
   mocks.getDisabledModels.mockResolvedValue({ [CLINE_ALIAS]: [CLINE_STATIC[1]] });
   mocks.resolveClineModels.mockResolvedValue({ models: [{ id: "live/only-model" }] });
+  mocks.getProviderNodes.mockResolvedValue([]);
+  mocks.getApiKeyByKey.mockResolvedValue(null);
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [{ id: "compat-live-only" }] })));
 });
 
@@ -122,6 +127,30 @@ describe("/v1/models visible scope (default)", () => {
     const res = await GET(new Request("http://localhost/v1/models"));
     const listed = ids((await res.json()).data);
     expect(listed).toContain("my-combo");
+    expect(listed).not.toContain(`${COMPAT}/compat-uncurated`);
+  });
+
+  it("applies key-access together with visible scope in GET /v1/models", async () => {
+    mocks.getApiKeyByKey.mockImplementation(async (k) => {
+      if (k === "sk-restricted") {
+        return {
+          id: "k-res",
+          name: "restricted",
+          isActive: true,
+          access: { restricted: true, allow: ["my-combo"] },
+        };
+      }
+      return null;
+    });
+
+    const res = await GET(
+      new Request("http://localhost/v1/models", {
+        headers: { Authorization: "Bearer sk-restricted" },
+      })
+    );
+    const listed = ids((await res.json()).data);
+    expect(listed).toEqual(["my-combo"]);
+    expect(listed).not.toContain(`${CLINE_ALIAS}/${CLINE_STATIC[0]}`);
     expect(listed).not.toContain(`${COMPAT}/compat-uncurated`);
   });
 });

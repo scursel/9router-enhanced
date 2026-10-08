@@ -1,8 +1,9 @@
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { testProxyUrl } from "@/lib/network/proxyTest";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
+import { probeBedrockCredentials } from "open-sse/executors/bedrock.js";
 import { resolveOllamaLocalHost, PROVIDERS } from "open-sse/config/providers.js";
 import { PROVIDER_MEDIA } from "open-sse/providers/index.js";
 import { CODEX_CLI_VERSION } from "open-sse/config/appConstants.js";
@@ -537,8 +538,8 @@ async function fetchWithConnectionProxy(url, options = {}, effectiveProxy = null
 // minimal — and why `transport.usage` (free, auth-first) is probed before it.
 const MEDIA_CONFIG_BODIES = {
   embeddingConfig: { input: "ping" },
-  sttConfig: null, // multipart upload in reality — no JSON body can satisfy it
   ttsConfig: { text: "ping" },
+  sttConfig: null, // multipart upload in reality — no JSON body can satisfy it
   imageConfig: { prompt: "ping" },
   imageToTextConfig: { prompt: "ping" },
   videoConfig: { prompt: "ping" },
@@ -800,6 +801,19 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
       // 400/529 still confirms key accepted; only 401/403 = bad key
       const valid = res.status !== 401 && res.status !== 403;
       return { valid, error: valid ? null : "Invalid API key or base URL" };
+    } catch (err) {
+      return { valid: false, error: err.message };
+    }
+  }
+
+  // AWS-signed providers (Bedrock): without this every Test ends in the switch's default,
+  // "Provider test not supported", and marks a working connection as errored.
+  if (AI_PROVIDERS[connection.provider]?.credentialForm === "aws") {
+    try {
+      return await probeBedrockCredentials(
+        connection,
+        (url, options) => fetchWithConnectionProxy(url, options, effectiveProxy),
+      );
     } catch (err) {
       return { valid: false, error: err.message };
     }

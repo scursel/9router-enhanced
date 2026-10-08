@@ -1,4 +1,5 @@
 import { buildModelsList, modelsScopeFromRequest, MODELS_SCOPE_ALL } from "../route.js";
+import { getKeyAccessContext, filterModelsListForKey } from "@/sse/services/keyAccess.js";
 
 // URL slug → service kind(s). `web` covers both webSearch and webFetch.
 const KIND_SLUG_MAP = {
@@ -43,21 +44,26 @@ export async function GET(request, { params }) {
     const scope = modelsScopeFromRequest(request);
     const path = Array.isArray(model) ? model : [model];
     const identifier = path.filter(Boolean).join("/");
+    const keyAccess = await getKeyAccessContext(request);
     if (identifier === "free" && path.length === 1) {
       // Programmatic free-only listing: same chat catalog, tier === "free".
-      const data = (await buildModelsList([LLM_KIND], { scope })).filter((m) => m?.tier === "free");
+      const data = await filterModelsListForKey(
+        keyAccess,
+        (await buildModelsList([LLM_KIND], { scope })).filter((m) => m?.tier === "free")
+      );
       return json({ object: "list", data });
     }
     const kindFilter = path.length === 1 ? KIND_SLUG_MAP[identifier] : null;
+
     if (kindFilter) {
-      const data = await buildModelsList(kindFilter, { scope });
+      const data = await filterModelsListForKey(keyAccess, await buildModelsList(kindFilter, { scope }));
       return json({ object: "list", data });
     }
 
     // Match against every routable LLM id (not just the visible listing): a
     // lookup names one model, so an uncurated but routable id still resolves.
     // A catch-all parameter is required because provider-prefixed IDs contain a slash.
-    const models = await buildModelsList([LLM_KIND], { scope: MODELS_SCOPE_ALL });
+    const models = await filterModelsListForKey(keyAccess, await buildModelsList([LLM_KIND], { scope: MODELS_SCOPE_ALL }));
     const matchedModel = models.find((candidate) => candidate.id === identifier);
 
     if (!matchedModel) {

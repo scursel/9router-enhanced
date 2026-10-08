@@ -20,7 +20,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
 
   return (
     // Regular widths (full, or half on wide screens) instead of content-sized cards.
-    <div className={`group w-full min-w-0 max-w-full rounded-lg border px-3 py-2 xl:w-[calc(50%-0.375rem)] ${borderColor} hover:bg-sidebar/50`}>
+    <div className={`group w-full sm:w-auto min-w-0 max-w-full rounded-lg border px-3 py-2 xl:w-[calc(50%-0.375rem)] ${borderColor} hover:bg-sidebar/50`}>
       <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1 sm:flex-nowrap sm:items-center">
         {selectable && (
           <input
@@ -46,10 +46,10 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
               onChanged={onComboChanged}
               buttonClassName="rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-primary/10 hover:text-primary pointer-fine:opacity-40 pointer-fine:group-hover:opacity-100"
             />
-            <code className="min-w-0 break-all rounded bg-sidebar px-1.5 py-0.5 font-mono text-xs text-text-muted sm:truncate sm:break-normal" title={displayModel}>{displayModel}</code>
+            <code className="min-w-0 break-all rounded bg-sidebar px-1.5 py-0.5 font-mono text-xs text-text-muted sm:max-w-[360px] sm:truncate" title={displayModel}>{displayModel}</code>
           </div>
           <span className="flex min-w-0 flex-wrap items-center gap-1 pl-1">
-            {model.name && <span className="max-w-full truncate text-[11px] text-text-muted">{model.name}</span>}
+            {model.name && <span className="max-w-full break-all sm:truncate text-[11px] text-text-muted">{model.name}</span>}
             {comboNames.length > 0 && (
               <span className={`${MODEL_CHIP_CLASS} max-w-full border-primary/25 bg-primary/10 text-primary`} title={`Used in: ${comboNames.join(", ")}`}>
                 <span className="material-symbols-outlined text-[12px]">layers</span>
