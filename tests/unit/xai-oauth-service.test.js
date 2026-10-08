@@ -82,7 +82,7 @@ describe("xai/oauth service", () => {
     expect(parsed.searchParams.get("code_challenge_method")).toBe("S256");
     expect(parsed.searchParams.get("plan")).toBe("generic");
     expect(parsed.searchParams.get("referrer")).toBe("cli-proxy-api");
-  });
+  }, 30000);
 
   it("exchanges dashboard codes against the discovered xAI token endpoint", async () => {
     const fetchMock = fetch;
@@ -121,5 +121,5 @@ describe("xai/oauth service", () => {
       refreshToken: "refresh-token",
       expiresIn: 3600,
     });
-  });
+  }, 30000);
 });

@@ -22,6 +22,8 @@ const resolved = {
     "grok-cli": PROVIDERS["grok-cli"]?.tokenUrl,
     cline: PROVIDERS.cline?.tokenUrl,
     kimi: PROVIDERS.kimi?.tokenUrl,
+    "minimax-code": PROVIDERS["minimax-code"]?.tokenUrl,
+    "minimax-code-global": PROVIDERS["minimax-code-global"]?.tokenUrl,
   },
   authUrls: {
     iflow: PROVIDERS.iflow?.authUrl,

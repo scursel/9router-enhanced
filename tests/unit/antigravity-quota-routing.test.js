@@ -308,7 +308,6 @@ describe("Antigravity quota-aware routing", () => {
     // treats cached 0% as exhausted).
     expect(getAntigravityQuotaCache().get("ag-optimistic")?.[MODEL]?.remainingPercentage).toBe(90);
   });
-});
 
   it("checks shared family summary quota (claude_gpt_session / weekly)", async () => {
     vi.useFakeTimers();
@@ -360,3 +359,5 @@ describe("Antigravity quota-aware routing", () => {
       vi.useRealTimers();
     }
   });
+});
+
