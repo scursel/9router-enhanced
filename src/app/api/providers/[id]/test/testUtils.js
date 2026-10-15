@@ -1,8 +1,12 @@
+import { randomUUID } from "crypto";
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { testProxyUrl } from "@/lib/network/proxyTest";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
+import { inspectAndWrapCommandCodeResponse } from "open-sse/executors/commandcode.js";
+import { openaiToCommandCodeRequest } from "open-sse/translator/request/openai-to-commandcode.js";
+import { ROLE } from "open-sse/translator/schema/index.js";
 import { probeBedrockCredentials } from "open-sse/executors/bedrock.js";
 import { resolveOllamaLocalHost, PROVIDERS } from "open-sse/config/providers.js";
 import { PROVIDER_MEDIA } from "open-sse/providers/index.js";
@@ -576,6 +580,17 @@ function buildMediaAuthHeaders(cfg, token) {
   }
 }
 
+// Registry transport headers may add benign context (version, client name) but
+// must never carry credentials or override the probe's own framing. Matching is
+// deliberately broad: a false drop only loses a cosmetic header.
+const RESERVED_TRANSPORT_HEADER = /(auth|token|key|cookie|secret)/;
+const FRAMING_TRANSPORT_HEADERS = new Set(["content-type", "content-length", "host"]);
+
+function isReservedTransportHeader(name) {
+  const lower = name.toLowerCase();
+  return FRAMING_TRANSPORT_HEADERS.has(lower) || RESERVED_TRANSPORT_HEADER.test(lower);
+}
+
 /**
  * Ordered probes for a provider with no hand-written case.
  *
@@ -599,6 +614,9 @@ export function buildGenericProbes(connection) {
     || "gpt-4o-mini";
   const bearer = { "Authorization": `Bearer ${token}` };
   const jsonBearer = { "Content-Type": "application/json", ...bearer };
+  const transportHeaders = Object.fromEntries(Object.entries(transport.headers || {})
+    .filter(([name]) => !isReservedTransportHeader(name)));
+  const transportBearer = { ...transportHeaders, ...bearer };
   const probes = [];
 
   // 1. User-supplied base URL — self-hosted and gateway connections.
@@ -608,7 +626,7 @@ export function buildGenericProbes(connection) {
 
   // 2. Registry-declared validation endpoint (a plain model list).
   if (transport.validateUrl) {
-    probes.push({ name: "transport.validateUrl", method: "GET", url: transport.validateUrl, headers: bearer });
+    probes.push({ name: "transport.validateUrl", method: "GET", url: transport.validateUrl, headers: transportBearer });
   }
 
   // 3. Registry-declared usage/quota endpoint. These exist to report quota, so
@@ -618,7 +636,7 @@ export function buildGenericProbes(connection) {
     ? transport.usage.url
     : Array.isArray(transport.usage?.urls) ? transport.usage.urls[0] : null;
   if (usageUrl) {
-    probes.push({ name: "transport.usage", method: "GET", url: usageUrl, headers: bearer });
+    probes.push({ name: "transport.usage", method: "GET", url: usageUrl, headers: transportBearer });
   }
 
   // 4. Registry-declared transport endpoint. The minimal body keeps the probe
@@ -628,7 +646,7 @@ export function buildGenericProbes(connection) {
       name: "transport.baseUrl",
       method: "POST",
       url: transport.baseUrl,
-      headers: jsonBearer,
+      headers: { ...transportHeaders, ...jsonBearer },
       body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }),
       acceptedStatuses: (status) => status !== 401 && status !== 403,
     });
@@ -762,6 +780,44 @@ async function probeGenericProvider(connection, effectiveProxy = null) {
   };
 }
 
+// Read only the first complete NDJSON event; a start event already proves auth.
+// Keep its metadata because the executor normalizes error codes to HTTP statuses.
+async function inspectCommandCodeProbe(response, model, signal) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const abort = () => { void reader.cancel().catch(() => {}); };
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    while (true) {
+      signal.throwIfAborted();
+      const { value, done } = await reader.read();
+      signal.throwIfAborted();
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split("\n");
+      buffer = done ? "" : lines.pop();
+      for (const line of lines) {
+        const text = line.trim().replace(/^data:\s*/, "");
+        if (!text) continue;
+        let event;
+        try { event = JSON.parse(text); } catch { continue; }
+        if (!event || typeof event !== "object" || typeof event.type !== "string" || !event.type) {
+          throw new Error("CommandCode returned an unrecognized health event");
+        }
+        const inspected = await inspectAndWrapCommandCodeResponse(
+          new Response(`${JSON.stringify(event)}\n`), model
+        );
+        return { response: inspected, event };
+      }
+      if (done) throw new Error("CommandCode returned no health event");
+    }
+  } finally {
+    signal.removeEventListener("abort", abort);
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
 async function testApiKeyConnection(connection, effectiveProxy = null) {
   if (isOpenAICompatibleProvider(connection.provider)) {
     const modelsBase = connection.providerSpecificData?.baseUrl;
@@ -848,6 +904,49 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
         }, effectiveProxy);
         const valid = res.status !== 401 && res.status !== 403;
         return { valid, error: valid ? null : "Invalid API key or Azure configuration" };
+      }
+      case "commandcode": {
+        const cfg = PROVIDERS.commandcode;
+        const model = getDefaultModel("commandcode");
+        const signal = AbortSignal.timeout(15000);
+        const payload = openaiToCommandCodeRequest(model, {
+          messages: [{ role: ROLE.USER, content: "ping" }], max_tokens: 1,
+        }, true);
+        let res;
+        try {
+          res = await fetchWithConnectionProxy(cfg.baseUrl, {
+            method: "POST",
+            headers: {
+              ...cfg.headers,
+              "Content-Type": "application/json",
+              "x-session-id": randomUUID(),
+              Authorization: `Bearer ${connection.apiKey}`,
+            },
+            body: JSON.stringify(payload),
+            signal,
+          }, effectiveProxy);
+          let event;
+          if (res.ok && !res.body) throw new Error("CommandCode returned no health event");
+          if (res.ok) {
+            ({ response: res, event } = await inspectCommandCodeProbe(res, model, signal));
+          }
+          if (res.ok) return { valid: true, error: null };
+          const bodyText = await res.text();
+          let error;
+          try { error = JSON.parse(bodyText)?.error; } catch { /* plain-text error */ }
+          const originalError = event?.error || error;
+          let message = parseProviderErrorMessage(bodyText, `API returned ${res.status}`);
+          if (res.status === 403 && originalError?.code === "upgrade_required") {
+            if (originalError.minVersion) message += ` (minimum CLI version: ${originalError.minVersion})`;
+            return { valid: true, warning: message, error: message };
+          }
+          if (QUOTA_EXHAUSTED_STATUSES.has(res.status)) {
+            return { valid: true, warning: message, error: message };
+          }
+          return { valid: false, error: message };
+        } finally {
+          if (res?.body && !res.body.locked) await res.body.cancel().catch(() => {});
+        }
       }
       case "openai": {
         const res = await fetchWithConnectionProxy("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${connection.apiKey}` } }, effectiveProxy);

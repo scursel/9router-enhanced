@@ -24,6 +24,8 @@ const { buildGenericProbes, testSingleConnection } = await import(
   "../../src/app/api/providers/[id]/test/testUtils.js"
 );
 
+const { PROVIDERS } = await import("open-sse/config/providers.js");
+
 const originalFetch = global.fetch;
 
 const jsonRes = (body, status = 200) => new Response(JSON.stringify(body), {
@@ -54,6 +56,39 @@ describe("generic provider probe fallback", () => {
   });
 
   describe("buildGenericProbes", () => {
+    it("keeps credential-like and framing registry headers out of every probe", () => {
+      const original = PROVIDERS.orcarouter.headers;
+      PROVIDERS.orcarouter.headers = {
+        "x-probe-version": "fake-version",
+        Authorization: "fake-registry-auth",
+        "Content-Type": "fake/content",
+        "X-Api-Key": "fake-registry-key",
+        Cookie: "fake=1",
+      };
+      try {
+        const probes = buildGenericProbes(connectionFor("orcarouter"));
+        expect(probes.length).toBeGreaterThan(0);
+
+        for (const probe of probes) {
+          const names = Object.keys(probe.headers).map((name) => name.toLowerCase());
+          // Benign registry headers still reach the probe.
+          expect(probe.headers["x-probe-version"], probe.name).toBe("fake-version");
+          // The probe's own credential and content type win.
+          expect(probe.headers.Authorization, probe.name).toBe("Bearer sk-test");
+          if (probe.method === "POST") {
+            expect(probe.headers["Content-Type"], probe.name).toBe("application/json");
+          }
+          // Registry credentials and framing headers are dropped.
+          expect(names, probe.name).not.toContain("x-api-key");
+          expect(names, probe.name).not.toContain("cookie");
+          expect(Object.values(probe.headers), probe.name).not.toContain("fake-registry-auth");
+          expect(Object.values(probe.headers), probe.name).not.toContain("fake-registry-key");
+        }
+      } finally {
+        PROVIDERS.orcarouter.headers = original;
+      }
+    });
+
     it("prefers the user-supplied base URL, then the registry metadata", () => {
       const probes = buildGenericProbes(connectionFor("dahl", {
         providerSpecificData: { baseUrl: "https://self.example/v1" },
