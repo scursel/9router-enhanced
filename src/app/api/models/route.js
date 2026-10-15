@@ -3,7 +3,7 @@ import { getModelAliases, setModelAlias, getCustomModels } from "@/models";
 import { getModelMeta } from "@/lib/db/index.js";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
 import { AI_MODELS } from "@/shared/constants/config";
-import { getProviderAlias } from "@/shared/constants/providers";
+import { getProviderAlias, ALIAS_TO_ID } from "@/shared/constants/providers";
 import { getCapabilitiesForModel, hasKnownLimits } from "open-sse/providers/capabilities.js";
 
 // Facts measured at the provider (import picker / Detect button) beat the
@@ -67,15 +67,26 @@ export async function GET() {
         };
       });
 
-    // Custom models ride along; their stored caps override the name heuristic
+    // Custom models ride along; their stored caps override the name heuristic.
+    // A custom row whose provider alias routes to an already-listed model is a
+    // pure shadow: the real entry wins (and is listed first), but this row would
+    // land later with the same routedModel key and the client's last-write-wins
+    // map then serves its thinner caps (a pre-registry "add custom model" row
+    // stores {vision, reasoning} only — no contextWindow). Drop the shadow and
+    // resolve the survivors' provider id, not the UI alias: the capability
+    // tables are keyed by provider id, and an alias like `ocg` misses the
+    // provider-scoped entries and falls back to the generic patterns.
     const seenFull = new Set(models.map((m) => m.fullModel));
+    const seenRouted = new Set(models.map((m) => m.routedModel));
     const customModels = (await getCustomModels()).filter((m) => {
       if (!m?.id || (m.kind || m.type || "llm") !== "llm") return false;
+      if (seenRouted.has(`${m.providerAlias}/${m.id}`)) return false;
       return !seenFull.has(`${m.providerAlias}/${m.id}`);
     });
     for (const m of customModels) {
       const fullModel = `${m.providerAlias}/${m.id}`;
-      const c = getCapabilitiesForModel(m.providerAlias, m.id);
+      const providerId = ALIAS_TO_ID[m.providerAlias] || m.providerAlias;
+      const c = getCapabilitiesForModel(providerId, m.id);
       models.push({
         provider: m.providerAlias,
         model: m.id,

@@ -330,6 +330,46 @@ export function getComboModelsFromData(modelStr, combosData) {
 }
 
 /**
+ * Detect whether a 2xx JSON response contains zero usable content
+ * (e.g. empty assistant message with in_progress/incomplete)
+ * so combo fallback can continue to the next model.
+ */
+export function isZeroContentResponse(data) {
+  if (!data || typeof data !== "object") return false;
+
+  // OpenAI chat format
+  if (Array.isArray(data.choices)) {
+    if (data.choices.length === 0) return true;
+    const choice = data.choices[0];
+    if (!choice) return true;
+
+    const msg = choice.message || choice.delta;
+    const content = msg?.content;
+    const hasContent = typeof content === "string" ? content.trim().length > 0 : (Array.isArray(content) && content.length > 0);
+    const hasToolCalls = (Array.isArray(msg?.tool_calls) && msg.tool_calls.length > 0) || Boolean(msg?.function_call);
+    const hasReasoning = typeof msg?.reasoning_content === "string" ? msg.reasoning_content.trim().length > 0 : false;
+
+    const finish = choice.finish_reason;
+    const isNormalFinish = finish === "stop" || finish === "length" || finish === "tool_calls" || finish === "function_call";
+
+    if (!hasContent && !hasToolCalls && !hasReasoning && (!isNormalFinish || finish === "in_progress" || finish === "incomplete")) {
+      return true;
+    }
+  }
+
+  // Anthropic messages format
+  if (Array.isArray(data.content)) {
+    const hasContent = data.content.some((c) => (c.type === "text" && c.text?.trim().length > 0) || c.type === "tool_use");
+    const stopReason = data.stop_reason;
+    if (!hasContent && (!stopReason || stopReason === "in_progress" || stopReason === "incomplete")) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Handle combo chat with fallback
  * @param {Object} options
  * @param {Object} options.body - Request body
@@ -412,6 +452,27 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
             recordAttemptFailure(attemptUsage, result.status, new Error("2xx rejected by the continue policy (soft miss)"));
             log.warn("COMBO", `Model ${modelStr} soft-miss (continue policy), trying next`);
             continue;
+          }
+        }
+        // Upstream 8f4e3800: a 2xx JSON body with zero usable content on a non-final
+        // seat is a soft miss too. Treated like the continue policy above (kept as the
+        // fallback response, recorded as a failed attempt) so it never turns into an
+        // error body carrying HTTP 200 when every later seat also fails.
+        if (i !== rotatedModels.length - 1) {
+          const contentType = result.headers?.get?.("content-type") || "";
+          if (contentType.includes("application/json")) {
+            try {
+              const peekBody = await result.clone().json();
+              if (isZeroContentResponse(peekBody)) {
+                discardBody(lastSoftSuccess);
+                lastSoftSuccess = result;
+                recordAttemptFailure(attemptUsage, result.status, new Error("2xx rejected: zero usable content"));
+                log.warn("COMBO", `Model ${modelStr} returned HTTP 200 with zero usable content, trying next`);
+                continue;
+              }
+            } catch {
+              // Not JSON / unreadable: treat as a normal success.
+            }
           }
         }
         discardBody(lastSoftSuccess);

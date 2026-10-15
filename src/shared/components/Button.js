@@ -12,6 +12,7 @@ const variants = {
 };
 
 const sizes = {
+  xs: "h-6 px-2.5 text-[11px] rounded-[6px] gap-1.5",
   sm: "h-7 px-3 text-xs rounded-[8px]",
   md: "h-9 px-4 text-sm rounded-[10px]",
   lg: "h-11 px-6 text-sm rounded-[10px]",
@@ -45,17 +46,17 @@ export default function Button({
       {...props}
     >
       {loading ? (
-        <span className="material-symbols-outlined animate-spin text-[18px]" aria-hidden={children ? "true" : undefined}>
+        <span className={cn("material-symbols-outlined animate-spin", size === "xs" ? "text-[14px]" : "text-[18px]")} aria-hidden={children ? "true" : undefined}>
           progress_activity
         </span>
       ) : icon ? (
-        <span className="material-symbols-outlined text-[18px]" aria-hidden={children ? "true" : undefined}>
+        <span className={cn("material-symbols-outlined", size === "xs" ? "text-[14px]" : "text-[18px]")} aria-hidden={children ? "true" : undefined}>
           {icon}
         </span>
       ) : null}
       {children}
       {iconRight && !loading && (
-        <span className="material-symbols-outlined text-[18px]" aria-hidden={children ? "true" : undefined}>
+        <span className={cn("material-symbols-outlined", size === "xs" ? "text-[14px]" : "text-[18px]")} aria-hidden={children ? "true" : undefined}>
           {iconRight}
         </span>
       )}

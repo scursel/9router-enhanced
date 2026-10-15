@@ -419,10 +419,10 @@ exports[`GOLDEN buildHeaders (default executor providers) > cline → headers (a
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
     "HTTP-Referer": "https://cline.bot",
-    "User-Agent": "9Router/0.5.99-enhanced.1",
+    "User-Agent": "9Router/0.5.104-enhanced.1",
     "X-CLIENT-TYPE": "9router",
-    "X-CLIENT-VERSION": "0.5.99-enhanced.1",
-    "X-CORE-VERSION": "0.5.99-enhanced.1",
+    "X-CLIENT-VERSION": "0.5.104-enhanced.1",
+    "X-CORE-VERSION": "0.5.104-enhanced.1",
     "X-IS-MULTIROOT": "false",
     "X-PLATFORM": "linux",
     "X-PLATFORM-VERSION": "v24.15.0",
@@ -432,10 +432,10 @@ exports[`GOLDEN buildHeaders (default executor providers) > cline → headers (a
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
     "HTTP-Referer": "https://cline.bot",
-    "User-Agent": "9Router/0.5.99-enhanced.1",
+    "User-Agent": "9Router/0.5.104-enhanced.1",
     "X-CLIENT-TYPE": "9router",
-    "X-CLIENT-VERSION": "0.5.99-enhanced.1",
-    "X-CORE-VERSION": "0.5.99-enhanced.1",
+    "X-CLIENT-VERSION": "0.5.104-enhanced.1",
+    "X-CORE-VERSION": "0.5.104-enhanced.1",
     "X-IS-MULTIROOT": "false",
     "X-PLATFORM": "linux",
     "X-PLATFORM-VERSION": "v24.15.0",
@@ -446,10 +446,10 @@ exports[`GOLDEN buildHeaders (default executor providers) > cline → headers (a
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
     "HTTP-Referer": "https://cline.bot",
-    "User-Agent": "9Router/0.5.99-enhanced.1",
+    "User-Agent": "9Router/0.5.104-enhanced.1",
     "X-CLIENT-TYPE": "9router",
-    "X-CLIENT-VERSION": "0.5.99-enhanced.1",
-    "X-CORE-VERSION": "0.5.99-enhanced.1",
+    "X-CLIENT-VERSION": "0.5.104-enhanced.1",
+    "X-CORE-VERSION": "0.5.104-enhanced.1",
     "X-IS-MULTIROOT": "false",
     "X-PLATFORM": "linux",
     "X-PLATFORM-VERSION": "v24.15.0",
@@ -465,10 +465,10 @@ exports[`GOLDEN buildHeaders (default executor providers) > clinepass → header
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
     "HTTP-Referer": "https://cline.bot",
-    "User-Agent": "9Router/0.5.99-enhanced.1",
+    "User-Agent": "9Router/0.5.104-enhanced.1",
     "X-CLIENT-TYPE": "9router",
-    "X-CLIENT-VERSION": "0.5.99-enhanced.1",
-    "X-CORE-VERSION": "0.5.99-enhanced.1",
+    "X-CLIENT-VERSION": "0.5.104-enhanced.1",
+    "X-CORE-VERSION": "0.5.104-enhanced.1",
     "X-IS-MULTIROOT": "false",
     "X-PLATFORM": "linux",
     "X-PLATFORM-VERSION": "v24.15.0",
@@ -478,10 +478,10 @@ exports[`GOLDEN buildHeaders (default executor providers) > clinepass → header
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
     "HTTP-Referer": "https://cline.bot",
-    "User-Agent": "9Router/0.5.99-enhanced.1",
+    "User-Agent": "9Router/0.5.104-enhanced.1",
     "X-CLIENT-TYPE": "9router",
-    "X-CLIENT-VERSION": "0.5.99-enhanced.1",
-    "X-CORE-VERSION": "0.5.99-enhanced.1",
+    "X-CLIENT-VERSION": "0.5.104-enhanced.1",
+    "X-CORE-VERSION": "0.5.104-enhanced.1",
     "X-IS-MULTIROOT": "false",
     "X-PLATFORM": "linux",
     "X-PLATFORM-VERSION": "v24.15.0",
@@ -492,10 +492,10 @@ exports[`GOLDEN buildHeaders (default executor providers) > clinepass → header
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
     "HTTP-Referer": "https://cline.bot",
-    "User-Agent": "9Router/0.5.99-enhanced.1",
+    "User-Agent": "9Router/0.5.104-enhanced.1",
     "X-CLIENT-TYPE": "9router",
-    "X-CLIENT-VERSION": "0.5.99-enhanced.1",
-    "X-CORE-VERSION": "0.5.99-enhanced.1",
+    "X-CLIENT-VERSION": "0.5.104-enhanced.1",
+    "X-CORE-VERSION": "0.5.104-enhanced.1",
     "X-IS-MULTIROOT": "false",
     "X-PLATFORM": "linux",
     "X-PLATFORM-VERSION": "v24.15.0",
@@ -930,7 +930,7 @@ exports[`GOLDEN buildHeaders (default executor providers) > kimi → headers (ap
     "X-Msh-Device-Model": "Linux x64",
     "X-Msh-Device-Name": "hermes",
     "X-Msh-Platform": "9router",
-    "X-Msh-Version": "0.5.99-enhanced.1",
+    "X-Msh-Version": "0.5.104-enhanced.1",
     "x-api-key": "<CRED>",
   },
   "nonStream": {
@@ -941,7 +941,7 @@ exports[`GOLDEN buildHeaders (default executor providers) > kimi → headers (ap
     "X-Msh-Device-Model": "Linux x64",
     "X-Msh-Device-Name": "hermes",
     "X-Msh-Platform": "9router",
-    "X-Msh-Version": "0.5.99-enhanced.1",
+    "X-Msh-Version": "0.5.104-enhanced.1",
     "x-api-key": "<CRED>",
   },
   "oauth": {
@@ -953,7 +953,7 @@ exports[`GOLDEN buildHeaders (default executor providers) > kimi → headers (ap
     "X-Msh-Device-Model": "Linux x64",
     "X-Msh-Device-Name": "hermes",
     "X-Msh-Platform": "9router",
-    "X-Msh-Version": "0.5.99-enhanced.1",
+    "X-Msh-Version": "0.5.104-enhanced.1",
     "x-api-key": "<CRED>",
   },
 }
@@ -1199,6 +1199,25 @@ exports[`GOLDEN buildHeaders (default executor providers) > nanobanana → heade
 `;
 
 exports[`GOLDEN buildHeaders (default executor providers) > nebius → headers (apiKey / oauth) 1`] = `
+{
+  "apiKey": {
+    "Accept": "text/event-stream",
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+  },
+  "nonStream": {
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+  },
+  "oauth": {
+    "Accept": "text/event-stream",
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+  },
+}
+`;
+
+exports[`GOLDEN buildHeaders (default executor providers) > nous → headers (apiKey / oauth) 1`] = `
 {
   "apiKey": {
     "Accept": "text/event-stream",
@@ -2012,6 +2031,13 @@ exports[`GOLDEN buildUrl (default executor providers) > nebius → url (stream +
 {
   "nonStream": "https://api.studio.nebius.ai/v1/chat/completions",
   "stream": "https://api.studio.nebius.ai/v1/chat/completions",
+}
+`;
+
+exports[`GOLDEN buildUrl (default executor providers) > nous → url (stream + non-stream) 1`] = `
+{
+  "nonStream": "https://inference-api.nousresearch.com/v1/chat/completions",
+  "stream": "https://inference-api.nousresearch.com/v1/chat/completions",
 }
 `;
 

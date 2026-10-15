@@ -21,6 +21,7 @@ import { getGroqUsage } from "./usage/groq.js";
 import { getZedUsage } from "./usage/zed.js";
 import { getXiaomiMimoUsage as getMimoDesktopUsage } from "./usage/xiaomi-mimo.js";
 import { getXiaomiMimoUsage as getMimoBalanceUsage } from "./usage/xiaomiMimo.js";
+import { getCursorUsage } from "./usage/cursor.js";
 import { resolveQoderCredentials } from "./qoderModels.js";
 import { getGlmUsage } from "./usage/glm.js";
 import { getCommandCodeUsage } from "./usage/commandcode.js";
@@ -102,6 +103,7 @@ const USAGE_HANDLERS = {
   // weekly window (no more 5h quota) is metered locally from usageHistory.
   "alitp-intl": (c) => getAlibabaTokenPlanUsage(c),
   "qwen-cloud-token-plan": (c) => getAlibabaTokenPlanUsage(c),
+  cursor: (c) => getCursorUsage(c.accessToken, c.providerSpecificData, c.proxyOptions),
 };
 
 // Qoder intl/CN share one usage path: PATs must be exchanged to a job token

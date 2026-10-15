@@ -67,4 +67,28 @@ describe("aggregateComboCapabilities: resolveCaps override", () => {
     expect(caps).toEqual(aggregateComboCapabilities(["kimi/kimi-k3"]));
     expect(caps.contextWindow).toBe(getCapabilitiesForModel("kimi", "kimi-k3").contextWindow);
   });
+
+  it("claude-haiku-5-5 combo: 1M only through the provider-alias resolver", () => {
+    // Both seats are 1M in their provider tables (opencode-go/commandcode entries),
+    // but a bare `ocg/`-style alias resolves to 200k without the resolver: null
+    // provider falls to the global *claude*haiku* pattern. The server passes
+    // comboSeatCapabilities (alias → provider id); the dashboard does not.
+    const seats = ["ocg/claude-haiku-5-5", "cmc/claude-haiku-5-5"];
+    const seatCaps = (fullId) => {
+      const slash = fullId.indexOf("/");
+      if (slash <= 0) return null;
+      const providerId = { ocg: "opencode-go", cmc: "commandcode" }[fullId.slice(0, slash)] || fullId.slice(0, slash);
+      return getCapabilitiesForModel(providerId, fullId.slice(slash + 1));
+    };
+    // Fork rule (combo-capabilities.test.js "an uncatalogued member does not drag
+    // limits down"): members at the DEFAULT floor are left out of the min when any
+    // member has known limits. Upstream takes a plain min over every seat, so its
+    // version of this test saw 200k for the pair; here the `cmc` seat is recognised
+    // by name (commandcode table, 1M known) and the floor-only `ocg` seat is ignored.
+    // The bare-alias 200k is therefore pinned on the `ocg` seat alone.
+    expect(aggregateComboCapabilities(["ocg/claude-haiku-5-5"]).contextWindow).toBe(200_000);
+    expect(aggregateComboCapabilities(["ocg/claude-haiku-5-5"], null, seatCaps).contextWindow).toBe(1_000_000);
+    expect(aggregateComboCapabilities(seats).contextWindow).toBe(1_000_000);
+    expect(aggregateComboCapabilities(seats, null, seatCaps).contextWindow).toBe(1_000_000);
+  });
 });

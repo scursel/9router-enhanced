@@ -88,6 +88,9 @@ function deleteProviderNodeInTx(db, id) {
   if (!row) return null;
   const removed = rowToNode(row);
   db.run(`DELETE FROM providerNodes WHERE id = ?`, [id]);
+  // Custom models are keyed `<nodeId>|<modelId>`; drop them with the node so they
+  // cannot outlive it (upstream a8f63f4d, applied here so every delete path gets it).
+  db.run(`DELETE FROM kv WHERE scope = 'customModels' AND key LIKE ?`, [`${id}|%`]);
   return removed;
 }
 
