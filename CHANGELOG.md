@@ -1,3 +1,12 @@
+# v0.5.99-enhanced.2 (2026-10-15)
+
+## Fixes
+- **Command Code**: the credential health check no longer marks working connections as `error` with "Your Command Code CLI is out of date". It had no `commandcode` case and fell through to the generic probe, which omitted the registry `x-command-code-version` / `x-cli-environment` headers, so upstream answered 403 `upgrade_required`. The check now sends the real request envelope with those headers (through the connection proxy, bounded timeout, stream always cancelled) and classifies the first stream event with the executor's own inspector. `upgrade_required` and quota (402/432) are reported as warnings, not invalid credentials.
+- **Health probes**: the generic probe now forwards registry `transport.headers`, except `content-type`/`content-length`/`host` and anything credential-shaped (`auth|token|key|cookie|secret`), so a registry header can never replace the user's credential.
+
+## Not changed on purpose
+- `x-command-code-version` stays `0.25.7`: newer values make upstream remap models (e.g. `deepseek-v4-flash` to `v4.1-flash`) and change the stream shape, which needs its own test pass.
+
 # v0.5.99-enhanced.1 (2026-10-08 — upstream v0.5.99 sync)
 
 Merged upstream `v0.5.99` (28 commits). Upstream additions integrated:
