@@ -54,6 +54,7 @@ docs/*
 !docs/COMPARATIVO-DURINDOOR.md
 !docs/PESQUISA-CATALOGOS-PROVEDORES.md
 !docs/MODEL_SYNC_CATALOG.md
+!docs/KNOWN-ISSUES.md
 test/*
 open-sse/test/*
 RM.vn.md
