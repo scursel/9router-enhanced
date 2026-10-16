@@ -7,12 +7,12 @@ status → impacto → sintoma → causa-raiz → evidências → correção pro
 
 ## KI-1 — Relay proxy pools: fetch não envia credenciais do Cloudflare Access (2026-10-15)
 
-**Status:** ABERTO — corrigir na próxima atualização (decisão: 2026-10-15).
-**Componente:** `open-sse/utils/proxyFetch.js` → branch do `vercelRelayUrl` em `proxyAwareFetch()`.
-**Impacto:** todos os requests que usam os relay pools (`relay-*.scursel.workers.dev`) falham de
+**Status:** RESOLVIDO em `v0.5.104-enhanced.2` (2026-10-16).
+**Componente:** `open-sse/utils/proxyFetch.js` (`proxyAwareFetch()`), `src/app/api/proxy-pools/[id]/test/route.js`, `src/app/api/proxy-pools/cloudflare-deploy/route.js` e `start-9router.sh`.
+**Impacto (anterior):** todos os requests que usavam os relay pools (`relay-*.scursel.workers.dev`) falhavam de
 forma contínua com HTML de login do Access em vez da resposta do alvo. Na prática: os modelos
-**TOKENHARBOR** roteados via relay caem para fallback em ~100% das tentativas (degradação
-silenciosa — o combo esconde a falha), e o pool de relays fica inutilizado.
+**TOKENHARBOR** roteados via relay caíam para fallback em ~100% das tentativas (degradação
+silenciosa — o combo escondia a falha), e o pool de relays ficava inutilizado.
 
 ### Sintoma (log literal — `~/.9router/server.log`)
 
@@ -53,37 +53,18 @@ minificada do relay — mesmo comportamento; grep sem nenhuma referência a `CF-
 3. Os 6 relays respondem idêntico: `302` sem creds / `400` com creds.
 4. Código: `proxyAwareFetch()` não menciona Access em nenhuma versão (repo e pacote instalado).
 
-### Correção proposta (próxima atualização)
+### Correção aplicada (2026-10-16 — `v0.5.104-enhanced.2`)
 
-Em `open-sse/utils/proxyFetch.js`, incluir os headers de Access **quando os env vars existirem**
-(zero mudança de comportamento quando não configurados):
-
-```js
-function cfAccessHeaders() {
-  const id = process.env.CF_ACCESS_CLIENT_ID;
-  const secret = process.env.CF_ACCESS_CLIENT_SECRET;
-  return id && secret
-    ? { "CF-Access-Client-Id": id, "CF-Access-Client-Secret": secret }
-    : {};
-}
-
-// … dentro do branch do vercelRelayUrl:
-const relayHeaders = {
-  ...baseHeaders,
-  "x-relay-target": `${parsed.protocol}//${parsed.host}`,
-  "x-relay-path": `${parsed.pathname}${parsed.search}`,
-  ...cfAccessHeaders(),
-};
-```
-
-Configuração: definir `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` no ambiente do serviço
-(`start-9router.sh` ou unit systemd), lendo do BWS — as chaves já existem lá com esses nomes.
-
-Testes sugeridos:
-- Estender `tests/unit/proxy-fetch-vercel-relay.test.js`: (a) sem env → headers atuais inalterados;
-  (b) com env → `CF-Access-Client-Id`/`CF-Access-Client-Secret` presentes no fetch do relay.
-- Smoke manual: request usando um pool real com TOKENHARBOR e conferir ausência de
-  `Sign in ・ Cloudflare Access` no log.
+1. **`open-sse/utils/proxyFetch.js` (`getCfAccessRelayHeaders` + `proxyAwareFetch`):**
+   - Injeta `CF-Access-Client-Id` e `CF-Access-Client-Secret` apenas sobre `https:` e para origens autorizadas (por padrão `.scursel.workers.dev`, ou lista explícita em `CF_ACCESS_RELAY_HOSTS`), normalizando hostnames com ponto final e bloqueando domínios PaaS de terceiros (`.vercel.app`, `.deno.dev`, `.netlify.app`) e tenants `*.workers.dev` não relacionados.
+   - Usa `redirect: "manual"` na chamada ao relay para impedir que redirecionamentos `3xx` cross-origin encaminhem os headers `CF-Access-*` para fora da origem autorizada.
+   - Detecta respostas/redirects de login do Cloudflare Access (`/cdn-cgi/access/login` / `.cloudflareaccess.com/`) e lança erro explícito (`[ProxyFetch] Cloudflare Access blocked relay request...`).
+2. **`src/app/api/proxy-pools/cloudflare-deploy/route.js` + 6 Workers em produção:**
+   - Atualizado `RELAY_WORKER_CODE` e republicados todos os 6 Workers existentes (`relay-mtrmx7oe` e `relay-1a07d64*-0..4`) para remover `cf-access-client-id`, `cf-access-client-secret`, `cf-access-jwt-assertion`, `cf-access-authenticated-user-identity` e o cookie `CF_Authorization` antes do `fetch(targetUrl)`.
+3. **`src/app/api/proxy-pools/[id]/test/route.js` (`testVercelRelay`):**
+   - Envia os headers de Access, usa `redirect: "manual"`, exige `HTTP 200` com `content-type: application/json` e valida o payload JSON retornado pelo alvo de teste (`httpbin.org/get`).
+4. **Ambiente do serviço (`~/.9router/token-plan.env` e `start-9router.sh`):**
+   - Credenciais configuradas em `~/.9router/token-plan.env` (`0600`) e fallback via BWS em `start-9router.sh` protegido com `timeout 5s` e log de diagnóstico em `stderr`.
 
 ### Não fazer
 

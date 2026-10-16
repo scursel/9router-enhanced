@@ -2,25 +2,75 @@ import { NextResponse } from "next/server";
 import { getProxyPoolById, updateProxyPool } from "@/models";
 import { testProxyUrl } from "@/lib/network/proxyTest";
 import { fetch as undiciFetch } from "undici";
+import { getCfAccessRelayHeaders, isCfAccessLoginResponse } from "open-sse/utils/proxyFetch.js";
 
-async function testVercelRelay(relayUrl, timeoutMs = 10000) {
+export async function testVercelRelay(relayUrl, timeoutMs = 10000, fetchImpl = undiciFetch) {
   const controller = new AbortController();
   const startedAt = Date.now();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await undiciFetch(relayUrl, {
+    const res = await fetchImpl(relayUrl, {
       method: "GET",
+      redirect: "manual",
       headers: {
         "x-relay-target": "https://httpbin.org",
         "x-relay-path": "/get",
+        ...getCfAccessRelayHeaders(relayUrl),
       },
       signal: controller.signal,
     });
+    const elapsedMs = Date.now() - startedAt;
+    const contentType = (res.headers?.get?.("content-type") || "").toLowerCase();
+
+    if (isCfAccessLoginResponse(res)) {
+      try { await res.body?.cancel?.(); } catch { }
+      return {
+        ok: false,
+        status: res.status,
+        statusText: res.statusText,
+        error: "Blocked by Cloudflare Access login redirect (missing or invalid service token)",
+        elapsedMs,
+      };
+    }
+
+    if (res.status !== 200) {
+      try { await res.body?.cancel?.(); } catch { }
+      return {
+        ok: false,
+        status: res.status,
+        statusText: res.statusText,
+        error: `Relay test failed with status ${res.status}`,
+        elapsedMs,
+      };
+    }
+
+    if (!contentType.includes("application/json")) {
+      try { await res.body?.cancel?.(); } catch { }
+      return {
+        ok: false,
+        status: res.status,
+        statusText: res.statusText,
+        error: `Relay returned unexpected content-type (${contentType || "none"}) instead of application/json`,
+        elapsedMs,
+      };
+    }
+
+    const payload = await res.json().catch(() => null);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return {
+        ok: false,
+        status: res.status,
+        statusText: res.statusText,
+        error: "Relay returned invalid JSON payload from target",
+        elapsedMs,
+      };
+    }
+
     return {
-      ok: res.ok,
+      ok: true,
       status: res.status,
       statusText: res.statusText,
-      elapsedMs: Date.now() - startedAt,
+      elapsedMs,
     };
   } catch (err) {
     return {

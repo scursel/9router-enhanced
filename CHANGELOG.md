@@ -1,3 +1,10 @@
+# v0.5.104-enhanced.2 (2026-10-16)
+
+## Fixes
+- **Relay Proxy Pools (Cloudflare Access — KI-1)**: `proxyAwareFetch()` now injects `CF-Access-Client-Id` and `CF-Access-Client-Secret` over `https:` for trusted Cloudflare relay hosts (defaulting to `.scursel.workers.dev` or `CF_ACCESS_RELAY_HOSTS`, with trailing-dot normalization and exclusion of `.vercel.app`, `.deno.dev`, `.netlify.app` and unrelated `*.workers.dev` tenants), uses `redirect: "manual"` to prevent cross-origin redirect credential leaks, and throws an explicit error if the relay response redirects to `/cdn-cgi/access/login`.
+- **Relay Health Check (`/api/proxy-pools/[id]/test`)**: `testVercelRelay()` now sends Cloudflare Access headers, sets `redirect: "manual"`, requires `HTTP 200` with `application/json`, and validates the parsed JSON object payload so blocked or empty responses are never falsely marked `active`.
+- **Cloudflare Relay Worker (`cloudflare-deploy`)**: strip `cf-access-*` headers and `CF_Authorization` cookie in the Worker before forwarding requests to upstream targets (and redeployed all 6 production relay Workers).
+
 # v0.5.104-enhanced.1 (2026-10-15 — upstream v0.5.104 sync)
 
 Merged upstream `v0.5.104` (40 commits since v0.5.99); the upstream release notes follow below.

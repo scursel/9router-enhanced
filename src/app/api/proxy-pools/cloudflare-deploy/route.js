@@ -29,6 +29,23 @@ export default {
     newRequestInit.headers.delete("x-relay-target");
     newRequestInit.headers.delete("x-relay-path");
     newRequestInit.headers.delete("host");
+    newRequestInit.headers.delete("cf-access-client-id");
+    newRequestInit.headers.delete("cf-access-client-secret");
+    newRequestInit.headers.delete("cf-access-jwt-assertion");
+    newRequestInit.headers.delete("cf-access-authenticated-user-identity");
+    const cookie = newRequestInit.headers.get("cookie");
+    if (cookie && cookie.includes("CF_Authorization=")) {
+      const cleanedCookie = cookie
+        .split(";")
+        .map((c) => c.trim())
+        .filter((c) => c && !c.startsWith("CF_Authorization="))
+        .join("; ");
+      if (cleanedCookie) {
+        newRequestInit.headers.set("cookie", cleanedCookie);
+      } else {
+        newRequestInit.headers.delete("cookie");
+      }
+    }
 
     try {
       const response = await fetch(targetUrl, newRequestInit);

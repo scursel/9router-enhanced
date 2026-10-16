@@ -329,10 +329,65 @@ async function createBypassRequest(parsedUrl, realIP, options) {
   });
 }
 
+const NON_CF_RELAY_HOST_SUFFIXES = [".vercel.app", ".deno.dev", ".netlify.app"];
+const DEFAULT_CF_ACCESS_RELAY_HOSTS = [".scursel.workers.dev"];
+
+export function getCfAccessRelayHeaders(relayUrl) {
+  const id = normalizeString(process.env.CF_ACCESS_CLIENT_ID);
+  const secret = normalizeString(process.env.CF_ACCESS_CLIENT_SECRET);
+  if (!id || !secret || !relayUrl) return {};
+
+  try {
+    const parsedUrl = new URL(relayUrl);
+    if (parsedUrl.protocol !== "https:") return {};
+
+    const hostname = parsedUrl.hostname.toLowerCase().replace(/\.+$/, "");
+    if (!hostname) return {};
+
+    const allowedRaw = normalizeString(process.env.CF_ACCESS_RELAY_HOSTS);
+    if (!allowedRaw && NON_CF_RELAY_HOST_SUFFIXES.some((suffix) => hostname.endsWith(suffix))) {
+      return {};
+    }
+
+    const allowed = allowedRaw
+      ? allowedRaw.split(",").map((h) => h.trim().toLowerCase().replace(/\.+$/, "")).filter(Boolean)
+      : DEFAULT_CF_ACCESS_RELAY_HOSTS;
+
+    const matchesAllowed = allowed.some((pattern) =>
+      pattern.startsWith(".")
+        ? hostname.endsWith(pattern) || hostname === pattern.slice(1)
+        : hostname === pattern || hostname.endsWith(`.${pattern}`)
+    );
+    if (!matchesAllowed) return {};
+  } catch {
+    return {};
+  }
+
+  return {
+    "CF-Access-Client-Id": id,
+    "CF-Access-Client-Secret": secret,
+  };
+}
+
+export function isCfAccessLoginResponse(res) {
+  if (!res) return false;
+  const responseUrl = typeof res.url === "string" ? res.url : "";
+  if (responseUrl.includes("/cdn-cgi/access/login") || responseUrl.includes(".cloudflareaccess.com/")) {
+    return true;
+  }
+  const location = typeof res.headers?.get === "function"
+    ? res.headers.get("location") || ""
+    : "";
+  if (location.includes("/cdn-cgi/access/login") || location.includes(".cloudflareaccess.com/")) {
+    return true;
+  }
+  return false;
+}
+
 export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   const targetUrl = typeof url === "string" ? url : url.toString();
 
-  // Vercel relay: forward request via relay headers
+  // Vercel/Cloudflare/Deno/Netlify relay: forward request via relay headers
   const vercelRelayUrl = normalizeString(proxyOptions?.vercelRelayUrl);
   if (vercelRelayUrl) {
     const parsed = new URL(targetUrl);
@@ -343,8 +398,20 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
       ...baseHeaders,
       "x-relay-target": `${parsed.protocol}//${parsed.host}`,
       "x-relay-path": `${parsed.pathname}${parsed.search}`,
+      ...getCfAccessRelayHeaders(vercelRelayUrl),
     };
-    return originalFetch(vercelRelayUrl, { ...options, headers: relayHeaders });
+    const res = await originalFetch(vercelRelayUrl, {
+      ...options,
+      redirect: "manual",
+      headers: relayHeaders,
+    });
+    if (isCfAccessLoginResponse(res)) {
+      try { await res.body?.cancel?.(); } catch { }
+      throw new Error(
+        `[ProxyFetch] Cloudflare Access blocked relay request (${vercelRelayUrl}): redirected to Access login`
+      );
+    }
+    return res;
   }
 
   const connectionProxyUrl = resolveConnectionProxyUrl(targetUrl, proxyOptions);
