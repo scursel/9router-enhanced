@@ -42,6 +42,9 @@ const UPSTREAM = {
       key: "dfmodel", enable: true, display_name: "DeepSeek-Flash",
       price_factor: 0, max_input_tokens: 1000000,
     },
+    // An explicitly null/empty factor means "no price published", not "free".
+    { key: "performance", enable: true, display_name: "Performance", price_factor: null, max_input_tokens: 200000 },
+    { key: "lite", enable: true, display_name: "Lite", price_factor: "", max_input_tokens: 200000 },
   ],
 };
 
@@ -76,6 +79,17 @@ describe("qoder catalog fetcher — free flag", () => {
     const auto = result.models.find((m) => m.id === "auto");
     expect(auto.is_free).toBe(false);
     expect(auto.priceFactor).toBeNull();
+  });
+
+  it("does not treat a null or empty price_factor as free", async () => {
+    // Number(null) and Number("") are both 0, so without the guard an
+    // unpriced tier alias would be tiered free and leak into ?tier=free.
+    const result = await resolveQoderModels(CREDS, { forceRefresh: true });
+    const byId = Object.fromEntries(result.models.map((m) => [m.id, m]));
+    expect(byId.performance.is_free).toBe(false);
+    expect(byId.performance.priceFactor).toBeNull();
+    expect(byId.lite.is_free).toBe(false);
+    expect(byId.lite.priceFactor).toBeNull();
   });
 
   it("keeps the pre-existing catalog fields intact", async () => {

@@ -50,6 +50,18 @@ export function isQoderPat(token) {
   return typeof token === "string" && token.startsWith(PAT_PREFIX);
 }
 
+/**
+ * Qoder's `price_factor` as a number, or null when the entry carries no usable
+ * value. Number(null) and Number("") are both 0, so an explicitly-null factor
+ * would otherwise read as "costs no credits" and tier the model free — same
+ * guard modelTier.js applies to provider prices.
+ */
+function toPriceFactor(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 /** @type {Map<string, { accessToken: string, userId: string, expiresAt: number }>} */
 const patJobCache = new Map();
 
@@ -269,7 +281,7 @@ async function fetchQoderCatalogRaw(credentials, signal, proxyOptions = null, re
     // Qoder bills in credits via `price_factor`; a promo zeroes it and sets
     // `is_free` (Qwen3.8-Flash / DeepSeek-Flash today). classifyTier() on the
     // dashboard side reads `is_free`, so keep the flag instead of collapsing it.
-    const priceFactor = Number(entry.price_factor);
+    const priceFactor = toPriceFactor(entry.price_factor);
     models.push({
       id: key,
       name: `${display}`,
@@ -279,7 +291,7 @@ async function fetchQoderCatalogRaw(credentials, signal, proxyOptions = null, re
       maxOutputTokens: Number(entry.max_output_tokens) || 0,
       description: entry.description || "",
       is_free: entry.is_free === true || priceFactor === 0,
-      priceFactor: Number.isFinite(priceFactor) ? priceFactor : null,
+      priceFactor,
     });
   }
 
@@ -365,11 +377,11 @@ export async function resolveQoderModels(credentials, options = {}) {
 
 /**
  * Free signal on a raw catalog entry: upstream sets `is_free` and zeroes
- * `price_factor` for promo models. Number(undefined) is NaN, so an entry with
- * no price_factor at all is never treated as free.
+ * `price_factor` for promo models. An entry with no usable factor (absent,
+ * null, "") is never treated as free — see toPriceFactor.
  */
 function rawConfigIsFree(cfg) {
-  return cfg?.is_free === true || Number(cfg?.price_factor) === 0;
+  return cfg?.is_free === true || toPriceFactor(cfg?.price_factor) === 0;
 }
 
 /**

@@ -204,12 +204,15 @@ describe("routableQoderModels", () => {
         ["qfmodel", { key: "qfmodel", enable: true, is_free: true, price_factor: 0 }],
         ["gmodel", { key: "gmodel", enable: true, price_factor: 0.8 }],
         ["dfmodel", { key: "dfmodel", enable: false, price_factor: 0 }],
+        // Number(null) is 0 — an unpriced entry must not read as free.
+        ["performance", { key: "performance", enable: true, price_factor: null }],
       ]),
     };
     const byId = Object.fromEntries(routableQoderModels(catalog).map((m) => [m.id, m.is_free]));
     expect(byId.qfmodel).toBe(true);
     expect(byId.gmodel).toBe(false);
     expect(byId.dfmodel).toBe(true);
+    expect(byId.performance).toBe(false);
     expect(byId.smodel).toBe(false);
   });
 
