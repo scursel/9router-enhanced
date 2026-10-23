@@ -1,3 +1,7 @@
+# v0.5.109-enhanced.3 (2026-10-23)
+
+- Qoder: a página do provider, a busca do combo e o `/v1/models` visível passam a anunciar o catálogo ao vivo da conta. Modelo que o Qoder não lista mais sai. Modelo novo entra. Se o fetch falha, o registry estático continua. Conta com `enabledModels` curado não tem a lista trocada.
+
 # v0.5.109-enhanced.2 (2026-10-23)
 
 - Qoder: promoções do catálogo vivo (`is_free` ou `price_factor` 0) saem como `tier=free` no `/v1/models` e no picker de import. Escopo visible só enriquece o tier e não troca a lista anunciada. `price_factor` nulo ou vazio não conta como free.
