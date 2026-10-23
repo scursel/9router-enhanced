@@ -38,6 +38,12 @@ import {
 
 const FETCH_TIMEOUT_MS = 15_000;
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1h, same as the Kiro catalog
+// A failed fetch caches no data, but /v1/models resolves the catalog on every
+// visible-scope listing — an expired credential would otherwise put a
+// FETCH_TIMEOUT_MS upstream call in front of each one. Suppress retries briefly
+// instead. forceRefresh (chat's model_config fallback, the dashboard refresh,
+// provider validate) always bypasses this.
+const NEGATIVE_CACHE_TTL_MS = 60 * 1000;
 
 const PAT_PREFIX = "pt-";
 
@@ -67,6 +73,9 @@ const patJobCache = new Map();
 
 /** @type {Map<string, { expiresAt: number, models: any[], rawConfigs: Map<string, object>, fetched: boolean }>} */
 const catalogCache = new Map();
+
+/** Cache key → timestamp until which a failed fetch suppresses retries. */
+const failedAt = new Map();
 
 /**
  * In-flight fetch promises keyed by cacheKey. Concurrent first-time
@@ -316,7 +325,8 @@ export async function getQoderModelConfig(credentials, modelKey, options = {}) {
  * Resolve the live model catalog + raw configs for a credential. Caches
  * results for CACHE_TTL_MS so repeated chat requests don't re-fetch, and
  * deduplicates concurrent misses so parallel chat windows fan-out exactly
- * one upstream request per credential.
+ * one upstream request per credential. A failed fetch suppresses retries for
+ * NEGATIVE_CACHE_TTL_MS and returns null; forceRefresh bypasses both caches.
  */
 export async function resolveQoderModels(credentials, options = {}) {
   const region = options.region || qoderRegionOf(credentials?.provider);
@@ -341,6 +351,11 @@ export async function resolveQoderModels(credentials, options = {}) {
     if (cached && cached.expiresAt > now) {
       return cached;
     }
+    // Return the same null callers already read as "no catalog". A sentinel
+    // entry with empty models would instead make routableQoderModels collapse
+    // to the static Sonus/Cantus fallbacks rather than fail open.
+    const blockedUntil = failedAt.get(key);
+    if (blockedUntil && blockedUntil > now) return null;
   }
 
   // Coalesce concurrent misses on the same credential into one upstream call.
@@ -352,7 +367,11 @@ export async function resolveQoderModels(credentials, options = {}) {
 
   const fetchPromise = (async () => {
     const fetched = await fetchQoderCatalogRaw(resolved, options.signal, options.proxyOptions, region);
-    if (!fetched) return null;
+    if (!fetched) {
+      failedAt.set(key, Date.now() + NEGATIVE_CACHE_TTL_MS);
+      return null;
+    }
+    failedAt.delete(key);
     const entry = {
       expiresAt: Date.now() + CACHE_TTL_MS,
       models: fetched.models,
@@ -426,9 +445,12 @@ export function routableQoderModels(catalog) {
 
 export function invalidateQoderCatalog(credentials) {
   if (!credentials) return;
-  catalogCache.delete(cacheKey(credentials));
+  const key = cacheKey(credentials);
+  catalogCache.delete(key);
+  failedAt.delete(key);
 }
 
 export function clearQoderCatalog() {
   catalogCache.clear();
+  failedAt.clear();
 }
