@@ -5,6 +5,7 @@ import { getJson, quotaError, quota, balance, formatDate, num } from "./quotaSha
 export function commandCodeMonthlyTotal(planId) {
   const totals = {
     "individual-go": 10,
+    "individual-go-v1": 10,
     "individual-goat": 70,
     "individual-pro": 80,
     "individual-pro-v1": 80,
@@ -16,13 +17,31 @@ export function commandCodeMonthlyTotal(planId) {
     "teams-pro": 40,
     "team-pro": 40,
   };
-  return num(totals[String(planId || "").toLowerCase()], 0);
+  return num(totals[normalizeCommandCodePlanId(planId)], 0);
+}
+
+// The subscriptions API may report short plan ids ("go", "pro"…) next to the
+// canonical "individual-*" ones (upstream v0.5.109). Normalize before any lookup.
+const PLAN_ID_ALIASES = {
+  go: "individual-go",
+  "go-v1": "individual-go-v1",
+  goat: "individual-goat",
+  pro: "individual-pro",
+  provider: "individual-provider",
+  max: "individual-max",
+  ultra: "individual-ultra",
+};
+
+export function normalizeCommandCodePlanId(planId) {
+  const normalized = String(planId || "").trim().toLowerCase();
+  return PLAN_ID_ALIASES[normalized] || normalized;
 }
 
 // Display names for plan ids whose brand spelling the generic title-casing below
 // would get wrong (GOAT, Max 10×/20×). Taken from the official collector.
 const PLAN_NAMES = {
   "individual-go": "Go",
+  "individual-go-v1": "Go",
   "individual-goat": "GOAT",
   "individual-pro": "Pro",
   "individual-pro-v1": "Pro",
@@ -75,7 +94,7 @@ export function parseCommandCode(body, subscriptionBody = null) {
   }
   if (!Object.keys(quotas).length) return null;
   const planId = String(subscription.planId || "");
-  const plan = PLAN_NAMES[planId.toLowerCase()] || (planId
+  const plan = PLAN_NAMES[normalizeCommandCodePlanId(planId)] || (planId
     ? planId
         .replace(/^individual-/, "")
         .replace(/^teams-/, "Teams ")

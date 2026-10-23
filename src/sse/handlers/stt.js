@@ -12,6 +12,7 @@ import { AI_PROVIDERS } from "@/shared/constants/providers";
 import { checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { recordModalityUsage, estimateTextTokens, canonicalTokens } from "../utils/mediaUsage.js";
 import * as log from "../utils/logger.js";
+import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy.js";
 
 // Providers requiring credentials for STT
 const CREDENTIALED_PROVIDERS = new Set(
@@ -73,6 +74,7 @@ export async function handleStt(request) {
   if (!modelInfo.provider) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
 
   const { provider, model } = modelInfo;
+  if (provider === "codex" && model !== "transcribe") return errorResponse(400, "Use model cx/transcribe for Codex STT");
 
   // Per-key access control: checked before any credential lookup.
   const keyAccessDenied = await enforceKeyAccessResolved(await getKeyAccessContext(request), modelStr, provider, model);
@@ -98,7 +100,7 @@ export async function handleStt(request) {
   let lastStatus = null;
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
+    let credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
 
     if (!credentials || credentials.allRateLimited) {
       if (credentials?.allRateLimited) {
@@ -122,7 +124,25 @@ export async function handleStt(request) {
       log.warn("TOKEN", `${provider} | token refresh failed: ${err?.message || err}`);
     }
 
-    const result = await handleSttCore({ provider, model, formData, credentials: refreshedCredentials, sttConfig: AI_PROVIDERS[provider]?.sttConfig, transport: modelTransport });
+    // Upstream v0.5.109: Codex STT goes through the connection proxy, honours
+    // client cancellation, and retries once after a forced refresh on 401.
+    const signal = request?.signal;
+    let result;
+    try {
+      const isCodex = provider === "codex";
+      const proxyOptions = isCodex
+        ? await resolveConnectionProxyConfig(refreshedCredentials._connection?.providerSpecificData || refreshedCredentials.providerSpecificData)
+        : undefined;
+      const args = { provider, model, formData, credentials: refreshedCredentials, sttConfig: AI_PROVIDERS[provider]?.sttConfig, transport: modelTransport, signal, proxyOptions };
+      result = await handleSttCore(args);
+      if (isCodex && result.status === 401 && refreshedCredentials.refreshToken && !signal?.aborted) {
+        const previous = refreshedCredentials.accessToken;
+        refreshedCredentials = await checkAndRefreshToken(provider, refreshedCredentials, { force: true });
+        if (refreshedCredentials.accessToken !== previous) result = await handleSttCore({ ...args, credentials: refreshedCredentials });
+      }
+    } catch {
+      return errorResponse(HTTP_STATUS.BAD_GATEWAY, "STT credential or transport failure");
+    }
 
     if (result.success) {
       try {
@@ -135,6 +155,12 @@ export async function handleStt(request) {
         response: result.response, fromPayload: tokensFromTranscription,
       });
       return result.response;
+    }
+
+    if (signal?.aborted) return errorResponse(504, "Transcription cancelled");
+    // Bad audio / unsupported parameters are client errors, not broken accounts.
+    if (provider === "codex" && [400, 413, 504].includes(result.status)) {
+      return result.response || errorResponse(result.status, result.error);
     }
 
     const { shouldFallback } = await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, model);

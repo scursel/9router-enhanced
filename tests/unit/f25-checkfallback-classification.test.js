@@ -11,7 +11,7 @@ describe("checkFallbackError — request-caused errors do not fallback (RH2)", (
   it("400 context_length_exceeded (blown context) → no fallback, no cooldown", () => {
     expect(
       checkFallbackError(400, "context_length_exceeded: this model's maximum context length is 8192 tokens")
-    ).toEqual({ shouldFallback: false, cooldownMs: 0 });
+    ).toEqual({ shouldFallback: false, cooldownMs: 0, requestScoped: true });
   });
 
   it.each([
@@ -20,7 +20,9 @@ describe("checkFallbackError — request-caused errors do not fallback (RH2)", (
     [413, "request body too large"],
     [422, "Unprocessable entity"],
   ])("%i → no fallback, no cooldown", (status, text) => {
-    expect(checkFallbackError(status, text)).toEqual({ shouldFallback: false, cooldownMs: 0 });
+    // requestScoped (upstream v0.5.109): the request, not the credential, was rejected —
+    // combo routing may still try the next member.
+    expect(checkFallbackError(status, text)).toEqual({ shouldFallback: false, cooldownMs: 0, requestScoped: true });
   });
 
   it("401 is NOT decided here: no fallback, no lock (delegated to the token-refresh flow)", () => {

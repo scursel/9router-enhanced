@@ -108,3 +108,4 @@ debug.log
 
 # pack artifacts must never be tracked: build-cli historically embedded HOME state (jwt-secret, db)
 *.tgz
+.scratch/
