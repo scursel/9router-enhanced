@@ -41,8 +41,9 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1h, same as the Kiro catalog
 // A failed fetch caches no data, but /v1/models resolves the catalog on every
 // visible-scope listing — an expired credential would otherwise put a
 // FETCH_TIMEOUT_MS upstream call in front of each one. Suppress retries briefly
-// instead. forceRefresh (chat's model_config fallback, the dashboard refresh,
-// provider validate) always bypasses this.
+// instead. A thrown fetch (internal timeout, transport error) counts too — the
+// caller's own abort does not. forceRefresh (chat's model_config fallback, the
+// dashboard refresh, provider validate) always bypasses this.
 const NEGATIVE_CACHE_TTL_MS = 60 * 1000;
 
 const PAT_PREFIX = "pt-";
@@ -203,6 +204,29 @@ function cacheKey(credentials) {
   return createHash("sha256").update(`qoder:${region}:${seed}`).digest("hex");
 }
 
+/** PAT token a connection will exchange, from apiKey (usual) or accessToken. */
+function patTokenOf(credentials) {
+  const raw = credentials?.apiKey || credentials?.accessToken;
+  return isQoderPat(raw) ? raw : null;
+}
+
+/**
+ * Suppression key for a PAT exchange that never produced a userId. The catalog
+ * cacheKey would otherwise fall through to "anonymous" (a PAT lives in apiKey,
+ * with no accessToken), and every distinct PAT would share one window. The map
+ * stores only the hash — the raw token is not kept or logged.
+ */
+function patSuppressionKey(credentials, region) {
+  const token = patTokenOf(credentials) || "";
+  const effRegion = region || qoderRegionOf(credentials?.provider);
+  return createHash("sha256").update(`qoder-pat:${effRegion}:${token}`).digest("hex");
+}
+
+function forgetPatSuppression(credentials) {
+  if (!patTokenOf(credentials)) return;
+  for (const region of ["intl", "cn"]) failedAt.delete(patSuppressionKey(credentials, region));
+}
+
 /**
  * Strip credential -> COSY creds for buildCosyHeaders.
  */
@@ -325,18 +349,30 @@ export async function getQoderModelConfig(credentials, modelKey, options = {}) {
  * Resolve the live model catalog + raw configs for a credential. Caches
  * results for CACHE_TTL_MS so repeated chat requests don't re-fetch, and
  * deduplicates concurrent misses so parallel chat windows fan-out exactly
- * one upstream request per credential. A failed fetch suppresses retries for
- * NEGATIVE_CACHE_TTL_MS and returns null; forceRefresh bypasses both caches.
+ * one upstream request per credential. A failed fetch — HTTP error, internal
+ * timeout, or transport error — suppresses retries for NEGATIVE_CACHE_TTL_MS
+ * and returns null. The caller's own abort is not suppressed. A failed PAT
+ * exchange is suppressed the same way, keyed per token and region.
+ * forceRefresh bypasses both caches.
  */
 export async function resolveQoderModels(credentials, options = {}) {
   const region = options.region || qoderRegionOf(credentials?.provider);
+  const patKey = patTokenOf(credentials) ? patSuppressionKey(credentials, region) : null;
+  if (patKey && !options.forceRefresh) {
+    const blockedUntil = failedAt.get(patKey);
+    if (blockedUntil && blockedUntil > Date.now()) return null;
+  }
   let resolved;
   try {
     resolved = await resolveQoderCredentials(credentials, options.proxyOptions, options.signal, region);
   } catch (error) {
+    // A listing the client already cancelled must not pin this PAT for 60s.
+    if (options.signal?.aborted) throw error;
+    if (patKey) failedAt.set(patKey, Date.now() + NEGATIVE_CACHE_TTL_MS);
     options.log?.warn?.("QODER", `PAT exchange failed: ${error.message}`);
     return null;
   }
+  if (patKey) failedAt.delete(patKey);
   if (!resolved?.accessToken || !(resolved.providerSpecificData || {}).userId) return null;
   // Stamp the provider so cacheKey/catalog derive the region even when the
   // caller's credentials object didn't carry a provider id (e.g. /v1/models).
@@ -366,7 +402,17 @@ export async function resolveQoderModels(credentials, options = {}) {
   }
 
   const fetchPromise = (async () => {
-    const fetched = await fetchQoderCatalogRaw(resolved, options.signal, options.proxyOptions, region);
+    // Catch here, not inside fetchQoderCatalogRaw, so a rejection becomes the
+    // same null as an HTTP failure and the finally below drops it from inflight.
+    // Rethrowing the caller's abort leaves no suppression and still clears inflight.
+    let fetched;
+    try {
+      fetched = await fetchQoderCatalogRaw(resolved, options.signal, options.proxyOptions, region);
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      failedAt.set(key, Date.now() + NEGATIVE_CACHE_TTL_MS);
+      return null;
+    }
     if (!fetched) {
       failedAt.set(key, Date.now() + NEGATIVE_CACHE_TTL_MS);
       return null;
@@ -448,6 +494,7 @@ export function invalidateQoderCatalog(credentials) {
   const key = cacheKey(credentials);
   catalogCache.delete(key);
   failedAt.delete(key);
+  forgetPatSuppression(credentials);
 }
 
 export function clearQoderCatalog() {

@@ -88,4 +88,56 @@ describe("qoder catalog negative cache", () => {
 
     expect(vi.mocked(proxyAwareFetch)).toHaveBeenCalledTimes(2);
   });
+
+  it("suppresses the retry after a thrown catalog fetch", async () => {
+    // Internal timeout rejects with an AbortError while the caller signal is
+    // still live. That must arm the same 60s window as an HTTP failure.
+    const timeout = Object.assign(new Error("timeout"), { name: "AbortError" });
+    vi.mocked(proxyAwareFetch).mockRejectedValue(timeout);
+
+    expect(await resolveQoderModels(CREDS)).toBeNull();
+    expect(await resolveQoderModels(CREDS)).toBeNull();
+
+    expect(vi.mocked(proxyAwareFetch)).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not suppress when the caller's signal aborted", async () => {
+    vi.mocked(proxyAwareFetch).mockRejectedValue(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    const signal = AbortSignal.abort(new Error("client gone"));
+
+    await expect(resolveQoderModels(CREDS, { signal })).rejects.toThrow(/aborted/);
+
+    vi.mocked(proxyAwareFetch).mockResolvedValue(fail(403));
+    expect(await resolveQoderModels(CREDS)).toBeNull();
+    expect(vi.mocked(proxyAwareFetch)).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets forceRefresh bypass a thrown-fetch suppression", async () => {
+    vi.mocked(proxyAwareFetch).mockRejectedValue(new Error("ECONNRESET"));
+
+    expect(await resolveQoderModels(CREDS)).toBeNull();
+    expect(await resolveQoderModels(CREDS, { forceRefresh: true })).toBeNull();
+
+    expect(vi.mocked(proxyAwareFetch)).toHaveBeenCalledTimes(2);
+  });
+
+  it("suppresses a failed PAT exchange per token and region", async () => {
+    vi.mocked(proxyAwareFetch).mockRejectedValue(new Error("exchange down"));
+    const pat = (token) => ({
+      provider: "qoder",
+      apiKey: token,
+      providerSpecificData: { machineId: "m1" },
+    });
+
+    expect(await resolveQoderModels(pat("pt-one"))).toBeNull();
+    expect(await resolveQoderModels(pat("pt-one"))).toBeNull();
+    expect(vi.mocked(proxyAwareFetch)).toHaveBeenCalledTimes(1);
+
+    expect(await resolveQoderModels(pat("pt-one"), { region: "cn" })).toBeNull();
+    expect(await resolveQoderModels(pat("pt-two"))).toBeNull();
+    expect(vi.mocked(proxyAwareFetch)).toHaveBeenCalledTimes(3);
+
+    expect(await resolveQoderModels(pat("pt-one"), { forceRefresh: true })).toBeNull();
+    expect(vi.mocked(proxyAwareFetch)).toHaveBeenCalledTimes(4);
+  });
 });
