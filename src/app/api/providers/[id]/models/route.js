@@ -155,9 +155,9 @@ function buildQoderModelsResolver(providerId) {
         if (result?.models?.length) {
           return {
             models: result.models.map((m) => ({
-              // Use the canonical "<providerId>/<key>" id so the dashboard
-              // surfaces the same identifier the chat router expects.
-              id: `${providerId}/${m.id}`,
+              // Bare key. The provider page and the combo picker prefix the
+              // alias themselves; a "qoder/qfmodel" id becomes "qd/qoder/qfmodel".
+              id: m.id,
               name: m.name,
               contextLength: m.contextLength,
               isVL: m.isVL,
@@ -168,6 +168,7 @@ function buildQoderModelsResolver(providerId) {
               // promo flag has to survive the projection or the Import Models
               // picker files Qoder's free models under "unknown".
               is_free: m.is_free === true,
+              isFree: m.is_free === true,
             })),
           };
         }
@@ -176,7 +177,7 @@ function buildQoderModelsResolver(providerId) {
         warning = `Failed to fetch Qoder models: ${error.message}`;
         console.log("Failed to fetch Qoder models dynamically, falling back to static:", error.message);
       }
-      return { models: [], warning };
+      return { models: getStaticProviderModels(providerId), warning };
     },
   };
 }

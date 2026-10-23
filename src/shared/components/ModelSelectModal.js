@@ -28,7 +28,7 @@ const NO_AUTH_PROVIDER_IDS = Object.keys(FREE_PROVIDERS).filter(id => FREE_PROVI
 // zed added in #4244 (upstream v0.5.95): its backend customResolver already
 // returns live models but the frontend omitted it, hiding Zed entirely from the
 // Combo picker. Cline/ClinePass are now included upstream as well.
-const LIVE_CATALOG_PROVIDERS = ["cursor", "cline", "clinepass", "zed"];
+const LIVE_CATALOG_PROVIDERS = ["cursor", "cline", "clinepass", "zed", "qoder", "qoder-cn"];
 
 // Stable identity for the "nothing live" state so callers that memoize on the
 // returned array keep a referentially stable value between renders.
@@ -162,11 +162,15 @@ export default function ModelSelectModal({
   const clineConnectionIds = liveConnectionIdsByProvider.cline;
   const clinepassConnectionIds = liveConnectionIdsByProvider.clinepass;
   const zedConnectionIds = liveConnectionIdsByProvider.zed;
+  const qoderConnectionIds = liveConnectionIdsByProvider.qoder;
+  const qoderCnConnectionIds = liveConnectionIdsByProvider["qoder-cn"];
 
   const cursorModels = useLiveProviderModels(isOpen, cursorConnectionIds, "Cursor");
   const clineModels = useLiveProviderModels(isOpen, clineConnectionIds, "Cline");
   const clinepassModels = useLiveProviderModels(isOpen, clinepassConnectionIds, "ClinePass");
   const zedModels = useLiveProviderModels(isOpen, zedConnectionIds, "Zed");
+  const qoderModels = useLiveProviderModels(isOpen, qoderConnectionIds, "Qoder");
+  const qoderCnModels = useLiveProviderModels(isOpen, qoderCnConnectionIds, "Qoder CN");
 
   // Fetch all modal metadata concurrently when the modal opens. Results are applied
   // per endpoint (one failing endpoint degrades to its fallback without blocking the
@@ -401,7 +405,9 @@ export default function ModelSelectModal({
         const liveModels = providerId === "cursor" ? cursorModels
           : providerId === "cline" ? clineModels
           : providerId === "clinepass" ? clinepassModels
-          : providerId === "zed" ? zedModels : [];
+          : providerId === "zed" ? zedModels
+          : providerId === "qoder" ? qoderModels
+          : providerId === "qoder-cn" ? qoderCnModels : [];
         const hardcodedModels = resolvePickerModels({
           liveModels,
           storedModels: modelsFromStoredCatalog(effectiveConnections, providerId),
@@ -497,7 +503,7 @@ export default function ModelSelectModal({
     });
 
     return groups;
-  }, [filteredActiveProviders, modelAliases, allProviders, providerNodes, customModels, disabledModels, kindFilter, effectiveConnections, deactivatedProviderIds, cursorModels, clineModels, clinepassModels, zedModels]);
+  }, [filteredActiveProviders, modelAliases, allProviders, providerNodes, customModels, disabledModels, kindFilter, effectiveConnections, deactivatedProviderIds, cursorModels, clineModels, clinepassModels, zedModels, qoderModels, qoderCnModels]);
 
   // Parse search query into structured query (regex, positive tokens, negative tokens)
   const parsedQuery = useMemo(() => parseSearchQuery(searchQuery), [searchQuery]);

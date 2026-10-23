@@ -620,12 +620,11 @@ export default function ProviderDetailPage() {
     return () => { cancelled = true; };
   }, [providerId, connections.length]);
 
-  // Live per-connection catalogs (cursor, zed): the static registry carries
-  // no usable list, so resolve from the active connection. Fires only when
-  // the provider id or connection list changes — no polling, no loop.
-  // Cursor path is statement-identical to before; zed adds error surfacing.
+  // Live per-connection catalogs. The static registry is the fallback when the
+  // account catalog is empty. Fires only when the provider id or connection
+  // list changes — no polling, no loop. Zed adds error surfacing.
   useEffect(() => {
-    const isLiveCatalog = providerId === "cursor" || providerId === "zed";
+    const isLiveCatalog = LIVE_CATALOG_PROVIDERS.has(providerId);
     if (!isLiveCatalog) {
       setLiveModels([]);
       return;

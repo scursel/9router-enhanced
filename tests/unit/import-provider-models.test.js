@@ -65,8 +65,8 @@ describe("buildImportCandidates tier from a provider free flag", () => {
 });
 
 describe("LIVE_CATALOG_PROVIDERS", () => {
-  it("contains exactly cursor and zed", () => {
-    expect([...LIVE_CATALOG_PROVIDERS].sort()).toEqual(["cursor", "zed"]);
+  it("contains the providers whose page shows the live catalog", () => {
+    expect([...LIVE_CATALOG_PROVIDERS].sort()).toEqual(["cursor", "qoder", "qoder-cn", "zed"]);
   });
 });
 

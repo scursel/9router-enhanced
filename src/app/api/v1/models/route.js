@@ -13,7 +13,7 @@ import { classifyTier } from "@/shared/utils/modelTier.js";
 import { getKeyAccessContext, filterModelsListForKey } from "@/sse/services/keyAccess.js";
 import { resolveKiroModels } from "open-sse/services/kiroModels.js";
 import { resolveKimchiModels } from "open-sse/services/kimchiModels.js";
-import { resolveQoderModels, routableQoderModels } from "open-sse/services/qoderModels.js";
+import { resolveQoderModels } from "open-sse/services/qoderModels.js";
 import { resolveCopilotModels } from "open-sse/services/copilotModels.js";
 import { resolveClinepassModels, resolveClineModels } from "open-sse/services/clinepassModels.js";
 import { resolveGrokCliModels } from "open-sse/services/grokCliModels.js";
@@ -41,8 +41,10 @@ async function resolveQoderLiveModels(conn, provider) {
     displayName: conn.displayName,
     providerSpecificData: conn.providerSpecificData || {}
   });
-  // Visible + hidden (enable:false) catalog keys — chat routes all of them.
-  const models = routableQoderModels(result);
+  // IDE-visible catalog only. enable:false entries and the static Sonus/Cantus
+  // fallbacks stay routable in chat, but they are not the list the account
+  // currently publishes — advertising them is how discontinued models linger.
+  const models = Array.isArray(result?.models) ? result.models : [];
   if (!models.length) return null;
   // is_free rides along so classifyTier can mark the promo models (Qwen3.8-Flash,
   // DeepSeek-Flash) as tier "free" — models.dev has no entry for the opaque keys.
@@ -62,10 +64,10 @@ const ALIAS_TO_PROVIDER_ID = {
 // returns { models: [{ id, name? }, ...] } | null on failure.
 // Adding a provider here makes /v1/models prefer the live catalog for it.
 //
-// LIVE_TIER_PROVIDERS run their resolver on the default "visible" scope purely
-// to enrich tier — they must NOT rewrite the advertised id list, because their
-// upstream marks promos per-account (Qoder's is_free/price_factor) while the
-// static registry still has to cover accounts whose catalog fetch fails.
+// LIVE_TIER_PROVIDERS still run on a curated account, where id replacement is
+// off, so the curated ids can pick up per-account promo tier. Qoder is also in
+// LIVE_CATALOG_PROVIDERS: an uncurated visible listing replaces the static
+// registry with the live catalog, and a failed fetch leaves the registry in place.
 const LIVE_TIER_PROVIDERS = new Set(["qoder", "qoder-cn"]);
 
 const LIVE_MODEL_RESOLVERS = {

@@ -5,7 +5,7 @@ import { classifyTier } from "@/shared/utils/modelTier.js";
 // available. listImportCandidates() must fold that same live list into
 // existingIds for these providers, or every live model shows as "new" in the
 // import picker and re-importing duplicates it.
-export const LIVE_CATALOG_PROVIDERS = new Set(["cursor", "zed"]);
+export const LIVE_CATALOG_PROVIDERS = new Set(["cursor", "zed", "qoder", "qoder-cn"]);
 
 export const IMPORT_KINDS = ["llm", "image", "embedding", "tts", "stt"];
 export const IMPORT_TIERS = ["free", "paid", "credits", "unknown"];

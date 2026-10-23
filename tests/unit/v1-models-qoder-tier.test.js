@@ -5,9 +5,10 @@
 // catalog instead, or the free models stay invisible to the `?tier=free` filter
 // and to free-first combos.
 //
-// Qoder is deliberately NOT in LIVE_CATALOG_PROVIDERS: the advertised id list
-// stays on the static registry so an account whose catalog fetch fails still
-// advertises something. The live call enriches tier only.
+// Qoder is in LIVE_CATALOG_PROVIDERS. A successful catalog replaces the static
+// registry on the visible scope, so discontinued registry ids drop and new
+// account models show up. A failed fetch still advertises the static registry.
+// A curated enabledModels list is left alone; the live call only tiers it.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/localDb", () => ({
@@ -76,12 +77,15 @@ describe("/v1/models — qoder live tier", () => {
     expect(byId["qd/gmodel"].tier).toBeUndefined();
   });
 
-  it("keeps advertising the static registry ids on the visible scope", async () => {
+  it("replaces the static registry with the live catalog on the visible scope", async () => {
     const { byId } = await qdModels();
-    // Tier enrichment must not turn into a catalog replacement: `performance`
-    // is absent from the live catalog but stays advertised.
-    expect(byId["qd/performance"]).toBeDefined();
+    // `performance` is a discontinued registry id. The account catalog does
+    // not list it, so it must leave the advertised list.
+    expect(byId["qd/performance"]).toBeUndefined();
+    expect(byId["qd/smodel"]).toBeUndefined();
+    expect(byId["qd/dfmodel"]).toBeUndefined();
     expect(byId["qd/qfmodel"]).toBeDefined();
+    expect(byId["qd/gmodel"]).toBeDefined();
   });
 
   it("falls back to the static list with no tier when the catalog fetch fails", async () => {
