@@ -50,6 +50,27 @@ function mockHappyPath() {
   });
 }
 
+function mockGoPlanPath() {
+  proxyAwareFetch.mockImplementation(async (url) => {
+    const u = String(url);
+    if (u.includes("/alpha/whoami")) return jsonResponse(WHOAMI);
+    if (u.includes("/alpha/billing/credits")) {
+      return jsonResponse({
+        credits: { monthlyCredits: 6.39, purchasedCredits: 0, freeCredits: 0 },
+      });
+    }
+    if (u.includes("/alpha/billing/subscriptions")) {
+      return jsonResponse({
+        data: {
+          planId: "go",
+          currentPeriodEnd: "2026-10-29T00:00:00.000Z",
+        },
+      });
+    }
+    return jsonResponse({ error: "unexpected " + u }, 404);
+  });
+}
+
 describe("commandcode registry usage flags", () => {
   it("is listed for apikey quota dashboard", () => {
     expect(USAGE_SUPPORTED_PROVIDERS).toContain("commandcode");
@@ -101,6 +122,55 @@ describe("getUsageForProvider(commandcode)", () => {
     expect(usage.quotas["Free credits (USD)"]).toMatchObject({ total: 0.5 });
     expect(usage.quotas["5 hour window (USD)"]).toMatchObject({ used: 2, total: 10, unlimited: false });
     expect(usage.quotas["7 day window (USD)"]).toMatchObject({ used: 20, total: 70 });
+  });
+
+  it("recognizes the API's short Go plan id", async () => {
+    mockGoPlanPath();
+    const usage = await getUsageForProvider({
+      provider: "commandcode",
+      apiKey: "user_test",
+    });
+
+    // Upstream test adapted to the fork's quota rows (monthly row keyed by renewal date).
+    expect(usage.plan).toBe("Go");
+    const monthlyKey = Object.keys(usage.quotas).find((k) => k.startsWith("Monthly credits (USD)"));
+    expect(usage.quotas[monthlyKey]).toMatchObject({ total: 10, unlimited: false });
+    expect(usage.quotas[monthlyKey].used).toBeCloseTo(3.61, 10);
+  });
+
+  it("recognizes the API's individual Go v1 plan id", async () => {
+    proxyAwareFetch.mockImplementation(async (url) => {
+      const u = String(url);
+      if (u.includes("/alpha/whoami")) return jsonResponse({ user: {}, org: null });
+      if (u.includes("/alpha/billing/credits")) {
+        return jsonResponse({
+          credits: { monthlyCredits: 6.389691728, purchasedCredits: 0, freeCredits: 0 },
+          windowLimits: {
+            fiveHour: { used: 0, cap: 3, resetAt: 0 },
+            weekly: { used: 2.296017498, cap: 6, resetAt: 1792683377745 },
+          },
+        });
+      }
+      if (u.includes("/alpha/billing/subscriptions")) {
+        return jsonResponse({
+          data: { planId: "individual-go-v1", currentPeriodEnd: "2026-10-29T07:18:18.000Z" },
+        });
+      }
+      return jsonResponse({}, 404);
+    });
+
+    const usage = await getUsageForProvider({
+      provider: "commandcode",
+      apiKey: "user_test",
+    });
+
+    // Upstream test adapted to the fork's quota rows.
+    expect(usage.plan).toBe("Go");
+    const monthlyKey = Object.keys(usage.quotas).find((k) => k.startsWith("Monthly credits (USD)"));
+    expect(usage.quotas[monthlyKey]).toMatchObject({ total: 10, unlimited: false });
+    expect(usage.quotas[monthlyKey].used).toBeCloseTo(3.610308272, 10);
+    expect(usage.quotas["5 hour window (USD)"]).toMatchObject({ used: 0, total: 3 });
+    expect(usage.quotas["7 day window (USD)"]).toMatchObject({ used: 2.296017498, total: 6 });
   });
 
   it("returns an auth message on 401", async () => {
