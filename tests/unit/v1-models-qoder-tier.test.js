@@ -90,4 +90,23 @@ describe("/v1/models — qoder live tier", () => {
     expect(byId["qd/qfmodel"]).toBeDefined();
     expect(byId["qd/qfmodel"].tier).toBeUndefined();
   });
+
+  it("still tiers a curated account whose enabledModels gate the id list", async () => {
+    // Curated ids carry no pricing, so gating the resolver on curation would
+    // leave those accounts with no tier at all. Curation must gate only the id
+    // replacement.
+    vi.mocked(getProviderConnections).mockResolvedValueOnce([{
+      ...QODER_CONNECTION,
+      providerSpecificData: {
+        ...QODER_CONNECTION.providerSpecificData,
+        enabledModels: ["qoder/qfmodel"],
+      },
+    }]);
+
+    const { list, byId } = await qdModels();
+    expect(byId["qd/qfmodel"]?.tier).toBe("free");
+    // The curated account advertises its own list, not the whole registry.
+    expect(list.map((m) => m.id)).toContain("qd/qfmodel");
+    expect(byId["qd/performance"]).toBeUndefined();
+  });
 });

@@ -42,6 +42,28 @@ describe("buildImportCandidates tier from id suffix", () => {
   });
 });
 
+describe("buildImportCandidates tier from a provider free flag", () => {
+  it("classifies the Qoder promo rows the dashboard resolver forwards", () => {
+    // /api/providers/[id]/models projects the live catalog row down to a fixed
+    // field set; is_free has to survive that projection or the Import Models
+    // picker files Qoder's free promos under "unknown".
+    const out = buildImportCandidates({
+      models: [
+        { id: "qoder/qfmodel", name: "Qwen3.8-Flash", contextLength: 180000, is_free: true },
+        { id: "qoder/dfmodel", name: "DeepSeek-Flash", contextLength: 1000000, is_free: true },
+        { id: "qoder/gmodel", name: "GLM-5.3", contextLength: 180000, is_free: false },
+      ],
+      prefixes: ["qoder-cn", "qoder"],
+      providerId: "qoder",
+    });
+    expect(out.map((c) => [c.id, c.tier])).toEqual([
+      ["qfmodel", "free"],
+      ["dfmodel", "free"],
+      ["gmodel", "unknown"],
+    ]);
+  });
+});
+
 describe("LIVE_CATALOG_PROVIDERS", () => {
   it("contains exactly cursor and zed", () => {
     expect([...LIVE_CATALOG_PROVIDERS].sort()).toEqual(["cursor", "zed"]);

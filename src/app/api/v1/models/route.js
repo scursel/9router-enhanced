@@ -633,8 +633,12 @@ export async function buildModelsList(kindFilter, options = {}) {
       // -thinking/-agentic variants per account). On failure, fall back to
       // whatever rawModelIds already holds.
       const liveResolver = LIVE_MODEL_RESOLVERS[providerId];
-      const liveReplacesIds = includeCatalog || LIVE_CATALOG_PROVIDERS.has(providerId);
-      if (liveResolver && !hasExplicitEnabledModels && (liveReplacesIds || LIVE_TIER_PROVIDERS.has(providerId))) {
+      // Curated enabledModels decide which ids are advertised, but they carry no
+      // pricing — a tier-only provider still needs its live catalog to tier the
+      // curated ids. So curation gates the id replacement, not the resolver.
+      const liveReplacesIds =
+        !hasExplicitEnabledModels && (includeCatalog || LIVE_CATALOG_PROVIDERS.has(providerId));
+      if (liveResolver && (liveReplacesIds || LIVE_TIER_PROVIDERS.has(providerId))) {
         try {
           const live = await liveResolver(conn);
           if (live?.models?.length) {

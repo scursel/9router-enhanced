@@ -164,6 +164,10 @@ function buildQoderModelsResolver(providerId) {
               isReasoning: m.isReasoning,
               maxOutputTokens: m.maxOutputTokens,
               description: m.description,
+              // buildImportCandidates classifies tier off the row, so the
+              // promo flag has to survive the projection or the Import Models
+              // picker files Qoder's free models under "unknown".
+              is_free: m.is_free === true,
             })),
           };
         }
