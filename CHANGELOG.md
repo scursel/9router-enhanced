@@ -1,3 +1,9 @@
+# v0.5.109-enhanced.2 (2026-10-23)
+
+- Qoder: promoções do catálogo vivo (`is_free` ou `price_factor` 0) saem como `tier=free` no `/v1/models` e no picker de import. Escopo visible só enriquece o tier e não troca a lista anunciada. `price_factor` nulo ou vazio não conta como free.
+- Qoder: nomes estáticos de `kmodel`, `dfmodel` e `mmodel` alinhados ao catálogo, e `contextWindow` da tabela de capabilities alinhado ao `max_input_tokens` publicado.
+- Qoder: falha de catálogo (HTTP, timeout interno ou rede) e falha de troca de PAT ficam suprimidas por 60s. Abort do caller não suprime. PATs distintos e regiões não compartilham a janela, e o token cru não é guardado. `forceRefresh` continua furando o cache.
+
 # v0.5.109-enhanced.1 (2026-10-23 — upstream v0.5.109 sync)
 
 - Sync com upstream v0.5.109 (v0.5.104 → v0.5.109); adaptações do fork preservadas.
