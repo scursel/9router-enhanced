@@ -64,13 +64,20 @@ describe("Qoder capabilities", () => {
     }
   });
 
-  it("gives opaque concrete ids a real window instead of the heuristic default", () => {
+  it("gives opaque concrete ids the window upstream reports", () => {
     // `dmodel` / `kmodel` / `qmodel_38max` match no pattern, so without the
-    // provider table they fall through to the generic defaults.
-    for (const key of ["dmodel", "kmodel", "qmodel_38max", "gmodel"]) {
+    // provider table they fall through to the generic 200K default. Each value
+    // below is that key's max_input_tokens from /algo/api/v2/model/list.
+    const expected = {
+      dmodel: 1000000,
+      kmodel: 131072,
+      qmodel_38max: 180000,
+      gmodel: 180000,
+    };
+    for (const [key, contextWindow] of Object.entries(expected)) {
       const caps = getCapabilitiesForModel("qoder", key);
       expect(caps.vision).toBe(true);
-      expect(caps.contextWindow).toBe(200000);
+      expect(caps.contextWindow).toBe(contextWindow);
     }
   });
 

@@ -393,38 +393,6 @@ export const PROVIDER_CAPABILITIES = {
   "codebuddy-intl": {
     "deepseek-v4.1-flash": { vision: true, reasoning: true, thinkingFormat: "openai", thinkingCanDisable: true, contextWindow: 1000000, maxOutput: 128000 },
   },
-  // Qoder — upstream exposes opaque internal ids (dfmodel, kmodel, …); the
-  // registry `name` is display-only and capability lookup matches on the raw
-  // id, so every qoder model would fall through to DEFAULT_CAPABILITIES
-  // (200K) without this map. contextWindow follows the real model family's
-  // spec: the /algo/api/v2/model/list max_input_tokens under-reports some
-  // windows (GLM-5.3 / Kimi-K3 / Qwen3.8-Max claim 180K but accept more).
-  // max_output_tokens arrives as 0 for every model, so outputs are
-  // best-guess from the real model family. Vision tags below follow the
-  // upstream is_vl flag. The executor uploads inlined images to
-  // /api/v2/image/upload and leaves image_urls/chat_context.imageUrls null
-  // (same as qodercli). reasoning:true on all of them — every model can
-  // reason; the upstream is_reasoning flag only drives model_config selection.
-  // thinkingFormat keeps the true-model family for documentation/UI, but
-  // thinkingCanDisable:false everywhere: the executor only forwards
-  // messages/tools/max_tokens, and thinking is fixed upstream via
-  // modelConfig.is_reasoning — client thinking intent is dropped, so "none"
-  // must never be offered as an option.
-  "qoder": {
-    "ultimate":       { vision: true, reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 128000 }, // Claude Opus 5
-    "performance":    { vision: true, reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 128000 }, // Claude Sonnet 5
-    "dmodel":         { reasoning: true, thinkingFormat: "deepseek", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 65536 },  // DeepSeek-V4-Pro
-    "dfmodel":        { reasoning: true, thinkingFormat: "deepseek", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 65536 },  // DeepSeek-V4-Flash
-    "gmodel":         { reasoning: true, thinkingFormat: "zai", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 128000 },      // GLM-5.3
-    "gfmodel":        { vision: true, reasoning: true, thinkingFormat: "zai", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 128000 }, // GLM-5.3-Flash
-    "kmodel_latest":  { vision: true, reasoning: true, thinkingFormat: "kimi", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 65536 },      // Kimi-K3
-    "kmodel":         { vision: true, reasoning: true, thinkingFormat: "kimi", thinkingCanDisable: false, contextWindow: 256000, maxOutput: 65536 },  // Kimi-K2.7-Code
-    "mmodel":         { reasoning: true, thinkingFormat: "minimax", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 512000 }, // MiniMax-M3
-    "qmodel_latest":  { vision: true, reasoning: true, thinkingFormat: "qwen", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 65536 },  // Qwen3.7-Max
-    "qmodel":         { vision: true, reasoning: true, thinkingFormat: "qwen", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 65536 },  // Qwen3.7-Plus
-    "qfmodel":        { vision: true, reasoning: true, thinkingFormat: "qwen", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 65536 },  // Qwen3.8-Flash
-    "qmodel_38max":   { vision: true, reasoning: true, thinkingFormat: "qwen", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 65536 },      // Qwen3.8-Max
-  },
   // Poolside Laguna — OpenAI-compatible, all reasoning-capable (32K max output).
   "poolside": {
     "laguna-s-2.1":  { reasoning: true, thinkingFormat: "openai", contextWindow: 1000000, maxOutput: 32000 },
@@ -467,7 +435,10 @@ export const PROVIDER_CAPABILITIES = {
 // `qmodel_38max`), so the name heuristics in PATTERN_CAPABILITIES match none of
 // them — without this table every Qoder model is reported text-only and an
 // image sent by a client is replaced by a placeholder before it ever reaches
-// the model. Context/output limits mirror what /algo/api/v2/model/list reports.
+// the model. contextWindow is the per-model `max_input_tokens` from
+// /algo/api/v2/model/list; keys that catalog no longer publishes keep the
+// conservative 200K default. max_output_tokens arrives as 0 for every model, so
+// maxOutput stays best-guess from the real model family.
 PROVIDER_CAPABILITIES["qoder"] = {
   // Tier aliases resolve to a variable target upstream; keep them text-only and
   // on the default window rather than guessing.
@@ -475,19 +446,19 @@ PROVIDER_CAPABILITIES["qoder"] = {
   "efficient":    { contextWindow: 200000, maxOutput: 32768 },
   "lite":         { contextWindow: 200000, maxOutput: 32768 },
   // Concrete ids read images back, so they are vision-capable.
-  "ultimate":     { vision: true, reasoning: true, contextWindow: 200000, maxOutput: 65536 },
+  "ultimate":     { vision: true, reasoning: true, contextWindow: 1000000, maxOutput: 65536 },
   "performance":  { vision: true, contextWindow: 200000, maxOutput: 65536 },
-  "qmodel_38max": { vision: true, reasoning: true, contextWindow: 200000, maxOutput: 65536 },
+  "qmodel_38max": { vision: true, reasoning: true, contextWindow: 180000, maxOutput: 65536 },
   "qmodel_latest":{ vision: true, contextWindow: 200000, maxOutput: 65536 },
   "qmodel":       { vision: true, contextWindow: 200000, maxOutput: 65536 },
-  "qfmodel":      { vision: true, reasoning: true, contextWindow: 200000, maxOutput: 65536 },
-  "kmodel_latest":{ vision: true, contextWindow: 200000, maxOutput: 65536 },
-  "kmodel":       { vision: true, contextWindow: 200000, maxOutput: 65536 },
-  "gmodel":       { vision: true, reasoning: true, contextWindow: 200000, maxOutput: 65536 },
-  "gfmodel":      { vision: true, reasoning: true, contextWindow: 200000, maxOutput: 65536 },
-  "dmodel":       { vision: true, reasoning: true, contextWindow: 200000, maxOutput: 65536 },
-  "dfmodel":      { vision: true, reasoning: true, contextWindow: 200000, maxOutput: 65536 },
-  "mmodel":       { vision: true, contextWindow: 200000, maxOutput: 65536 },
+  "qfmodel":      { vision: true, reasoning: true, contextWindow: 180000, maxOutput: 65536 },
+  "kmodel_latest":{ vision: true, contextWindow: 180000, maxOutput: 65536 },
+  "kmodel":       { vision: true, contextWindow: 131072, maxOutput: 65536 },
+  "gmodel":       { vision: true, reasoning: true, contextWindow: 180000, maxOutput: 65536 },
+  "gfmodel":      { vision: true, reasoning: true, contextWindow: 1000000, maxOutput: 65536 },
+  "dmodel":       { vision: true, reasoning: true, contextWindow: 1000000, maxOutput: 65536 },
+  "dfmodel":      { vision: true, reasoning: true, contextWindow: 1000000, maxOutput: 65536 },
+  "mmodel":       { vision: true, contextWindow: 180000, maxOutput: 65536 },
   // Frontier reasoning pair; absent from many per-account catalogs, so they are
   // routed through a static model_config (see shared/qoder/constants.js).
   "smodel":       { vision: true, reasoning: true, contextWindow: 180000, maxOutput: 65536 },

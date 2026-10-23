@@ -9,6 +9,7 @@ import {
 } from "@/shared/constants/providers";
 import { getProviderConnections, getCombos, getCustomModels, getModelAliases } from "@/lib/localDb";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
+import { classifyTier } from "@/shared/utils/modelTier.js";
 import { getKeyAccessContext, filterModelsListForKey } from "@/sse/services/keyAccess.js";
 import { resolveKiroModels } from "open-sse/services/kiroModels.js";
 import { resolveKimchiModels } from "open-sse/services/kimchiModels.js";
@@ -43,7 +44,9 @@ async function resolveQoderLiveModels(conn, provider) {
   // Visible + hidden (enable:false) catalog keys — chat routes all of them.
   const models = routableQoderModels(result);
   if (!models.length) return null;
-  return { models: models.map((m) => ({ id: m.id, name: m.name })) };
+  // is_free rides along so classifyTier can mark the promo models (Qwen3.8-Flash,
+  // DeepSeek-Flash) as tier "free" — models.dev has no entry for the opaque keys.
+  return { models: models.map((m) => ({ id: m.id, name: m.name, is_free: m.is_free === true })) };
 }
 
 // Combo seats use UI aliases; the model registry also has transport aliases.
@@ -58,6 +61,13 @@ const ALIAS_TO_PROVIDER_ID = {
 // Per-provider live model resolvers. Each receives a connection record and
 // returns { models: [{ id, name? }, ...] } | null on failure.
 // Adding a provider here makes /v1/models prefer the live catalog for it.
+//
+// LIVE_TIER_PROVIDERS run their resolver on the default "visible" scope purely
+// to enrich tier — they must NOT rewrite the advertised id list, because their
+// upstream marks promos per-account (Qoder's is_free/price_factor) while the
+// static registry still has to cover accounts whose catalog fetch fails.
+const LIVE_TIER_PROVIDERS = new Set(["qoder", "qoder-cn"]);
+
 const LIVE_MODEL_RESOLVERS = {
   kiro: async (conn) => {
     const result = await resolveKiroModels({
@@ -464,6 +474,7 @@ export async function buildModelsList(kindFilter, options = {}) {
       );
       let liveModelKindById = new Map();
       let liveCapabilitiesById = new Map();
+      let liveTierById = new Map();
 
       // Multi-account union for enabledModels (docs/MODEL_SYNC_CATALOG.md):
       // the curated list is stored PER ACCOUNT, but discovery answers for the
@@ -622,21 +633,32 @@ export async function buildModelsList(kindFilter, options = {}) {
       // -thinking/-agentic variants per account). On failure, fall back to
       // whatever rawModelIds already holds.
       const liveResolver = LIVE_MODEL_RESOLVERS[providerId];
-      if (liveResolver && !hasExplicitEnabledModels && (includeCatalog || LIVE_CATALOG_PROVIDERS.has(providerId))) {
+      const liveReplacesIds = includeCatalog || LIVE_CATALOG_PROVIDERS.has(providerId);
+      if (liveResolver && !hasExplicitEnabledModels && (liveReplacesIds || LIVE_TIER_PROVIDERS.has(providerId))) {
         try {
           const live = await liveResolver(conn);
           if (live?.models?.length) {
-            rawModelIds = live.models.map((m) => m.id);
-            addLiveEvidence(rawModelIds);
-            liveModelKindById = new Map(
+            if (liveReplacesIds) {
+              rawModelIds = live.models.map((m) => m.id);
+              addLiveEvidence(rawModelIds);
+              liveModelKindById = new Map(
+                live.models
+                  .filter((m) => m?.id)
+                  .map((m) => [m.id, modelKind(m)])
+              );
+              liveCapabilitiesById = new Map(
+                live.models
+                  .filter((m) => m?.id && m.capabilities)
+                  .map((m) => [m.id, m.capabilities])
+              );
+            }
+            // Only a positive classification is kept — "unknown" must not
+            // shadow the models.dev cost fallback further down.
+            liveTierById = new Map(
               live.models
                 .filter((m) => m?.id)
-                .map((m) => [m.id, modelKind(m)])
-            );
-            liveCapabilitiesById = new Map(
-              live.models
-                .filter((m) => m?.id && m.capabilities)
-                .map((m) => [m.id, m.capabilities])
+                .map((m) => [m.id, classifyTier(m, { providerId }).tier])
+                .filter(([, tier]) => tier && tier !== "unknown")
             );
           }
         } catch (err) {
@@ -739,9 +761,18 @@ export async function buildModelsList(kindFilter, options = {}) {
         const serviceCaps = capabilitiesFromServiceKind(customKind || liveKind);
         const caps = liveCaps || serviceCaps || (kind === LLM_KIND ? getCapabilitiesForModel(providerId, modelId) : null);
         if (caps) model.capabilities = caps;
-        // Tier: synced account tier wins; models.dev cost fills unknowns only.
+        // Tier: synced account tier wins, then the provider's own live catalog
+        // flag (Qoder publishes is_free/price_factor per account), then the
+        // models.dev cost fills whatever is still unknown.
         let syncedTier = tierById.get(modelId);
         let tierNote = null;
+        if (!syncedTier || syncedTier === "unknown") {
+          const liveTier = liveTierById.get(modelId);
+          if (liveTier && liveTier !== "unknown") {
+            syncedTier = liveTier;
+            tierNote = "live-catalog";
+          }
+        }
         if ((!syncedTier || syncedTier === "unknown") && (kind === LLM_KIND || allowAsLlm)) {
           try {
             const cost = getCatalogCost(providerId, modelId);

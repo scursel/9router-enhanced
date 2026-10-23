@@ -184,12 +184,33 @@ describe("routableQoderModels", () => {
     // executor still routes them via QODER_STATIC_MODEL_CONFIGS, so they lead
     // the list instead of vanishing from /v1/models.
     expect(routableQoderModels(catalog)).toEqual([
-      { id: "smodel", name: "Sonus", hidden: false },
-      { id: "cmodel", name: "Cantus", hidden: false },
-      { id: "qmodel_38max", name: "Qwen3.8-Max", hidden: false },
-      { id: "qfmodel", name: "Qwen Fast", hidden: true },
-      { id: "dmodel", name: "dmodel", hidden: true },
+      { id: "smodel", name: "Sonus", hidden: false, is_free: false },
+      { id: "cmodel", name: "Cantus", hidden: false, is_free: false },
+      { id: "qmodel_38max", name: "Qwen3.8-Max", hidden: false, is_free: false },
+      { id: "qfmodel", name: "Qwen Fast", hidden: true, is_free: false },
+      { id: "dmodel", name: "dmodel", hidden: true, is_free: false },
     ]);
+  });
+
+  it("carries the upstream free flag so /v1/models can tier it", () => {
+    // Qoder marks promos with is_free + a zeroed price_factor; a zero factor
+    // alone counts too, and a missing factor must not read as free.
+    const catalog = {
+      models: [
+        { id: "qfmodel", name: "Qwen3.8-Flash", is_free: true },
+        { id: "gmodel", name: "GLM-5.3" },
+      ],
+      rawConfigs: new Map([
+        ["qfmodel", { key: "qfmodel", enable: true, is_free: true, price_factor: 0 }],
+        ["gmodel", { key: "gmodel", enable: true, price_factor: 0.8 }],
+        ["dfmodel", { key: "dfmodel", enable: false, price_factor: 0 }],
+      ]),
+    };
+    const byId = Object.fromEntries(routableQoderModels(catalog).map((m) => [m.id, m.is_free]));
+    expect(byId.qfmodel).toBe(true);
+    expect(byId.gmodel).toBe(false);
+    expect(byId.dfmodel).toBe(true);
+    expect(byId.smodel).toBe(false);
   });
 
   it("lets a catalog entry win over the static block for the same key", () => {
@@ -199,7 +220,7 @@ describe("routableQoderModels", () => {
     };
     const out = routableQoderModels(catalog);
     expect(out.filter((m) => m.id === "smodel")).toEqual([
-      { id: "smodel", name: "Sonus from catalog", hidden: false },
+      { id: "smodel", name: "Sonus from catalog", hidden: false, is_free: false },
     ]);
     // cmodel is still absent upstream, so the static entry covers it.
     expect(out.some((m) => m.id === "cmodel")).toBe(true);

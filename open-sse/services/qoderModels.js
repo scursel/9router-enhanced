@@ -266,6 +266,10 @@ async function fetchQoderCatalogRaw(credentials, signal, proxyOptions = null, re
 
     const display = entry.display_name || key;
     const ctx = Number(entry.max_input_tokens) || 131_072;
+    // Qoder bills in credits via `price_factor`; a promo zeroes it and sets
+    // `is_free` (Qwen3.8-Flash / DeepSeek-Flash today). classifyTier() on the
+    // dashboard side reads `is_free`, so keep the flag instead of collapsing it.
+    const priceFactor = Number(entry.price_factor);
     models.push({
       id: key,
       name: `${display}`,
@@ -274,6 +278,8 @@ async function fetchQoderCatalogRaw(credentials, signal, proxyOptions = null, re
       isReasoning: !!entry.is_reasoning,
       maxOutputTokens: Number(entry.max_output_tokens) || 0,
       description: entry.description || "",
+      is_free: entry.is_free === true || priceFactor === 0,
+      priceFactor: Number.isFinite(priceFactor) ? priceFactor : null,
     });
   }
 
@@ -358,6 +364,15 @@ export async function resolveQoderModels(credentials, options = {}) {
 }
 
 /**
+ * Free signal on a raw catalog entry: upstream sets `is_free` and zeroes
+ * `price_factor` for promo models. Number(undefined) is NaN, so an entry with
+ * no price_factor at all is never treated as free.
+ */
+function rawConfigIsFree(cfg) {
+  return cfg?.is_free === true || Number(cfg?.price_factor) === 0;
+}
+
+/**
  * Every model key the chat endpoint accepts for this credential: the IDE-visible
  * models first, then catalog entries flagged `enable:false` (hidden in the IDE
  * picker, e.g. by an account policy, but still served by agent_chat_generation —
@@ -381,18 +396,18 @@ export function routableQoderModels(catalog) {
   for (const [key, cfg] of Object.entries(QODER_STATIC_MODEL_CONFIGS)) {
     if (!key || seen.has(key) || catalogKeys.has(key)) continue;
     seen.add(key);
-    out.push({ id: key, name: cfg.display_name || key, hidden: false });
+    out.push({ id: key, name: cfg.display_name || key, hidden: false, is_free: rawConfigIsFree(cfg) });
   }
 
   for (const m of catalog.models || []) {
     if (!m?.id || seen.has(m.id)) continue;
     seen.add(m.id);
-    out.push({ id: m.id, name: m.name || m.id, hidden: false });
+    out.push({ id: m.id, name: m.name || m.id, hidden: false, is_free: m.is_free === true });
   }
   for (const [key, cfg] of catalog.rawConfigs || []) {
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    out.push({ id: key, name: cfg?.display_name || key, hidden: true });
+    out.push({ id: key, name: cfg?.display_name || key, hidden: true, is_free: rawConfigIsFree(cfg) });
   }
   return out;
 }
