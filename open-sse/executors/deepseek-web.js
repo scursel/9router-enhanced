@@ -90,16 +90,26 @@ function errorResponse(status, message, dsCode) {
   );
 }
 
-function resolveModelOptions(model, bodyObj) {
+// The web app only has a thinking on/off toggle, so any effort level means
+// "on". An explicit disable ("none", thinking.type "disabled") wins over the
+// effort the thinking translator writes alongside it — except on ids that
+// always think.
+export function resolveModelOptions(model, bodyObj) {
   const m = (model || "").toLowerCase();
   const modelType = m.includes("pro") || m.includes("expert") ? "expert" : "default";
-  const thinkingEnabled =
-    m.includes("r1") ||
-    m.includes("think") ||
-    m.includes("reason") ||
+  const forcedByModel = m.includes("r1") || m.includes("think") || m.includes("reason");
+  const effort = bodyObj?.reasoning_effort;
+  const disabled =
+    effort === "none" ||
+    bodyObj?.thinking === false ||
+    bodyObj?.thinking?.type === "disabled" ||
+    bodyObj?.thinking_enabled === false;
+  const requested =
     bodyObj?.thinking_enabled === true ||
     bodyObj?.thinking === true ||
-    !!bodyObj?.reasoning_effort;
+    bodyObj?.thinking?.type === "enabled" ||
+    (!!effort && effort !== "none");
+  const thinkingEnabled = forcedByModel || (requested && !disabled);
   const searchEnabled =
     m.includes("search") ||
     bodyObj?.search_enabled === true ||

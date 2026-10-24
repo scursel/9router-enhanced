@@ -41,6 +41,13 @@ const CLAUDE_NO_XHIGH = ["none", "low", "medium", "high", "max"];
 
 // Model-name pattern overrides (glob, first match wins) — more precise than format default.
 const PATTERN_THINKING = [
+  // chat.deepseek.com has only a thinking on/off toggle (executor sends
+  // thinking_enabled). Ids naming think/reasoner/R1 always think. These must
+  // stay above the *deepseek-v4.* glob, which describes the official API.
+  { provider: "deepseek-web", pattern: "*think*", levels: ["thinking"] },
+  { provider: "deepseek-web", pattern: "*reason*", levels: ["thinking"] },
+  { provider: "deepseek-web", pattern: "*r1*", levels: ["thinking"] },
+  { provider: "deepseek-web", pattern: "*", levels: L.onOff },
   // Gemini 4 (Argon) rejects "minimal" with 400 — LOW is the floor; cannot disable thinking.
   { pattern: "*gemini-4*", levels: ["low", "medium", "high"] },
   { pattern: "*claude*4.6*", levels: CLAUDE_NO_XHIGH },
