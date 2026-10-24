@@ -1,3 +1,7 @@
+# v0.5.109-enhanced.5 (2026-10-24)
+
+- Pacote instalado: o carregamento lazy de `playwright-core`/`wreq-js` quebrava com `Cannot read properties of undefined (reading 'resolve')`, porque o webpack reescrevia `createRequire(...).resolve` para `(void 0).resolve`. Corrigido, e isso destrava o login via navegador e os demais providers que dependem do loader. O mesmo bug existe no upstream.
+
 # v0.5.109-enhanced.4 (2026-10-24)
 
 - Web login (deepseek-web): o placeholder anônimo `{"value":null,"__version":"0"}` do `userToken` não conta mais como login. Antes a captura fechava a janela em segundos, antes de você logar, e a verificação de identidade rejeitava o token. O mesmo bug existe no upstream.
