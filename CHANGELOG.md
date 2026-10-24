@@ -1,3 +1,7 @@
+# v0.5.109-enhanced.7 (2026-10-24)
+
+- DeepSeek Web: o pacote instalado não incluía o `deepseek-pow-hash.js`, que o worker do proof-of-work importa. Toda chamada falhava com `Cannot find module` (502) e o provider ficava indisponível. O arquivo agora entra no build via `outputFileTracingIncludes`. O mesmo bug existe no upstream.
+
 # v0.5.109-enhanced.6 (2026-10-24)
 
 - Loader lazy: pacotes CommonJS (`playwright-core`) importados do diretório `runtime` só expunham os exports em `default`, então `const { chromium } = ...` vinha `undefined` e o login via navegador falhava com `reading 'launchPersistentContext'`. Os exports agora ficam acessíveis por nome. O mesmo bug existe no upstream.
