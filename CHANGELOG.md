@@ -1,3 +1,7 @@
+# v0.5.109-enhanced.6 (2026-10-24)
+
+- Loader lazy: pacotes CommonJS (`playwright-core`) importados do diretório `runtime` só expunham os exports em `default`, então `const { chromium } = ...` vinha `undefined` e o login via navegador falhava com `reading 'launchPersistentContext'`. Os exports agora ficam acessíveis por nome. O mesmo bug existe no upstream.
+
 # v0.5.109-enhanced.5 (2026-10-24)
 
 - Pacote instalado: o carregamento lazy de `playwright-core`/`wreq-js` quebrava com `Cannot read properties of undefined (reading 'resolve')`, porque o webpack reescrevia `createRequire(...).resolve` para `(void 0).resolve`. Corrigido, e isso destrava o login via navegador e os demais providers que dependem do loader. O mesmo bug existe no upstream.
