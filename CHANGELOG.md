@@ -1,3 +1,7 @@
+# v0.5.109-enhanced.4 (2026-10-24)
+
+- Web login (deepseek-web): o placeholder anônimo `{"value":null,"__version":"0"}` do `userToken` não conta mais como login. Antes a captura fechava a janela em segundos, antes de você logar, e a verificação de identidade rejeitava o token. O mesmo bug existe no upstream.
+
 # v0.5.109-enhanced.3 (2026-10-23)
 
 - Qoder: a página do provider, a busca do combo e o `/v1/models` visível passam a anunciar o catálogo ao vivo da conta. Modelo que o Qoder não lista mais sai. Modelo novo entra. Se o fetch falha, o registry estático continua. Conta com `enabledModels` curado não tem a lista trocada.
