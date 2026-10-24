@@ -1,3 +1,8 @@
+# v0.5.109-enhanced.8 (2026-10-24)
+
+- DeepSeek Web: os nomes dos modelos agora dizem o modo do chat web que cada ID usa. `pro` vira "Expert (web)" e os demais viram "V4.1 Flash (web default)". Os IDs legados (`deepseek-chat`, `reasoner`, `R1`, `V3.2`, `Search`) aparecem como aliases. Os IDs não mudaram, porque os combos usam esses nomes.
+- DeepSeek Web: o thinking é tratado como o liga/desliga que o web tem. O seletor oferece `none`/`thinking`, ou só `thinking` nos IDs `think`/`reasoner`/`R1`. `reasoning_effort: "none"` e `thinking: {type: "disabled"}` agora desligam o thinking (antes ligavam).
+
 # v0.5.109-enhanced.7 (2026-10-24)
 
 - DeepSeek Web: o pacote instalado não incluía o `deepseek-pow-hash.js`, que o worker do proof-of-work importa. Toda chamada falhava com `Cannot find module` (502) e o provider ficava indisponível. O arquivo agora entra no build via `outputFileTracingIncludes`. O mesmo bug existe no upstream.
