@@ -109,7 +109,7 @@ export class BaseExecutor {
   // next member to try. Retrying the same failing upstream (2–3s apart, up to
   // 3×) then only delays the fallback that answers the client; the provider's
   // own baseUrls are still walked — those are other endpoints, not retries.
-  async execute({ model, body, stream, credentials, signal, log, proxyOptions = null, providerOverrides = null, skipUpstreamRetry = false }) {
+  async execute({ model, body, stream, credentials, signal, log, proxyOptions = null, providerOverrides = null, skipUpstreamRetry = false, directFetch = null }) {
     const fallbackCount = this.getFallbackCount();
     let lastError = null;
     let lastStatus = 0;
@@ -160,7 +160,10 @@ export class BaseExecutor {
           method: "POST",
           headers,
           body: bodyStr,
-          signal: mergedSignal
+          signal: mergedSignal,
+          // Protocol adapters that need their own transport (opencode's TLS
+          // fingerprint) override the direct path; proxies still take priority.
+          ...(directFetch ? { directFetch } : {}),
         }, proxyOptions);
         clearTimeout(connectTimer);
         const ct = response.headers?.get?.("content-type") || "";
