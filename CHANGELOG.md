@@ -1,3 +1,7 @@
+# v0.5.111-enhanced.2 (2026-10-26)
+
+- Loader lazy (`wreq-js`, `playwright-core`): o pacote baixado sob demanda só era encontrado depois de reiniciar o servidor. Quando `<DATA_DIR>/runtime/node_modules` já existe, o Node guarda em cache o `package.json` que não achou, e o `require.resolve` seguinte continua falhando mesmo com o pacote já no disco. O OpenCode Free respondia 502 `wreq-js unavailable` em toda chamada (e rodava `npm install` de novo a cada uma). Agora o entry point é lido direto do `package.json` instalado. O mesmo bug existe no upstream.
+
 # v0.5.111-enhanced.1 (2026-10-26 — upstream v0.5.111 sync)
 
 - Sync com upstream v0.5.111 (v0.5.109 → v0.5.111); adaptações do fork preservadas. Nenhuma feature do upstream duplica uma do fork nesta versão, então tudo foi adotado.

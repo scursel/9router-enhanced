@@ -49,6 +49,42 @@ describe("lazyRuntime", () => {
     expect(out.trim()).toBe("from-runtime-dir");
   });
 
+  // Node caches a package.json it failed to find. When <DATA_DIR>/runtime/node_modules
+  // already exists, the miss that triggers the on-demand install poisons every later
+  // resolve of that package in the same process, so the install never takes effect
+  // until a restart. A fake `npm` on PATH stands in for the real download.
+  it("loads a package installed on demand in the same process", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lazy-runtime-install-"));
+    try {
+      fs.mkdirSync(path.join(dir, "runtime", "node_modules", "other-pkg"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "runtime", "node_modules", "other-pkg", "package.json"), JSON.stringify({ name: "other-pkg" }));
+      const binDir = path.join(dir, "bin");
+      fs.mkdirSync(binDir);
+      const fakeNpm = path.join(binDir, "npm");
+      fs.writeFileSync(fakeNpm, [
+        "#!/bin/sh",
+        "mkdir -p node_modules/late-pkg/dist",
+        `echo '${JSON.stringify({ name: "late-pkg", exports: { ".": { require: "./dist/late.cjs", import: "./dist/late.js" } } })}' > node_modules/late-pkg/package.json`,
+        "echo \"module.exports = { marker: 'installed-on-demand' };\" > node_modules/late-pkg/dist/late.cjs",
+        "",
+      ].join("\n"));
+      fs.chmodSync(fakeNpm, 0o755);
+      const script = `
+        import { loadRuntimeDep } from ${JSON.stringify(SRC)};
+        const { marker } = await loadRuntimeDep("late-pkg");
+        console.log(marker);
+      `;
+      const out = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+        env: { ...process.env, DATA_DIR: dir, PATH: `${binDir}${path.delimiter}${process.env.PATH}` },
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      expect(out.trim()).toBe("installed-on-demand");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   // webpack rewrites `createRequire(...).resolve(x)` into `(void 0).resolve(x)`
   // when createRequire is imported statically — the standalone build then dies
   // with "Cannot read properties of undefined (reading 'resolve')".

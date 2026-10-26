@@ -85,7 +85,27 @@ async function load(pkg) {
       `install it manually: cd "${dir}" && npm install ${pkg}@${version}`
     );
   }
-  return import(/* webpackIgnore: true */ pathToFileURL((await runtimeRequireFor(dir)).resolve(pkg)).href);
+  return import(/* webpackIgnore: true */ pathToFileURL(resolveFreshInstall(dir, pkg)).href);
+}
+
+// Node caches the package.json it failed to find in step 2, so once runtime/node_modules
+// exists, require.resolve keeps missing the package npm just wrote until the process
+// restarts. Read the manifest from disk instead and pick the entry Node would.
+function resolveFreshInstall(dir, pkg) {
+  const pkgDir = path.join(dir, "node_modules", pkg);
+  const manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
+  const pick = (target) => {
+    if (typeof target === "string") return target;
+    if (!target || typeof target !== "object") return null;
+    for (const condition of ["require", "node", "default"]) {
+      const hit = pick(target[condition]);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  const exportsRoot = manifest.exports?.["."] ?? manifest.exports;
+  const entry = pick(exportsRoot) || manifest.main || "index.js";
+  return path.join(pkgDir, entry);
 }
 
 export function loadRuntimeDep(pkg) {
