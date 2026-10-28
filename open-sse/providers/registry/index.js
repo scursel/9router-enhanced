@@ -147,8 +147,9 @@ import p146 from "./chatgpt-web.js";
 import p147 from "./veoaifree-web.js";
 import p151 from "./uc-web.js";
 import p152 from "./runcrate.js";
-// Fork-only providers start after upstream's last slot (p152; p139 = upstream sensenova).
-import p153 from "./orcarouter.js";
+import p153 from "./nace.js";
+// Fork-only providers start after upstream's last slot (p153 = upstream nace).
+import p154 from "./orcarouter.js";
 export default [
   p0,
   p1,
@@ -296,4 +297,5 @@ export default [
   p151,
   p152,
   p153,
+  p154,
 ];

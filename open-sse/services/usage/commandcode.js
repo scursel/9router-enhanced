@@ -1,4 +1,5 @@
 import { getJson, quotaError, quota, balance, formatDate, num } from "./quotaShared.js";
+import { buildCommandCodeHeaders } from "../../shared/commandCodeHeaders.js";
 
 // credits.monthlyCredits is remaining, not the plan grant. Totals come from
 // https://commandcode.ai/docs/resources/pricing-limits keyed by planId.
@@ -111,17 +112,20 @@ export async function getCommandCodeUsage(apiKey, proxyOptions) {
   }
 
   const base = "https://api.commandcode.ai";
+  // Same identity headers as the official CLI (upstream v0.5.112); getJson sets Authorization.
+  const { Authorization, ...headers } = buildCommandCodeHeaders({ accept: "application/json" });
+  const get = (url) => getJson(url, apiKey, proxyOptions, headers);
   // Billing is scoped to an org: without the orgId a Teams member reads their
   // personal (empty) wallet instead of the team pool. whoami is best-effort —
   // only an auth failure there is conclusive (official collector behaviour).
-  const whoami = await getJson(`${base}/alpha/whoami?limits=1`, apiKey, proxyOptions);
+  const whoami = await get(`${base}/alpha/whoami?limits=1`);
   if (whoami.status === 401 || whoami.status === 403) return authError();
   const orgId = whoami.ok ? whoami.body?.org?.id : null;
   const scoped = (route) => (orgId ? `${base}${route}?orgId=${encodeURIComponent(orgId)}` : `${base}${route}`);
 
   const [creditsRes, subRes] = await Promise.all([
-    getJson(scoped("/alpha/billing/credits"), apiKey, proxyOptions),
-    getJson(scoped("/alpha/billing/subscriptions"), apiKey, proxyOptions),
+    get(scoped("/alpha/billing/credits")),
+    get(scoped("/alpha/billing/subscriptions")),
   ]);
 
   if (creditsRes.status === 401 || creditsRes.status === 403) return authError();

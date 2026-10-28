@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { testProxyUrl } from "@/lib/network/proxyTest";
@@ -6,6 +5,7 @@ import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { inspectAndWrapCommandCodeResponse } from "open-sse/executors/commandcode.js";
 import { openaiToCommandCodeRequest } from "open-sse/translator/request/openai-to-commandcode.js";
+import { buildCommandCodeHeaders } from "open-sse/shared/commandCodeHeaders.js";
 import { ROLE } from "open-sse/translator/schema/index.js";
 import { probeBedrockCredentials } from "open-sse/executors/bedrock.js";
 import { resolveOllamaLocalHost, PROVIDERS } from "open-sse/config/providers.js";
@@ -951,12 +951,7 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
         try {
           res = await fetchWithConnectionProxy(cfg.baseUrl, {
             method: "POST",
-            headers: {
-              ...cfg.headers,
-              "Content-Type": "application/json",
-              "x-session-id": randomUUID(),
-              Authorization: `Bearer ${connection.apiKey}`,
-            },
+            headers: buildCommandCodeHeaders({ apiKey: connection.apiKey, sessionId: payload.threadId }),
             body: JSON.stringify(payload),
             signal,
           }, effectiveProxy);

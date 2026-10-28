@@ -68,10 +68,11 @@ export function localQuota(used, limit) {
   };
 }
 
-export async function getJson(url, token, proxyOptions) {
+export async function getJson(url, token, proxyOptions, extraHeaders = null) {
   try {
     const headers = {
       Accept: "application/json",
+      ...(extraHeaders || {}),
     };
     if (token) {
       headers.Authorization = `Bearer ${token}`;

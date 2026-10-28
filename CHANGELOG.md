@@ -1,3 +1,12 @@
+# v0.5.112-enhanced.1 (2026-10-28 — upstream v0.5.112 sync)
+
+- Sync com upstream v0.5.112 (v0.5.111 → v0.5.112); adaptações do fork preservadas.
+- Loader lazy (`wreq-js`, `playwright-core` — OpenCode Free): mantido o loader do fork (entry lido do `package.json` recém-instalado, exports nomeados de pacotes CJS) e adotados do upstream o `package.json` âncora no diretório `runtime` e a reinstalação única quando o npm sai 0 com extração parcial. A reinstalação do upstream re-resolvia via `require.resolve`, que cai no mesmo cache de "não encontrado" que o fork corrigiu no enhanced.2; aqui ela usa a leitura direta do manifest.
+- Command Code: headers do CLI oficial 1.88.0 (`commandCodeHeaders`) adotados também na consulta de uso do fork (parser de cota do fork mantido) e no botão "testar conexão" do dashboard.
+- Thinking (Claude adaptive): adotada a regra do upstream que mantém `thinking.display` em modelos Claude sempre-adaptativos.
+- Capabilities: `gpt-6.1-terra` (500k) do upstream adicionado; `gpt-6-luna` continua em 1.05M (verificado pelo fork).
+- Registry: upstream ocupa p153 (`nace`); `orcarouter` do fork movido para p154.
+
 # v0.5.111-enhanced.2 (2026-10-26)
 
 - Loader lazy (`wreq-js`, `playwright-core`): o pacote baixado sob demanda só era encontrado depois de reiniciar o servidor. Quando `<DATA_DIR>/runtime/node_modules` já existe, o Node guarda em cache o `package.json` que não achou, e o `require.resolve` seguinte continua falhando mesmo com o pacote já no disco. O OpenCode Free respondia 502 `wreq-js unavailable` em toda chamada (e rodava `npm install` de novo a cada uma). Agora o entry point é lido direto do `package.json` instalado. O mesmo bug existe no upstream.
@@ -48,6 +57,24 @@
 - Command Code: mantido o parser de cota do fork (mensal × compradas × grátis, orgId); adotados os aliases curtos de plano (`go`, `go-v1`…) do upstream. O probe de conexão via `/alpha/whoami` do upstream foi descartado em favor do probe de geração do fork (duplicata silenciosa no `switch`).
 - Registry: upstream ocupa p139 (sensenova) e p140–p151 (*-web); `orcarouter` do fork movido para p152.
 
+# v0.5.112 (2026-10-28)
+
+## Features
+- **MiniMax Code**: add lease auth mode that rides the desktop app's sign-in through a named-pipe/unix-socket broker (length-prefixed JSON protocol, broker-owned token refresh — no refresh token held locally since MiniMax tokens are single-use), with a dashboard lease button and usage attribution
+- **Nace Drex**: add the `nace` provider to the System One lane with `drex`, `drex-v2.0` and `drex-max`
+- **CommandCode**: align request headers with the official CLI 1.88.0 through a shared `commandCodeHeaders` service
+- **Codex**: add `gpt-6.1-terra` (responses-lite lane, GPT-6-Lite thinking levels)
+
+## Fixes
+- **NVIDIA NIM**: normalize assistant `reasoning` aliases to `reasoning_content` before forwarding, avoiding NIM's duplicate-field 400 when clients send both.
+- **Lazy Runtime**: make the on-demand wreq-js/playwright-core installer work inside published builds — fetch `createRequire` at runtime instead of the bundler-stubbed static import, mark the runtime-dir `import()` calls `webpackIgnore` so file URLs are not captured as bundle chunks, anchor npm to the runtime dir with a minimal `package.json`, and wipe + reinstall once when npm exits 0 on a partially-extracted package (#5245)
+- **Docker**: bake `wreq-js` and `playwright-core` into the runner image's `node_modules` (builder-stage isolated install) so OpenCode Free resolves without runtime downloads (#5245)
+- **Chat**: surface upstream SSE `error` frames in non-streaming responses — answer with the upstream status (4xx/5xx) and message instead of swallowing them into a generic 502
+- **Translator**: enforce Gemini protobuf type predicates on schema `items` and `properties` instead of forwarding shapes the upstream would silently mistype
+- **Providers**: keep full `LLM|id|secret` (Muse) key strings opaque in bulk-add instead of splitting on the first pipe into name/key, auto-naming them LLM 1, LLM 2, …
+- **DeepSeek**: replace the vendored PoW hash implementation with a noble-hashes keccak port (DeepSeekHashV1, SHA3-256 with round 0 skipped), shrinking `deepseek-pow-hash.js` by ~430 lines
+- **GitHub Copilot**: apply Claude 5.5 thinking rules to Copilot's dotted model ids (`claude-opus-5.5*`, `claude-sonnet-5.5`) and make `claude-haiku-5.5` adaptive-only on its Anthropic-native shim, whose budget-shaped thinking comes back 400
+
 # v0.5.111 (2026-10-26)
 
 ## Features
@@ -84,6 +111,8 @@
 - **STT**: add Codex OAuth transcription provider (`cx/transcribe`), reusing existing Codex OAuth chat connections with 24 kHz PCM16 WAV conversion and bounded private temp files (#5074)
 
 ## Fixes
+- **CodeBuddy**: send the plugin's request/conversation id headers (`X-Request-ID`, `X-Conversation-ID`, `X-Conversation-Request-ID`, `X-Conversation-Message-ID`) on CN and intl chat requests — without them the gateway's channel check rejects every call with `400 / 11128 "request illegal"`
+- **CodeBuddy**: align the `#5024` backoff tests with the current request-scoped contract — `checkFallbackError` reports `requestScoped: true` for unclassified 4xx, and a combo now advances past a malformed CodeBuddy body instead of stopping on the first member
 - **Combos**: advance past request-scoped 4xx rejections (validation, unsupported parameter, context overflow) instead of terminating combo (#5057)
 - **Combos**: fall through to next member when streaming response returns HTTP 200 but produces zero content frames (#ca7b540)
 - **Combos**: try next model when provider returns HTTP 400 for insufficient credits or balance too low (#4713)
