@@ -16,6 +16,16 @@ export function filterToOpenAIFormat(body, opts = {}) {
     return keepCache && cache_control ? { ...rest, cache_control } : rest;
   }
 
+  // image_url carrying a data:video/* URI -> video_url (OpenRouter-style video
+  // input). Upstreams reject video bytes sent as an image.
+  function videoFromImageUrl(block) {
+    if (block.type !== OPENAI_BLOCK.IMAGE_URL) return block;
+    const url = typeof block.image_url === "string" ? block.image_url : block.image_url?.url;
+    if (typeof url !== "string" || !url.startsWith("data:video/")) return block;
+    const { image_url, ...rest } = block;
+    return { ...rest, type: OPENAI_BLOCK.VIDEO_URL, video_url: { url } };
+  }
+
   body.messages = body.messages.map(msg => {
     // Normalize developer role to system (many providers don't support developer)
     if (msg.role === ROLE.DEVELOPER) msg = { ...msg, role: ROLE.SYSTEM };
@@ -39,7 +49,7 @@ export function filterToOpenAIFormat(body, opts = {}) {
 
         // Only keep valid OpenAI content types
         if (VALID_OPENAI_CONTENT_TYPES.includes(block.type)) {
-          filteredContent.push(stripBlock(block));
+          filteredContent.push(stripBlock(videoFromImageUrl(block)));
         } else if (block.type === CLAUDE_BLOCK.TOOL_USE) {
           // Convert tool_use to tool_calls format (handled separately)
           continue;

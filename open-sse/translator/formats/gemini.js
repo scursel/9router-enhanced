@@ -84,8 +84,9 @@ export function convertOpenAIContentToParts(content) {
         parts.push({
           inlineData: { mime_type: mimeType, data: item.input_audio.data }
         });
-      } else if (item.type === OPENAI_BLOCK.AUDIO_URL && item.audio_url?.url?.startsWith("data:")) {
-        const url = item.audio_url.url;
+      } else if ((item.type === OPENAI_BLOCK.AUDIO_URL && item.audio_url?.url?.startsWith("data:")) ||
+                 (item.type === OPENAI_BLOCK.VIDEO_URL && item.video_url?.url?.startsWith("data:"))) {
+        const url = (item.type === OPENAI_BLOCK.AUDIO_URL ? item.audio_url : item.video_url).url;
         const commaIndex = url.indexOf(",");
         if (commaIndex !== -1) {
           const mimePart = url.substring(5, commaIndex);

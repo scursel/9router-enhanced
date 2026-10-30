@@ -1,3 +1,7 @@
+# Unreleased
+
+- Vídeo em providers OpenAI-compatíveis (`cl/`, `openrouter/`, combos que caem neles): a parte `video_url` era descartada antes de chegar ao upstream, porque `video_url` não estava na lista de tipos aceitos por `filterToOpenAIFormat`. O modelo respondia "não recebi o vídeo". Agora `video_url` passa intacto. Uma `image_url` com data URI `data:video/*` é convertida para `video_url` nesses providers (antes o upstream dava 500/503). Nos alvos Gemini/Antigravity, `video_url` com data URI também vira `inlineData`, então um combo misto aceita o mesmo payload. O caminho `image_url` dos Gemini não mudou. Provider que não aceita vídeo agora devolve erro em vez de responder sem o vídeo, e o combo cai no próximo modelo.
+
 # v0.5.112-enhanced.1 (2026-10-28 — upstream v0.5.112 sync)
 
 - Sync com upstream v0.5.112 (v0.5.111 → v0.5.112); adaptações do fork preservadas.
