@@ -96,6 +96,8 @@ async function peekComboResponse(result, log) {
 // Hard capabilities = input modalities; missing one drops request data (e.g. image
 // stripped). Must be prioritized. Soft (e.g. search) only degrades a feature.
 const HARD_CAPS = new Set(["vision", "pdf", "audioInput", "videoInput"]);
+// Hard caps whose unmet members are skipped instead of tried last (see reorderByCapabilities).
+const DROP_WHEN_UNMET = new Set(["videoInput"]);
 
 // Prefixes used when flattening tool turns into plain prose for panel models.
 const TOOL_CALL_PREFIX = "[Called tools: ";
@@ -144,7 +146,8 @@ function flattenToolHistory(messages) {
     });
 }
 
-// Reorder combo models by capability fit. Stable; never drops a model (fallback intact).
+// Reorder combo models by capability fit. Stable; never drops a model (fallback intact),
+// except for DROP_WHEN_UNMET caps below.
 // Tier 0: satisfies all hard + all soft. Tier 1: all hard only. Tier 2: rest.
 export function reorderByCapabilities(models, required) {
   if (!required || required.size === 0 || !Array.isArray(models) || models.length <= 1) return models;
@@ -161,10 +164,18 @@ export function reorderByCapabilities(models, required) {
   };
 
   // Stable sort by tier (Array.prototype.sort is stable in modern engines).
-  return models
+  const ranked = models
     .map((m, i) => ({ m, i, t: tierOf(m) }))
-    .sort((a, b) => a.t - b.t || a.i - b.i)
-    .map((x) => x.m);
+    .sort((a, b) => a.t - b.t || a.i - b.i);
+  // A member that can't read a DROP_WHEN_UNMET cap would discard the media and
+  // still answer 200 ("I got no video"), which ends the combo with a wrong answer.
+  // Skip those members, but only when some member can serve the request. A member
+  // without a provider prefix is a nested combo (expanded at dispatch, where it
+  // filters its own members), so it is kept.
+  if (hard.some((c) => DROP_WHEN_UNMET.has(c)) && ranked[0].t < 2) {
+    return ranked.filter((x) => x.t < 2 || !x.m.includes("/")).map((x) => x.m);
+  }
+  return ranked.map((x) => x.m);
 }
 
 /**
@@ -203,7 +214,12 @@ export function detectRequiredCapabilities(body) {
   const scanBlock = (b) => {
     if (!b || typeof b !== "object") return;
     const t = b.type;
-    if (t === "image_url" || t === "image" || t === "input_image") required.add("vision");
+    if (t === "image_url" || t === "input_image") {
+      // A data:video/* URI in an image slot is video (the OpenAI filter turns it into video_url).
+      const url = typeof b.image_url === "string" ? b.image_url : b.image_url?.url;
+      required.add(typeof url === "string" && url.startsWith("data:video/") ? "videoInput" : "vision");
+    }
+    if (t === "image") required.add("vision");
     if (t === "input_audio" || t === "audio_url" || t === "audio") required.add("audioInput");
     if (t === "input_video" || t === "video_url" || t === "video") required.add("videoInput");
     if (t === "file" || t === "document" || t === "input_file") {

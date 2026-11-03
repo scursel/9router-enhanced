@@ -1,3 +1,7 @@
+# v0.5.112-enhanced.3 (2026-11-03)
+
+- Combo com vídeo: quando a mensagem traz vídeo e o combo tem algum modelo que lê vídeo (`videoInput`), os modelos que não leem são pulados, em vez de tentados por último. Antes, ao cair num deles, o vídeo era descartado (pelo upstream ou por executors como Copilot, chatgpt-web, muse-web e qoder) e o modelo respondia "não recebi o vídeo" com 200, encerrando o combo com a resposta errada. Combos aninhados continuam na lista (filtram os próprios membros). Se nenhum membro lê vídeo, nada muda. Uma `image_url` com `data:video/*` agora conta como vídeo, não como imagem, na escolha do modelo. Imagem, PDF e áudio continuam só reordenando.
+
 # v0.5.112-enhanced.2 (2026-10-30)
 
 - Vídeo em providers OpenAI-compatíveis (`cl/`, `openrouter/`, combos que caem neles): a parte `video_url` era descartada antes de chegar ao upstream, porque `video_url` não estava na lista de tipos aceitos por `filterToOpenAIFormat`. O modelo respondia "não recebi o vídeo". Agora `video_url` passa intacto. Uma `image_url` com data URI `data:video/*` é convertida para `video_url` nesses providers (antes o upstream dava 500/503). Nos alvos Gemini/Antigravity, `video_url` com data URI também vira `inlineData`, então um combo misto aceita o mesmo payload. O caminho `image_url` dos Gemini não mudou. Provider que não aceita vídeo agora devolve erro em vez de responder sem o vídeo, e o combo cai no próximo modelo.
