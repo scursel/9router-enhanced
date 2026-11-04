@@ -4,6 +4,19 @@
  * Used when client requests non-streaming but provider forces streaming (e.g., Codex)
  */
 
+import { RESPONSES_STATUS } from "../translator/schema/index.js";
+
+function extractErrorObj(parsed) {
+  const err = parsed?.response?.error || parsed?.error;
+  if (!err) {
+    if (typeof parsed?.message === "string") return { message: parsed.message };
+    return { message: "Upstream response failed" };
+  }
+  if (typeof err === "string") return { message: err };
+  if (typeof err === "object") return err;
+  return { message: "Upstream response failed" };
+}
+
 /**
  * Process a single SSE message and update state accordingly.
  */
@@ -12,9 +25,8 @@ function processSSEMessage(msg, state) {
 
   const eventMatch = msg.match(/^event:\s*(.+)$/m);
   const dataMatch = msg.match(/^data:\s*(.+)$/m);
-  if (!eventMatch || !dataMatch) return;
+  if (!dataMatch) return;
 
-  const eventType = eventMatch[1].trim();
   const dataStr = dataMatch[1].trim();
   if (dataStr === "[DONE]") return;
 
@@ -22,20 +34,74 @@ function processSSEMessage(msg, state) {
   try { parsed = JSON.parse(dataStr); }
   catch { return; }
 
+  const eventType = (eventMatch ? eventMatch[1].trim() : parsed.type) || parsed.type || "";
+
   if (eventType === "response.created") {
     state.responseId = parsed.response?.id || state.responseId;
     state.created = parsed.response?.created_at || state.created;
   } else if (eventType === "response.output_item.done") {
     state.items.set(parsed.output_index ?? 0, parsed.item);
   } else if (eventType === "response.completed" || eventType === "response.done") {
-    state.status = "completed";
+    state.terminalSeen = true;
+    state.responseId = parsed.response?.id || state.responseId;
+    state.created = parsed.response?.created_at || state.created;
+
+    const status = parsed.response?.status;
+    if (status === RESPONSES_STATUS.INCOMPLETE) {
+      state.status = RESPONSES_STATUS.INCOMPLETE;
+      if (parsed.response?.incomplete_details) {
+        state.incomplete_details = parsed.response.incomplete_details;
+      }
+    } else if (status === RESPONSES_STATUS.FAILED) {
+      state.status = RESPONSES_STATUS.FAILED;
+      state.error = extractErrorObj(parsed);
+    } else {
+      state.status = RESPONSES_STATUS.COMPLETED;
+    }
+
     if (parsed.response?.usage) {
       state.usage.input_tokens = parsed.response.usage.input_tokens || 0;
       state.usage.output_tokens = parsed.response.usage.output_tokens || 0;
       state.usage.total_tokens = parsed.response.usage.total_tokens || 0;
     }
+
+    if (Array.isArray(parsed.response?.output)) {
+      for (let i = 0; i < parsed.response.output.length; i++) {
+        if (!state.items.has(i)) {
+          state.items.set(i, parsed.response.output[i]);
+        }
+      }
+    }
+  } else if (eventType === "response.incomplete") {
+    state.terminalSeen = true;
+    state.status = RESPONSES_STATUS.INCOMPLETE;
+    state.responseId = parsed.response?.id || state.responseId;
+    state.created = parsed.response?.created_at || state.created;
+    if (parsed.response?.incomplete_details) {
+      state.incomplete_details = parsed.response.incomplete_details;
+    }
+    if (parsed.response?.usage) {
+      state.usage.input_tokens = parsed.response.usage.input_tokens || 0;
+      state.usage.output_tokens = parsed.response.usage.output_tokens || 0;
+      state.usage.total_tokens = parsed.response.usage.total_tokens || 0;
+    }
+    if (Array.isArray(parsed.response?.output)) {
+      for (let i = 0; i < parsed.response.output.length; i++) {
+        if (!state.items.has(i)) {
+          state.items.set(i, parsed.response.output[i]);
+        }
+      }
+    }
   } else if (eventType === "response.failed") {
-    state.status = "failed";
+    state.terminalSeen = true;
+    state.status = RESPONSES_STATUS.FAILED;
+    state.responseId = parsed.response?.id || state.responseId;
+    state.created = parsed.response?.created_at || state.created;
+    state.error = extractErrorObj(parsed);
+  } else if (eventType === "error") {
+    state.terminalSeen = true;
+    state.status = RESPONSES_STATUS.FAILED;
+    state.error = extractErrorObj(parsed);
   }
 }
 
@@ -48,7 +114,15 @@ const EMPTY_RESPONSE = { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
  */
 export async function convertResponsesStreamToJson(stream) {
   if (!stream || typeof stream.getReader !== "function") {
-    return { id: `resp_${Date.now()}`, object: "response", created_at: Math.floor(Date.now() / 1000), status: "failed", output: [], usage: { ...EMPTY_RESPONSE } };
+    return {
+      id: `resp_${Date.now()}`,
+      object: "response",
+      created_at: Math.floor(Date.now() / 1000),
+      status: RESPONSES_STATUS.FAILED,
+      output: [],
+      usage: { ...EMPTY_RESPONSE },
+      error: { message: "stream closed before response.completed" }
+    };
   }
 
   const reader = stream.getReader();
@@ -58,7 +132,8 @@ export async function convertResponsesStreamToJson(stream) {
   const state = {
     responseId: "",
     created: Math.floor(Date.now() / 1000),
-    status: "in_progress",
+    status: null,
+    terminalSeen: false,
     usage: { ...EMPTY_RESPONSE },
     items: new Map()
   };
@@ -85,6 +160,13 @@ export async function convertResponsesStreamToJson(stream) {
     reader.releaseLock();
   }
 
+  if (!state.terminalSeen) {
+    state.status = RESPONSES_STATUS.FAILED;
+    if (!state.error) {
+      state.error = { message: "stream closed before response.completed" };
+    }
+  }
+
   // Build output array from accumulated items (ordered by index)
   const output = [];
   const maxIndex = state.items.size > 0 ? Math.max(...state.items.keys()) : -1;
@@ -92,12 +174,21 @@ export async function convertResponsesStreamToJson(stream) {
     output.push(state.items.get(i) || { type: "message", content: [], role: "assistant" });
   }
 
-  return {
+  const result = {
     id: state.responseId || `resp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     object: "response",
     created_at: state.created,
-    status: state.status || "completed",
+    status: state.status || RESPONSES_STATUS.COMPLETED,
     output,
     usage: state.usage
   };
+
+  if (state.incomplete_details) {
+    result.incomplete_details = state.incomplete_details;
+  }
+  if (state.error) {
+    result.error = state.error;
+  }
+
+  return result;
 }
