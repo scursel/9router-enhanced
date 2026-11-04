@@ -6,7 +6,7 @@ import { FORMATS } from "../../translator/formats.js";
 import { openAICompletionToClaudeMessage } from "../../translator/concerns/claudeMessage.js";
 import { PROVIDERS } from "../../config/providers.js";
 import { buildRequestDetail, extractRequestConfig, saveUsageStats, formatDoneLine } from "./requestDetail.js";
-import { ROLE, RESPONSES_ITEM, OPENAI_FINISH } from "../../translator/schema/index.js";
+import { ROLE, RESPONSES_ITEM, OPENAI_FINISH, RESPONSES_STATUS, RESPONSES_INCOMPLETE_FINISH } from "../../translator/schema/index.js";
 import { openaiToGeminiResponse } from "../../translator/response/openai-to-gemini.js";
 import { extractReasoningText } from "../../translator/concerns/reasoning.js";
 
@@ -208,6 +208,9 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
   if (isCodexResponsesApi) {
     try {
       const jsonResponse = await convertResponsesStreamToJson(providerResponse.body);
+      if (jsonResponse.status === RESPONSES_STATUS.FAILED) {
+        return createErrorResult(HTTP_STATUS.BAD_GATEWAY, jsonResponse.error?.message || "Upstream response failed");
+      }
       if (onRequestSuccess) await onRequestSuccess();
 
       const usage = jsonResponse.usage || {};
@@ -266,10 +269,16 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
       const hasToolCalls = toolCalls.length > 0;
 
       // Internal OpenAI finish_reason, shared by both client-shape branches.
-      const responseDone = jsonResponse.status === "completed" || jsonResponse.status === "done";
-      const finishReason = hasToolCalls
-        ? OPENAI_FINISH.TOOL_CALLS
-        : (responseDone ? OPENAI_FINISH.STOP : (jsonResponse.status || OPENAI_FINISH.STOP));
+      let finishReason;
+      if (jsonResponse.status === RESPONSES_STATUS.INCOMPLETE) {
+        finishReason = RESPONSES_INCOMPLETE_FINISH[jsonResponse.incomplete_details?.reason] ?? OPENAI_FINISH.LENGTH;
+      } else if (hasToolCalls) {
+        finishReason = OPENAI_FINISH.TOOL_CALLS;
+      } else if (jsonResponse.status === RESPONSES_STATUS.COMPLETED || jsonResponse.status === "done") {
+        finishReason = OPENAI_FINISH.STOP;
+      } else {
+        finishReason = jsonResponse.status || OPENAI_FINISH.STOP;
+      }
 
       if (sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI || sourceFormat === FORMATS.GEMINI_CLI) {
         // Delegate to the canonical openai→gemini response translator: it emits

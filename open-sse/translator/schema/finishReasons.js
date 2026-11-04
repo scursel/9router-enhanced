@@ -29,6 +29,11 @@ export const RESPONSES_INCOMPLETE_REASON = {
   MAX_OUTPUT_TOKENS: "max_output_tokens",
   CONTENT_FILTER: "content_filter",
 };
+// Known incomplete_details.reason → OpenAI finish_reason. Callers choose their own fallback.
+export const RESPONSES_INCOMPLETE_FINISH = {
+  [RESPONSES_INCOMPLETE_REASON.CONTENT_FILTER]: OPENAI_FINISH.CONTENT_FILTER,
+  [RESPONSES_INCOMPLETE_REASON.MAX_OUTPUT_TOKENS]: OPENAI_FINISH.LENGTH,
+};
 
 // Gemini finishReason values.
 export const GEMINI_FINISH = {
