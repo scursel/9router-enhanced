@@ -14,7 +14,7 @@
 // enum is used only in the inverse: to NOT retry a legitimately-empty content-filter block.
 
 import {
-  NO_RETRY_EMPTY_FINISH, OPENAI_FINISH, RESPONSES_STATUS, RESPONSES_INCOMPLETE_REASON,
+  NO_RETRY_EMPTY_FINISH, OPENAI_FINISH, RESPONSES_STATUS, RESPONSES_INCOMPLETE_FINISH,
 } from "../translator/schema/finishReasons.js";
 import { CLAUDE_BLOCK, RESPONSES_ITEM } from "../translator/schema/blocks.js";
 import { CLAUDE_EVENT, CLAUDE_DELTA, RESPONSES_EVENT, RESPONSES_EVENT_PREFIX } from "../translator/schema/streamEvents.js";
@@ -74,10 +74,6 @@ function inspectClaudeEvent(obj) {
 // their argument deltas. Terminal events: completed → stop; incomplete → content_filter
 // (no-retry) or length by incomplete_details.reason; failed → "failed" (retryable).
 const RESPONSES_TOOL_ITEMS = new Set([RESPONSES_ITEM.FUNCTION_CALL, RESPONSES_ITEM.CUSTOM_TOOL_CALL]);
-const RESPONSES_INCOMPLETE_FINISH = {
-  [RESPONSES_INCOMPLETE_REASON.CONTENT_FILTER]: OPENAI_FINISH.CONTENT_FILTER,
-  [RESPONSES_INCOMPLETE_REASON.MAX_OUTPUT_TOKENS]: OPENAI_FINISH.LENGTH,
-};
 function inspectResponsesEvent(obj) {
   let content = false, finishReason = null;
   switch (obj.type) {
