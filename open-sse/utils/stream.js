@@ -4,7 +4,7 @@ import { PROVIDERS } from "../config/providers.js";
 import { liftReasoningAliases } from "../translator/concerns/reasoning.js";
 import { trackPendingRequest, appendRequestLog } from "@/lib/usageDb.js";
 import { extractUsage, mergeUsage, hasValidUsage, estimateUsage, logUsage, addBufferToUsage, filterUsageForFormat, COLORS } from "./usageTracking.js";
-import { parseSSELine, hasValuableContent, fixInvalidId, formatSSE, ensureStreamToolCallIds } from "./streamHelpers.js";
+import { parseSSELine, hasValuableContent, fixInvalidId, formatSSE, ensureStreamToolCallIds, buildStreamErrorBytes } from "./streamHelpers.js";
 import { restoreToolNames } from "./opencodeFingerprint.js";
 import { getOpenAIResponsesEventName, isOpenAIResponsesTerminalEvent, formatIncompleteOpenAIResponsesStreamFailure } from "./responsesStreamHelpers.js";
 import { dbg, isDebugEnabled } from "./debugLog.js";
@@ -138,6 +138,22 @@ export function createSSEStream(options = {}) {
   // A chunk carrying finish_reason (or Claude's message_delta) reached the client.
   let finishForwarded = false;
   let completionFlushTimer = null;
+  let streamErrorSent = false;
+
+  const emitStreamErrorIfNeeded = (controller) => {
+    if (state?.streamError && !streamErrorSent) {
+      streamErrorSent = true;
+      streamDoneSent = true;
+      const errorBytes = buildStreamErrorBytes(
+        state.streamError.status,
+        state.streamError.message,
+        sourceFormat
+      );
+      reqLogger?.appendConvertedChunk?.(new TextDecoder().decode(errorBytes));
+      controller.enqueue(errorBytes);
+      sseEmittedCount++;
+    }
+  };
 
   // Lane quirk: upstream streams thinking under the OpenRouter aliases
   // (`reasoning` / `reasoning_details[]`) instead of reasoning_content — OpenCode
@@ -467,6 +483,7 @@ export function createSSEStream(options = {}) {
 
         // Translate: targetFormat -> openai -> sourceFormat
         const translated = translateResponse(targetFormat, sourceFormat, parsed, state);
+        emitStreamErrorIfNeeded(controller);
 
         // Log OpenAI intermediate chunks (if available)
         if (translated?._openaiIntermediate) {
@@ -579,6 +596,7 @@ export function createSSEStream(options = {}) {
             if (extracted) state.usage = mergeUsage(state.usage, extracted);
 
             const translated = translateResponse(targetFormat, sourceFormat, parsed, state);
+            emitStreamErrorIfNeeded(controller);
 
             if (translated?._openaiIntermediate) {
               for (const item of translated._openaiIntermediate) {
@@ -599,6 +617,7 @@ export function createSSEStream(options = {}) {
         }
 
         const flushed = translateResponse(targetFormat, sourceFormat, null, state);
+        emitStreamErrorIfNeeded(controller);
 
         if (flushed?._openaiIntermediate) {
           for (const item of flushed._openaiIntermediate) {

@@ -9,6 +9,7 @@ import { buildUsage } from "../concerns/usage.js";
 import { fallbackToolCallId } from "../concerns/toolCall.js";
 import { reasoningDelta, extractReasoningText } from "../concerns/reasoning.js";
 import { ROLE, OPENAI_BLOCK, RESPONSES_ITEM, OPENAI_FINISH, MODEL_FALLBACK, RESPONSES_STATUS, RESPONSES_INCOMPLETE_FINISH } from "../schema/index.js";
+import { HTTP_STATUS } from "../../config/runtimeConfig.js";
 
 /**
  * Translate OpenAI chunk to Responses API events
@@ -512,6 +513,15 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     // Flush: send final chunk with finish_reason
     if (state.finishReasonSent || !state.started) return null;
 
+    if (!state.respTerminalSeen) {
+      state.streamError = {
+        status: HTTP_STATUS.BAD_GATEWAY,
+        message: "stream closed before response.completed",
+      };
+      state.finishReasonSent = true;
+      return null;
+    }
+
     const finishReason = computeFinishReason(state);
 
     state.finishReasonSent = true;
@@ -640,15 +650,13 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     const status = data.response?.status || (eventType === "response.incomplete" ? RESPONSES_STATUS.INCOMPLETE : RESPONSES_STATUS.COMPLETED);
 
     if (status === RESPONSES_STATUS.FAILED) {
-      if (state.finishReasonSent) return null;
+      if (state.finishReasonSent || state.streamError) return null;
       const error = data.error || data.response?.error;
+      const message = error?.message || (typeof error === "string" ? error : null) || "Upstream response failed";
+      state.streamError = { status: HTTP_STATUS.BAD_GATEWAY, message };
       state.error = error;
       state.finishReasonSent = true;
-      return buildChunk(
-        { id: state.chatId || `chatcmpl-${Date.now()}`, created: state.created || Math.floor(Date.now() / 1000), model: state.model || MODEL_FALLBACK },
-        { content: `[Error] ${error?.message || JSON.stringify(error) || "Upstream response failed"}` },
-        OPENAI_FINISH.STOP
-      );
+      return null;
     }
 
     // Extract usage from response event
@@ -695,20 +703,13 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
   if (eventType === "error" || eventType === "response.failed") {
     state.respTerminalSeen = true;
     // Avoid emitting duplicate errors (error + response.failed arrive back-to-back)
-    if (state.finishReasonSent) return null;
+    if (state.finishReasonSent || state.streamError) return null;
 
     const error = data.error || data.response?.error;
-    if (error) {
-      state.error = error;
-      state.finishReasonSent = true;
-
-      // Surface the error as an OpenAI-compatible error chunk
-      return buildChunk(
-        { id: state.chatId || `chatcmpl-${Date.now()}`, created: state.created || Math.floor(Date.now() / 1000), model: state.model || MODEL_FALLBACK },
-        { content: `[Error] ${error.message || JSON.stringify(error)}` },
-        OPENAI_FINISH.STOP
-      );
-    }
+    const message = error?.message || (typeof error === "string" ? error : null) || "Upstream response failed";
+    state.streamError = { status: HTTP_STATUS.BAD_GATEWAY, message };
+    state.error = error;
+    state.finishReasonSent = true;
     return null;
   }
 

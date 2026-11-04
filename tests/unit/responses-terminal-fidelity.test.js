@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { openaiResponsesToOpenAIResponse } from "../../open-sse/translator/response/openai-responses.js";
 import { extractUsage } from "../../open-sse/utils/usageTracking.js";
+import { FORMATS } from "../../open-sse/translator/formats.js";
+import { createSSETransformStreamWithLogger } from "../../open-sse/utils/stream.js";
+import { scanSSEBuffer } from "../../open-sse/services/emptyFailover.js";
 
 describe("Worker A - Tarefa 1: response.incomplete e status terminal", () => {
   const incomplete = (reason) => ({
@@ -77,5 +80,207 @@ describe("Worker A - Tarefa 1: response.incomplete e status terminal", () => {
     expect(usage).not.toBeNull();
     expect(usage.prompt_tokens).toBe(15);
     expect(usage.completion_tokens).toBe(25);
+  });
+});
+
+describe("Worker A - Tarefa 2: falha e queda viram erro de stream", () => {
+  async function runResponsesTransform(inputLines, sourceFormat = FORMATS.OPENAI) {
+    const encoder = new TextEncoder();
+    const input = Array.isArray(inputLines) ? inputLines.join("\n") : inputLines;
+    const stream = new ReadableStream({
+      start(controller) {
+        if (input) {
+          controller.enqueue(encoder.encode(input));
+        }
+        controller.close();
+      },
+    });
+
+    const output = stream.pipeThrough(
+      createSSETransformStreamWithLogger(
+        FORMATS.OPENAI_RESPONSES,
+        sourceFormat,
+        "codex",
+        null,
+        null,
+        "gpt-5.5"
+      )
+    );
+
+    const reader = output.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  }
+
+  function countDone(text) {
+    const matches = text.match(/data: \[DONE\]/g);
+    return matches ? matches.length : 0;
+  }
+
+  it("handles text delta and stream EOF without terminal as error", async () => {
+    // sourceFormat=OPENAI; delta de texto e fim do stream, sem terminal
+    const out = await runResponsesTransform([
+      "event: response.output_text.delta",
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "hello" })}`,
+      "",
+    ]);
+    expect(out).toContain('"error"');
+    expect(out).not.toContain('"finish_reason":"stop"');
+    expect(countDone(out)).toBe(1);
+  });
+
+  it("handles tool add + partial args delta and stream EOF as error", async () => {
+    // add de tool + delta '{"pa' e fim do stream
+    const out = await runResponsesTransform([
+      "event: response.output_item.added",
+      `data: ${JSON.stringify({ type: "response.output_item.added", item: { id: "fc1", type: "function_call", call_id: "c1", name: "f" } })}`,
+      "",
+      "event: response.function_call_arguments.delta",
+      `data: ${JSON.stringify({ type: "response.function_call_arguments.delta", item_id: "fc1", delta: '{"pa' })}`,
+      "",
+    ]);
+    expect(out).toContain('"error"');
+    expect(out).not.toContain('"finish_reason":"tool_calls"');
+  });
+
+  it("handles response.failed with error message without [Error] chunk or finish_reason", async () => {
+    // response.failed com error.message "boom"
+    const out = await runResponsesTransform([
+      "event: response.failed",
+      `data: ${JSON.stringify({ type: "response.failed", response: { status: "failed", error: { message: "boom" } } })}`,
+      "",
+    ]);
+    expect(out).toContain("boom");
+    expect(out).not.toContain("[Error]");
+    expect(out).not.toContain('"finish_reason"');
+
+    // Com delta anterior também não emite finish stop nem [Error]
+    const outWithDelta = await runResponsesTransform([
+      "event: response.output_text.delta",
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "hello" })}`,
+      "",
+      "event: response.failed",
+      `data: ${JSON.stringify({ type: "response.failed", response: { status: "failed", error: { message: "boom" } } })}`,
+      "",
+    ]);
+    expect(outWithDelta).toContain("boom");
+    expect(outWithDelta).not.toContain("[Error]");
+    expect(outWithDelta).not.toContain('"finish_reason":"stop"');
+  });
+
+  it("handles response.failed without error as generic error", async () => {
+    // response.failed sem error: erro genérico, não stop
+    const out = await runResponsesTransform([
+      "event: response.failed",
+      `data: ${JSON.stringify({ type: "response.failed", response: { status: "failed" } })}`,
+      "",
+    ]);
+    expect(out).toContain('"error"');
+    expect(out).not.toContain('"finish_reason"');
+    expect(out).not.toContain("[Error]");
+
+    const outWithDelta = await runResponsesTransform([
+      "event: response.output_text.delta",
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "hello" })}`,
+      "",
+      "event: response.failed",
+      `data: ${JSON.stringify({ type: "response.failed", response: { status: "failed" } })}`,
+      "",
+    ]);
+    expect(outWithDelta).toContain('"error"');
+    expect(outWithDelta).not.toContain('"finish_reason":"stop"');
+    expect(outWithDelta).not.toContain("[Error]");
+  });
+
+  it("handles event type error and suppresses duplicate response.failed", async () => {
+    // evento type:"error": igual, e response.failed logo depois não gera segundo frame
+    const out = await runResponsesTransform([
+      "event: response.output_text.delta",
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "hello" })}`,
+      "",
+      "event: error",
+      `data: ${JSON.stringify({ error: { message: "boom error" } })}`,
+      "",
+      "event: response.failed",
+      `data: ${JSON.stringify({ type: "response.failed", response: { status: "failed", error: { message: "boom error" } } })}`,
+      "",
+    ]);
+    expect(out).toContain("boom error");
+    const errorMatches = out.match(/"error"/g);
+    expect(errorMatches?.length).toBe(1);
+    expect(countDone(out)).toBe(1);
+  });
+
+  it("handles sourceFormat=CLAUDE in all three cases without end_turn or [DONE]", async () => {
+    // sourceFormat=CLAUDE: nos três casos
+    const outTruncated = await runResponsesTransform([
+      "event: response.output_text.delta",
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "hello" })}`,
+      "",
+    ], FORMATS.CLAUDE);
+    expect(outTruncated).toContain("event: error");
+    expect(outTruncated).not.toContain("end_turn");
+    expect(outTruncated).not.toContain("[DONE]");
+
+    const outFailed = await runResponsesTransform([
+      "event: response.output_text.delta",
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "hello" })}`,
+      "",
+      "event: response.failed",
+      `data: ${JSON.stringify({ type: "response.failed", response: { status: "failed", error: { message: "boom" } } })}`,
+      "",
+    ], FORMATS.CLAUDE);
+    expect(outFailed).toContain("event: error");
+    expect(outFailed).not.toContain("end_turn");
+    expect(outFailed).not.toContain("[DONE]");
+
+    const outError = await runResponsesTransform([
+      "event: response.output_text.delta",
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "hello" })}`,
+      "",
+      "event: error",
+      `data: ${JSON.stringify({ error: { message: "boom" } })}`,
+      "",
+    ], FORMATS.CLAUDE);
+    expect(outError).toContain("event: error");
+    expect(outError).not.toContain("end_turn");
+    expect(outError).not.toContain("[DONE]");
+  });
+
+  it("error before any content leaves sawContent false in scanSSEBuffer", async () => {
+    // erro sem conteúdo anterior
+    const out = await runResponsesTransform([
+      "event: response.failed",
+      `data: ${JSON.stringify({ type: "response.failed", response: { status: "failed", error: { message: "immediate failure" } } })}`,
+      "",
+    ]);
+    expect(scanSSEBuffer(out).sawContent).toBe(false);
+  });
+
+  it("normal response.completed produces finish stop and one [DONE]", async () => {
+    // response.completed normal: sem erro, finish stop, um [DONE]
+    const out = await runResponsesTransform([
+      "event: response.output_text.delta",
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "hello" })}`,
+      "",
+      "event: response.completed",
+      `data: ${JSON.stringify({ type: "response.completed", response: { status: "completed" } })}`,
+      "",
+    ]);
+    expect(out).not.toContain('"error"');
+    expect(out).toContain('"finish_reason":"stop"');
+    expect(countDone(out)).toBe(1);
+  });
+
+  it("empty stream produces current behavior with no new error", async () => {
+    // nenhum evento recebido: comportamento atual, sem erro novo
+    const out = await runResponsesTransform([]);
+    expect(out).not.toContain('"error"');
   });
 });
