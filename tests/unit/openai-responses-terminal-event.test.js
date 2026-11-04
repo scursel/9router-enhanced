@@ -80,6 +80,18 @@ describe("OpenAI Responses streaming termination", () => {
     expect(output).toContain("data: [DONE]");
   });
 
+  it("treats response.incomplete as terminal without synthesizing response.failed", async () => {
+    const output = await runTransform([
+      `event: response.incomplete`,
+      `data: ${JSON.stringify({ type: "response.incomplete", response: { id: "resp_test", status: "incomplete", incomplete_details: { reason: "max_output_tokens" } } })}`,
+      "",
+    ].join("\n"));
+
+    expect(output).toContain("event: response.incomplete");
+    expect(output).not.toContain("event: response.failed");
+    expect(output).toContain("data: [DONE]");
+  });
+
   it("emits response.failed before DONE when a Responses stream sends DONE without a terminal event", async () => {
     const output = await runTransform([
       `event: response.created`,
