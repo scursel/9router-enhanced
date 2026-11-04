@@ -5,6 +5,7 @@
 // self-inflicted combo-wide 503 (docs/orchestration/findings/T1.1.md, RH2).
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ERROR_RULES, ERROR_TYPES } from "../../open-sse/config/errorConfig.js";
 import { checkFallbackError } from "../../open-sse/services/accountFallback.js";
 
 describe("checkFallbackError — request-caused errors do not fallback (RH2)", () => {
@@ -25,8 +26,20 @@ describe("checkFallbackError — request-caused errors do not fallback (RH2)", (
     expect(checkFallbackError(status, text)).toEqual({ shouldFallback: false, cooldownMs: 0, requestScoped: true });
   });
 
-  it("401 is NOT decided here: no fallback, no lock (delegated to the token-refresh flow)", () => {
-    expect(checkFallbackError(401, "Invalid API key provided")).toEqual({ shouldFallback: false, cooldownMs: 0 });
+  it.each(["Invalid API key provided", "invalid_token", "quota exceeded", "upstream_provider_shared_pool"])(
+    "final provider 401 rotates with configured cooldown: %s", (message) => {
+      expect(checkFallbackError(401, message, 4, "openai")).toEqual({
+        shouldFallback: true, cooldownMs: ERROR_RULES.find((rule) => rule.status === 401).cooldownMs,
+      });
+    },
+  );
+
+  it("every authentication status has a positive cooldown rule", () => {
+    for (const [status, type] of Object.entries(ERROR_TYPES)) {
+      if (type.type === "authentication_error") {
+        expect(ERROR_RULES.find((rule) => rule.status === Number(status))?.cooldownMs).toBeGreaterThan(0);
+      }
+    }
   });
 
   it("429 → fallback with exponential backoff cooldown", () => {
@@ -132,10 +145,15 @@ describe("markAccountUnavailable call-site — a 400 must not lock any combo acc
     expect(dbMocks.updateProviderConnection).not.toHaveBeenCalled();
   });
 
-  it("401 does not lock the account here (refresh flow owns it)", async () => {
-    const { tried } = await simulateChatAccountLoop(401, "Invalid API key provided", "openai", "gpt-4o");
-    expect(tried).toBe(1);
-    expect(dbMocks.updateProviderConnection).not.toHaveBeenCalled();
+  it("final 401 locks each attempted account for the model", async () => {
+    const { tried, propagated } = await simulateChatAccountLoop(401, "Invalid API key provided", "openai", "gpt-4o");
+    expect(propagated).toBeNull();
+    expect(tried).toBe(2);
+    expect(dbMocks.updateProviderConnection).toHaveBeenCalledTimes(2);
+    for (const [, patch] of dbMocks.updateProviderConnection.mock.calls) {
+      expect(new Date(patch["modelLock_gpt-4o"]).getTime()).toBeGreaterThan(Date.now());
+      expect(patch.errorCode).toBe(401);
+    }
   });
 
   it("429 still falls back and locks (behavior preserved for destination errors)", async () => {

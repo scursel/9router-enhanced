@@ -1,3 +1,8 @@
+# v0.5.112-enhanced.4 (2026-11-04)
+
+- Combos: respostas legítimas com termos como "recharge", "invalid API key" e "free tier limit" deixam de ser confundidas com avisos de erro. O filtro reconhece os avisos conhecidos por assinaturas específicas e preserva respostas JSON e SSE; avisos reais continuam acionando fallback.
+- Contas: um 401 final do provedor volta a tentar outra conta do mesmo modelo antes de avançar para o próximo membro do combo. O cooldown configurado de 120 segundos é aplicado somente à conta e ao modelo que falharam; refresh OAuth e autenticação do cliente são preservados.
+
 # v0.5.112-enhanced.3 (2026-11-03)
 
 - Combo com vídeo: quando a mensagem traz vídeo e o combo tem algum modelo que lê vídeo (`videoInput`), os modelos que não leem são pulados, em vez de tentados por último. Antes, ao cair num deles, o vídeo era descartado (pelo upstream ou por executors como Copilot, chatgpt-web, muse-web e qoder) e o modelo respondia "não recebi o vídeo" com 200, encerrando o combo com a resposta errada. Combos aninhados continuam na lista (filtram os próprios membros). Se nenhum membro lê vídeo, nada muda. Uma `image_url` com `data:video/*` agora conta como vídeo, não como imagem, na escolha do modelo. Imagem, PDF e áudio continuam só reordenando.

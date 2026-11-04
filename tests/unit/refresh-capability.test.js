@@ -69,6 +69,36 @@ describe("chatCore — 401/403 refresh gated by executor.canRefreshCredentials",
     refreshMock.mockResolvedValue(null);
   });
 
+  it("successful 401 refresh stays on the same account", async () => {
+    canRefreshMock.mockReturnValue(true);
+    refreshMock.mockResolvedValue({ accessToken: "AT-fresh", refreshToken: "RT-fresh" });
+    executeMock.mockImplementation(async ({ credentials }) => ({
+      response: credentials.accessToken === "AT-fresh"
+        ? new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "fresh answer" }, finish_reason: "stop" }] }), { headers: { "content-type": "application/json" } })
+        : new Response(JSON.stringify({ error: { message: "invalid_token" } }), { status: 401, headers: { "content-type": "application/json" } }),
+      url: "https://provider.test/chat", headers: {}, transformedBody: null,
+    }));
+    const args = chatArgs({ accessToken: "AT-stale", refreshToken: "RT-stale", connectionId: "refresh-success" });
+    args.connectionId = "refresh-success";
+    args.onCredentialsRefreshed = vi.fn();
+    const result = await handleChatCore(args);
+    expect(result.success).toBe(true);
+    expect(result.response.status).toBe(200);
+    expect(executeMock).toHaveBeenCalledTimes(2);
+    expect(refreshMock).toHaveBeenCalledTimes(1);
+    expect(args.onCredentialsRefreshed).toHaveBeenCalledWith(expect.objectContaining({ accessToken: "AT-fresh" }), { model: "glm" });
+  });
+
+  it("API-key 401 is final without refresh", async () => {
+    canRefreshMock.mockReturnValue(false);
+    executeMock.mockImplementation(async () => ({ response: new Response(JSON.stringify({ error: { message: "invalid_token" } }), { status: 401, headers: { "content-type": "application/json" } }), url: "https://provider.test/chat", headers: {}, transformedBody: null }));
+    const result = await handleChatCore(chatArgs({ apiKey: "k", connectionId: "api-key-401" }));
+    expect(result.success).toBe(false);
+    expect(result.status).toBe(401);
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
   it("skips the refresh (and its backoff) when the executor cannot refresh these credentials", async () => {
     canRefreshMock.mockReturnValue(false);
     const t0 = Date.now();

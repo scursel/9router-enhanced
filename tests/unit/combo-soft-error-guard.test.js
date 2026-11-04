@@ -54,14 +54,27 @@ describe("detectSoftError", () => {
     expect(detectSoftError("Batteries that are rechargeable last longer.")).toBeNull();
   });
 
+  it.each([
+    "Recharge your phone and then restart it.",
+    "The message invalid API key means that authentication failed.",
+    "The free tier limit is a cap on free usage.",
+    "To prevent abuse, applications can validate user input.",
+    "An insufficient balance means the account needs more money.",
+    "Quota exceeded is a message you can show in the settings page.",
+    "请充值是提示用户增加余额的一种说法。",
+  ])("keeps legitimate text: %s", (text) => {
+    expect(detectSoftError(text)).toBeNull();
+  });
+
   it("only looks at the lead of a long or partial answer", () => {
     const long = "Here is a long answer. ".repeat(20) + "Your quota exceeded yesterday.";
     expect(detectSoftError(long)).toBeNull();
-    expect(detectSoftError("Error: quota exceeded for this key. " + "x ".repeat(200))).toMatchObject({ pattern: "quota exceeded" });
+    expect(detectSoftError("Error: quota exceeded for this key. " + "x ".repeat(200))).toBeNull();
     // Partial read (stream still going): only the lead counts, even if short so far.
     const partial = "A perfectly normal opening sentence that keeps going, and then: insufficient balance";
     expect(detectSoftError(partial, { complete: false })).toBeNull();
-    expect(detectSoftError(partial, { complete: true })).toMatchObject({ pattern: "insufficient balance" });
+    expect(detectSoftError(partial, { complete: true })).toBeNull();
+    expect(detectSoftError(HB_NOTICE, { complete: false })).toMatchObject({ pattern: "prevent abuse" });
   });
 
   it("matches the Chinese notices", () => {
@@ -103,6 +116,26 @@ describe("inspectSoftError", () => {
     const response = chatStream("Sorry, to prevent ", "abuse of free resources, accounts that have not been recharged.");
     expect(await inspectSoftError(response)).toMatchObject({ pattern: "prevent abuse" });
     expect(await response.text()).toContain("abuse of free resources");
+  });
+
+  it.each([
+    "Recharge your phone and then restart it.",
+    "The message invalid API key means that authentication failed.",
+    "The free tier limit is a cap on free usage.",
+  ])("keeps legitimate JSON and SSE readable: %s", async (text) => {
+    const jsonResponse = chatJson(text);
+    expect(await inspectSoftError(jsonResponse)).toBeNull();
+    expect((await jsonResponse.json()).choices[0].message.content).toBe(text);
+    const streamResponse = chatStream(text.slice(0, 9), text.slice(9));
+    expect(await inspectSoftError(streamResponse)).toBeNull();
+    expect(await streamResponse.text()).toContain(text.slice(9));
+  });
+
+  it("recognizes aihubmix when its signature crosses the old SSE peek boundary", async () => {
+    const pieces = HB_NOTICE.match(/.{1,8}/g);
+    const response = chatStream(...pieces);
+    expect(await inspectSoftError(response)).toMatchObject({ pattern: "prevent abuse" });
+    expect(await response.text()).toContain('"content":"Sorry, t"');
   });
 
   it("SSE: a normal answer is released after the lead, without waiting for the end", async () => {
@@ -152,6 +185,30 @@ describe("handleComboChat with the soft-error policy", () => {
     expect(tried).toEqual(["Hb/notice-free", "good/model"]);
     expect(await response.text()).toContain("Olá!");
     expect(noticeStream.wasCancelled, "the skipped upstream stream is released").toBe(true);
+  });
+
+  it.each([false, true])("keeps a valid 200 before a backup 503; stream=%s", async (stream) => {
+    const tried = [];
+    const text = "Recharge your phone and then restart it.";
+    const response = await handleComboChat({
+      body: { messages: [], stream },
+      models: ["openai/primary", "glm/backup"],
+      comboName: "valid-before-503",
+      comboStrategy: "fallback",
+      autoSwitch: false,
+      log,
+      shouldContinueOnSuccess: createSoftErrorContinuePolicy({ log }),
+      handleSingleModel: async (_body, model) => {
+        tried.push(model);
+        if (model === "openai/primary") return stream ? chatStream(text) : chatJson(text);
+        return new Response(JSON.stringify({ error: { message: "offline unavailable" } }), {
+          status: 503, headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain(text);
+    expect(tried).toEqual(["openai/primary"]);
   });
 
   it("when every member answers with a notice, the last one is returned (no worse than before)", async () => {

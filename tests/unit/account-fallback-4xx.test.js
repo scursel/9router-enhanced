@@ -18,10 +18,8 @@ describe("checkFallbackError — request-scoped vs account-scoped failures", () 
     expect(result).toEqual({ shouldFallback: false, cooldownMs: 0, requestScoped: true });
   });
 
-  // 401 is absent on purpose: the fork delegates it to the token-refresh flow
-  // (see f25-checkfallback-classification.test.js), so it never locks here.
   it("still falls back for account-scoped statuses", () => {
-    for (const status of [402, 403, 404, 429]) {
+    for (const status of [401, 402, 403, 404, 429]) {
       expect(checkFallbackError(status, "nope").shouldFallback).toBe(true);
     }
   });

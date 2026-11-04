@@ -24,10 +24,9 @@ const REQUEST_ERROR_STATUSES = new Set([
 ]);
 
 /**
- * Auth statuses (derived from ERROR_TYPES `authentication_error`). A 401 is
- * decided by the token-refresh flow in chatCore/handlers (refresh + retry),
- * never by locking the whole account here: an expired access token must not
- * take the combo down (RH2 — `if (!shouldFallback)` in auth.js was dead code).
+ * Auth statuses (derived from ERROR_TYPES `authentication_error`). chatCore
+ * refreshes and retries first; a failure reaching this classifier is final for
+ * the current credential and can rotate to a sibling account.
  */
 const AUTH_ERROR_STATUSES = new Set(
   Object.entries(ERROR_TYPES)
@@ -69,8 +68,8 @@ export function getQuotaCooldown(backoffLevel = 0) {
  * Config-driven: matches ERROR_RULES top-to-bottom (text rules first, then status)
  *
  * Classification (RH2 fix), in priority order:
- *  1. Auth statuses (401) → shouldFallback:false, cooldownMs:0: credential
- *     refresh is decided upstream (chatCore refresh flow), not by locking here.
+ *  1. Final upstream auth failures (401) → rotate with configured cooldown;
+ *     credential refresh has already been attempted by chatCore.
  *  2. Request-caused statuses (REQUEST_ERROR_STATUSES: 400/406/413/422) → same
  *     non-locking answer — deterministic client errors: every account returns
  *     the same error, so fallback would only self-DoS the combo. Exception:
@@ -92,7 +91,7 @@ export function getQuotaCooldown(backoffLevel = 0) {
  * validation 400 means the credential is healthy but this member cannot serve
  * this request, so combo rotation must still try the next member. Emitted for
  * the REQUEST_ERROR_STATUSES gate and for any other unmatched request-scoped 4xx;
- * never for 401 (auth, owned by the refresh flow).
+ * never for 401 (a final upstream authentication failure).
  *
  * `applyCooldownOnly` asks the caller to record the cooldown without rotating to
  * another account: the failure was not this credential's fault and every sibling
@@ -102,12 +101,11 @@ export function getQuotaCooldown(backoffLevel = 0) {
  * (rotate and lock).
  */
 export function checkFallbackError(status, errorText, backoffLevel = 0, provider = null) {
-  // Request-caused error: propagate immediately, no account fallback, no lock.
-  // Checked before text rules because the HTTP status is the authoritative
-  // origin signal (text substrings are heuristics that can co-occur with 4xx).
+  // Final auth status wins over message heuristics after refresh has completed.
   const code = Number.isFinite(Number(status)) ? Number(status) : null;
   if (code !== null && AUTH_ERROR_STATUSES.has(code)) {
-    return { shouldFallback: false, cooldownMs: 0 };
+    const authRule = ERROR_RULES.find((rule) => rule.status === code);
+    return { shouldFallback: true, cooldownMs: authRule.cooldownMs };
   }
 
   // A literal 404 keeps its historical answer (fallback + per-model 2-minute
@@ -217,8 +215,8 @@ export function checkFallbackError(status, errorText, backoffLevel = 0, provider
   // ("all 1 accounts locked for <model> | lastError=[400]: ..."), which hides the
   // real cause from the caller and makes unrelated sessions look like they hit the
   // same limit. Hand the upstream error back for this request instead.
-  // Account-scoped statuses keep their rules above (402/403/404/429; 401 is left
-  // to the refresh flow at the top), and the text rules still win for
+  // Account-scoped statuses keep their rules above (401/402/403/404/429),
+  // and the text rules still win for
   // rate-limit / quota / capacity wording.
   if (status >= 400 && status < 500 && status !== 401 && status !== 402 && status !== 403 && status !== 429) {
     return { shouldFallback: false, cooldownMs: 0, requestScoped: true };
