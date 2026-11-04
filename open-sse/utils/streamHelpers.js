@@ -184,9 +184,20 @@ export function formatSSE(data, sourceFormat) {
 export function buildStreamErrorBytes(statusCode, message, clientFormat) {
   const { error } = buildErrorBody(statusCode, message);
 
-  const sse = clientFormat === FORMATS.CLAUDE
-    ? formatSSE({ type: "error", error }, FORMATS.CLAUDE)
-    : formatSSE({ error }, clientFormat) + SSE_DONE;
+  const isGeminiFamily =
+    clientFormat === FORMATS.GEMINI ||
+    clientFormat === FORMATS.GEMINI_CLI ||
+    clientFormat === FORMATS.ANTIGRAVITY ||
+    clientFormat === FORMATS.VERTEX;
+
+  let sse;
+  if (clientFormat === FORMATS.CLAUDE) {
+    sse = formatSSE({ type: "error", error }, FORMATS.CLAUDE);
+  } else if (isGeminiFamily) {
+    sse = formatSSE({ error }, clientFormat);
+  } else {
+    sse = formatSSE({ error }, clientFormat) + SSE_DONE;
+  }
 
   return sharedEncoder.encode(sse);
 }

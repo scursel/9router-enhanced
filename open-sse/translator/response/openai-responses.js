@@ -504,6 +504,22 @@ function computeFinishReason(state) {
     : OPENAI_FINISH.STOP;
 }
 
+function findToolChatIndex(state, item, dataItemId) {
+  if (!state.respToolChatIndex) return undefined;
+  if (item?.id && state.respToolChatIndex.has(item.id)) return state.respToolChatIndex.get(item.id);
+  if (dataItemId && state.respToolChatIndex.has(dataItemId)) return state.respToolChatIndex.get(dataItemId);
+  if (item?.call_id && state.respToolChatIndex.has(item.call_id)) return state.respToolChatIndex.get(item.call_id);
+  return undefined;
+}
+
+function registerToolChatIndex(state, idx, item, dataItemId, callId) {
+  state.respToolChatIndex ??= new Map();
+  if (item?.id) state.respToolChatIndex.set(item.id, idx);
+  if (dataItemId) state.respToolChatIndex.set(dataItemId, idx);
+  if (item?.call_id) state.respToolChatIndex.set(item.call_id, idx);
+  if (callId) state.respToolChatIndex.set(callId, idx);
+}
+
 function recoverOutputItem(item, state) {
   if (!item || typeof item !== "object") return [];
   const chunks = [];
@@ -513,6 +529,7 @@ function recoverOutputItem(item, state) {
     state.respTextItems ??= new Set();
     if (state.respTextAnonymous) return [];
     if (item.id && state.respTextItems.has(item.id)) return [];
+    if (!item.id && state.respTextAnonymousRecovered) return [];
 
     let text = "";
     if (Array.isArray(item.content)) {
@@ -528,6 +545,8 @@ function recoverOutputItem(item, state) {
 
     if (item.id) {
       state.respTextItems.add(item.id);
+    } else {
+      state.respTextAnonymousRecovered = true;
     }
 
     if (text) {
@@ -558,9 +577,9 @@ function recoverOutputItem(item, state) {
           : (typeof item.arguments === "string" ? item.arguments : "{}"))
       : (typeof item.arguments === "string" ? item.arguments : "{}");
 
-    const key = item.id || item.call_id;
-    if (key && state.respToolChatIndex.has(key)) {
-      const idx = state.respToolChatIndex.get(key);
+    const idx = findToolChatIndex(state, item);
+    if (idx !== undefined) {
+      registerToolChatIndex(state, idx, item);
       if (!state.respToolArgsEmitted.has(idx) && rawArgs) {
         state.respToolArgsEmitted.add(idx);
         chunks.push(
@@ -573,17 +592,16 @@ function recoverOutputItem(item, state) {
     } else {
       const callId = item.call_id || fallbackToolCallId();
       state.currentToolCallId = callId;
-      const idx = state.toolCallIndex++;
-      if (key) state.respToolChatIndex.set(key, idx);
-      state.respToolChatIndex.set(callId, idx);
-      state.respToolArgsEmitted.add(idx);
+      const newIdx = state.toolCallIndex++;
+      registerToolChatIndex(state, newIdx, item, undefined, callId);
+      state.respToolArgsEmitted.add(newIdx);
 
       chunks.push(
         buildChunk(
           { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
           {
             tool_calls: [{
-              index: idx,
+              index: newIdx,
               id: callId,
               type: OPENAI_BLOCK.FUNCTION,
               function: { name: item.name || "", arguments: rawArgs }
@@ -685,15 +703,11 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
   if (eventType === "response.output_item.added" && (data.item?.type === RESPONSES_ITEM.FUNCTION_CALL || data.item?.type === "custom_tool_call")) {
     const item = data.item;
     state.currentToolCallId = item.call_id || fallbackToolCallId();
-    state.respToolChatIndex ??= new Map();
-    const key = item.id || data.item_id || state.currentToolCallId;
-    let idx;
-    if (key && state.respToolChatIndex.has(key)) {
-      idx = state.respToolChatIndex.get(key); // duplicate added (retry) — reuse
-    } else {
+    let idx = findToolChatIndex(state, item, data.item_id);
+    if (idx === undefined) {
       idx = state.toolCallIndex++;
-      if (key) state.respToolChatIndex.set(key, idx);
     }
+    registerToolChatIndex(state, idx, item, data.item_id, state.currentToolCallId);
 
     return buildChunk(
       { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
@@ -714,7 +728,7 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     const argsDelta = data.delta || "";
     if (!argsDelta) return null;
 
-    const known = data.item_id ? state.respToolChatIndex?.get(data.item_id) : undefined;
+    const known = findToolChatIndex(state, null, data.item_id);
     const idx = known ?? Math.max(0, (state.toolCallIndex || 1) - 1);
     state.respToolArgsEmitted ??= new Set();
     state.respToolArgsEmitted.add(idx);
@@ -734,19 +748,25 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
   }
 
   // Function call done (standard or custom_tool_call variant).
-  // Index was assigned at added-time; nothing to advance. Some upstreams send
-  // complete arguments only here (no deltas) — emit them once in that case.
   if (eventType === "response.output_item.done" && (data.item?.type === RESPONSES_ITEM.FUNCTION_CALL || data.item?.type === "custom_tool_call")) {
-    const key = data.item?.id || data.item_id;
-    const idx = (key && state.respToolChatIndex?.get(key)) ?? Math.max(0, (state.toolCallIndex || 1) - 1);
+    const knownIdx = findToolChatIndex(state, data.item, data.item_id);
+    if (knownIdx === undefined) {
+      const recovered = recoverOutputItem(data.item, state);
+      if (recovered.length > 0) {
+        return recovered.length === 1 ? recovered[0] : recovered;
+      }
+      return null;
+    }
+
+    registerToolChatIndex(state, knownIdx, data.item, data.item_id);
     const fullArgs = data.item?.arguments;
     if (typeof fullArgs === "string" && fullArgs) {
       state.respToolArgsEmitted ??= new Set();
-      if (!state.respToolArgsEmitted.has(idx)) {
-        state.respToolArgsEmitted.add(idx);
+      if (!state.respToolArgsEmitted.has(knownIdx)) {
+        state.respToolArgsEmitted.add(knownIdx);
         return buildChunk(
           { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
-          { tool_calls: [{ index: idx, function: { arguments: fullArgs } }] }
+          { tool_calls: [{ index: knownIdx, function: { arguments: fullArgs } }] }
         );
       }
     }
