@@ -284,3 +284,208 @@ describe("Worker A - Tarefa 2: falha e queda viram erro de stream", () => {
     expect(out).not.toContain('"error"');
   });
 });
+
+describe("Worker A - Tarefa 3: recuperar saída que veio sem delta", () => {
+  const msg = (id, text) => ({
+    id,
+    type: "message",
+    role: "assistant",
+    content: [{ type: "output_text", text }],
+  });
+  const call = {
+    id: "fc1",
+    type: "function_call",
+    call_id: "c1",
+    name: "f",
+    arguments: '{"a":1}',
+  };
+
+  function runChunks(events) {
+    const state = {};
+    const chunks = [];
+    for (const ev of events) {
+      const res = openaiResponsesToOpenAIResponse(ev, state);
+      if (Array.isArray(res)) chunks.push(...res);
+      else if (res) chunks.push(res);
+    }
+    return { state, chunks };
+  }
+
+  it("recovers message only from completed.output: text 'oi' then finish stop", () => {
+    const { chunks } = runChunks([
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [msg("m1", "oi")],
+        },
+      },
+    ]);
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0].choices[0].delta.content).toBe("oi");
+    expect(chunks[1].choices[0].finish_reason).toBe("stop");
+  });
+
+  it("recovers call only from completed.output: tool_calls id c1, name f, args '{\"a\":1}', finish tool_calls", () => {
+    const { chunks } = runChunks([
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [call],
+        },
+      },
+    ]);
+    expect(chunks).toHaveLength(2);
+    const tc = chunks[0].choices[0].delta.tool_calls[0];
+    expect(tc.id).toBe("c1");
+    expect(tc.function.name).toBe("f");
+    expect(tc.function.arguments).toBe('{"a":1}');
+    expect(chunks[1].choices[0].finish_reason).toBe("tool_calls");
+  });
+
+  it("preserves ordering of msg + call: text, tool, finish", () => {
+    const { chunks } = runChunks([
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [msg("m1", "oi"), call],
+        },
+      },
+    ]);
+    expect(chunks).toHaveLength(3);
+    expect(chunks[0].choices[0].delta.content).toBe("oi");
+    expect(chunks[1].choices[0].delta.tool_calls[0].id).toBe("c1");
+    expect(chunks[2].choices[0].finish_reason).toBe("tool_calls");
+  });
+
+  it("recovers from output_item.done with msg, completed with empty output does not duplicate", () => {
+    const { chunks } = runChunks([
+      {
+        type: "response.output_item.done",
+        item: msg("m1", "oi"),
+      },
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [],
+        },
+      },
+    ]);
+    const texts = chunks.filter((c) => c.choices[0].delta.content).map((c) => c.choices[0].delta.content);
+    expect(texts).toEqual(["oi"]);
+    expect(chunks[chunks.length - 1].choices[0].finish_reason).toBe("stop");
+  });
+
+  it("does not duplicate text when deltas 'o','i' were sent and completed.output repeats msg", () => {
+    const { chunks } = runChunks([
+      { type: "response.output_text.delta", item_id: "m1", delta: "o" },
+      { type: "response.output_text.delta", item_id: "m1", delta: "i" },
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [msg("m1", "oi")],
+        },
+      },
+    ]);
+    const texts = chunks.filter((c) => c.choices[0].delta.content).map((c) => c.choices[0].delta.content);
+    expect(texts.join("")).toBe("oi");
+  });
+
+  it("does not duplicate call when transmitted via added+delta and repeated in completed.output", () => {
+    const { chunks } = runChunks([
+      {
+        type: "response.output_item.added",
+        item: { id: "fc1", type: "function_call", call_id: "c1", name: "f" },
+      },
+      {
+        type: "response.function_call_arguments.delta",
+        item_id: "fc1",
+        delta: '{"a":1}',
+      },
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [call],
+        },
+      },
+    ]);
+    let totalArgs = "";
+    let callCount = 0;
+    for (const c of chunks) {
+      for (const tc of c.choices?.[0]?.delta?.tool_calls || []) {
+        if (tc.id) callCount++;
+        if (tc.function?.arguments) totalArgs += tc.function.arguments;
+      }
+    }
+    expect(callCount).toBe(1);
+    expect(totalArgs).toBe('{"a":1}');
+  });
+
+  it("recovers custom_tool_call with input in completed.output as args = input", () => {
+    const customCall = {
+      id: "ctc1",
+      type: "custom_tool_call",
+      call_id: "c_custom",
+      name: "custom_tool",
+      input: '{"key":"val"}',
+    };
+    const { chunks } = runChunks([
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [customCall],
+        },
+      },
+    ]);
+    expect(chunks).toHaveLength(2);
+    const tc = chunks[0].choices[0].delta.tool_calls[0];
+    expect(tc.id).toBe("c_custom");
+    expect(tc.function.name).toBe("custom_tool");
+    expect(tc.function.arguments).toBe('{"key":"val"}');
+  });
+
+  it("does not turn refusal or reasoning content types into text", () => {
+    const nonTextMsg = {
+      id: "m_refusal",
+      type: "message",
+      role: "assistant",
+      content: [
+        { type: "refusal", refusal: "cannot assist" },
+        { type: "reasoning", text: "internal chain" },
+      ],
+    };
+    const { chunks } = runChunks([
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [nonTextMsg],
+        },
+      },
+    ]);
+    const textChunks = chunks.filter((c) => c.choices[0].delta.content);
+    expect(textChunks).toHaveLength(0);
+    expect(chunks[0].choices[0].finish_reason).toBe("stop");
+  });
+
+  it("does not recover text if anonymous text deltas were seen", () => {
+    const { chunks } = runChunks([
+      { type: "response.output_text.delta", delta: "anon" },
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [msg("m1", "more text")],
+        },
+      },
+    ]);
+    const texts = chunks.filter((c) => c.choices[0].delta.content).map((c) => c.choices[0].delta.content);
+    expect(texts).toEqual(["anon"]);
+  });
+});

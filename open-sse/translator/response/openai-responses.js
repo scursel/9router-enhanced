@@ -504,6 +504,100 @@ function computeFinishReason(state) {
     : OPENAI_FINISH.STOP;
 }
 
+function recoverOutputItem(item, state) {
+  if (!item || typeof item !== "object") return [];
+  const chunks = [];
+
+  // Message item
+  if (item.type === RESPONSES_ITEM.MESSAGE || item.type === "message") {
+    state.respTextItems ??= new Set();
+    if (state.respTextAnonymous) return [];
+    if (item.id && state.respTextItems.has(item.id)) return [];
+
+    let text = "";
+    if (Array.isArray(item.content)) {
+      for (const part of item.content) {
+        if (!part || typeof part !== "object") continue;
+        if (part.type === RESPONSES_ITEM.OUTPUT_TEXT || part.type === "output_text") {
+          if (typeof part.text === "string") {
+            text += part.text;
+          }
+        }
+      }
+    }
+
+    if (item.id) {
+      state.respTextItems.add(item.id);
+    }
+
+    if (text) {
+      chunks.push(
+        buildChunk(
+          { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
+          { content: text }
+        )
+      );
+    }
+    return chunks;
+  }
+
+  // Tool items: function_call or custom_tool_call
+  if (
+    item.type === RESPONSES_ITEM.FUNCTION_CALL ||
+    item.type === "function_call" ||
+    item.type === RESPONSES_ITEM.CUSTOM_TOOL_CALL ||
+    item.type === "custom_tool_call"
+  ) {
+    state.respToolChatIndex ??= new Map();
+    state.respToolArgsEmitted ??= new Set();
+
+    const isCustom = item.type === RESPONSES_ITEM.CUSTOM_TOOL_CALL || item.type === "custom_tool_call";
+    const rawArgs = isCustom
+      ? (item.input !== undefined
+          ? (typeof item.input === "string" ? item.input : JSON.stringify(item.input))
+          : (typeof item.arguments === "string" ? item.arguments : "{}"))
+      : (typeof item.arguments === "string" ? item.arguments : "{}");
+
+    const key = item.id || item.call_id;
+    if (key && state.respToolChatIndex.has(key)) {
+      const idx = state.respToolChatIndex.get(key);
+      if (!state.respToolArgsEmitted.has(idx) && rawArgs) {
+        state.respToolArgsEmitted.add(idx);
+        chunks.push(
+          buildChunk(
+            { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
+            { tool_calls: [{ index: idx, function: { arguments: rawArgs } }] }
+          )
+        );
+      }
+    } else {
+      const callId = item.call_id || fallbackToolCallId();
+      state.currentToolCallId = callId;
+      const idx = state.toolCallIndex++;
+      if (key) state.respToolChatIndex.set(key, idx);
+      state.respToolChatIndex.set(callId, idx);
+      state.respToolArgsEmitted.add(idx);
+
+      chunks.push(
+        buildChunk(
+          { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
+          {
+            tool_calls: [{
+              index: idx,
+              id: callId,
+              type: OPENAI_BLOCK.FUNCTION,
+              function: { name: item.name || "", arguments: rawArgs }
+            }]
+          }
+        )
+      );
+    }
+    return chunks;
+  }
+
+  return chunks;
+}
+
 /**
  * Translate OpenAI Responses API chunk to OpenAI Chat Completions format
  * This is for when Codex returns data and we need to send it to an OpenAI-compatible client
@@ -565,6 +659,13 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     const delta = data.delta || "";
     if (!delta) return null;
 
+    state.respTextItems ??= new Set();
+    if (data.item_id) {
+      state.respTextItems.add(data.item_id);
+    } else {
+      state.respTextAnonymous = true;
+    }
+
     return buildChunk(
       { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
       { content: delta }
@@ -623,6 +724,15 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     );
   }
 
+  // Message done (standard message output_item.done)
+  if (eventType === "response.output_item.done" && (data.item?.type === RESPONSES_ITEM.MESSAGE || data.item?.type === "message")) {
+    const recovered = recoverOutputItem(data.item, state);
+    if (recovered.length > 0) {
+      return recovered.length === 1 ? recovered[0] : recovered;
+    }
+    return null;
+  }
+
   // Function call done (standard or custom_tool_call variant).
   // Index was assigned at added-time; nothing to advance. Some upstreams send
   // complete arguments only here (no deltas) — emit them once in that case.
@@ -657,6 +767,14 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
       state.error = error;
       state.finishReasonSent = true;
       return null;
+    }
+
+    const recovered = [];
+    if (Array.isArray(data.response?.output)) {
+      for (const item of data.response.output) {
+        const rec = recoverOutputItem(item, state);
+        if (rec.length > 0) recovered.push(...rec);
+      }
     }
 
     // Extract usage from response event
@@ -694,9 +812,9 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
         finalChunk.usage = state.usage;
       }
       
-      return finalChunk;
+      return recovered.length > 0 ? [...recovered, finalChunk] : finalChunk;
     }
-    return null;
+    return recovered.length > 0 ? recovered : null;
   }
 
   // Error events from Responses API (e.g. model_not_found)
