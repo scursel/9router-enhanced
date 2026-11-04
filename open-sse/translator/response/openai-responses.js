@@ -8,7 +8,7 @@ import { buildChunk } from "../concerns/chunk.js";
 import { buildUsage } from "../concerns/usage.js";
 import { fallbackToolCallId } from "../concerns/toolCall.js";
 import { reasoningDelta, extractReasoningText } from "../concerns/reasoning.js";
-import { ROLE, OPENAI_BLOCK, RESPONSES_ITEM, OPENAI_FINISH, MODEL_FALLBACK } from "../schema/index.js";
+import { ROLE, OPENAI_BLOCK, RESPONSES_ITEM, OPENAI_FINISH, MODEL_FALLBACK, RESPONSES_STATUS, RESPONSES_INCOMPLETE_FINISH } from "../schema/index.js";
 
 /**
  * Translate OpenAI chunk to Responses API events
@@ -633,9 +633,25 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     return null;
   }
 
-  // Response completed
-  if (eventType === "response.completed" || eventType === "response.done") {
-    // Extract usage from response.completed event
+  // Response completed / done / incomplete
+  if (eventType === "response.completed" || eventType === "response.done" || eventType === "response.incomplete") {
+    state.respTerminalSeen = true;
+
+    const status = data.response?.status || (eventType === "response.incomplete" ? RESPONSES_STATUS.INCOMPLETE : RESPONSES_STATUS.COMPLETED);
+
+    if (status === RESPONSES_STATUS.FAILED) {
+      if (state.finishReasonSent) return null;
+      const error = data.error || data.response?.error;
+      state.error = error;
+      state.finishReasonSent = true;
+      return buildChunk(
+        { id: state.chatId || `chatcmpl-${Date.now()}`, created: state.created || Math.floor(Date.now() / 1000), model: state.model || MODEL_FALLBACK },
+        { content: `[Error] ${error?.message || JSON.stringify(error) || "Upstream response failed"}` },
+        OPENAI_FINISH.STOP
+      );
+    }
+
+    // Extract usage from response event
     const responseUsage = data.response?.usage;
     if (responseUsage && typeof responseUsage === "object") {
       const inputTokens = responseUsage.input_tokens || responseUsage.prompt_tokens || 0;
@@ -648,7 +664,13 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     }
     
     if (!state.finishReasonSent) {
-      const finishReason = computeFinishReason(state);
+      let finishReason;
+      if (status === RESPONSES_STATUS.INCOMPLETE) {
+        const reason = data.response?.incomplete_details?.reason;
+        finishReason = RESPONSES_INCOMPLETE_FINISH[reason] ?? OPENAI_FINISH.LENGTH;
+      } else {
+        finishReason = computeFinishReason(state);
+      }
 
       state.finishReasonSent = true;
       state.finishReason = finishReason; // Mark for usage injection in stream.js
@@ -671,6 +693,7 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
 
   // Error events from Responses API (e.g. model_not_found)
   if (eventType === "error" || eventType === "response.failed") {
+    state.respTerminalSeen = true;
     // Avoid emitting duplicate errors (error + response.failed arrive back-to-back)
     if (state.finishReasonSent) return null;
 
