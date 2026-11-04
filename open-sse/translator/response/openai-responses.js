@@ -529,7 +529,6 @@ function recoverOutputItem(item, state) {
     state.respTextItems ??= new Set();
     if (state.respTextAnonymous) return [];
     if (item.id && state.respTextItems.has(item.id)) return [];
-    if (!item.id && state.respTextAnonymousRecovered) return [];
 
     let text = "";
     if (Array.isArray(item.content)) {
@@ -546,7 +545,11 @@ function recoverOutputItem(item, state) {
     if (item.id) {
       state.respTextItems.add(item.id);
     } else {
-      state.respTextAnonymousRecovered = true;
+      // No id to correlate: the same text can arrive in output_item.done and again in
+      // response.completed, while distinct id-less messages must all be kept.
+      state.respAnonymousTexts ??= new Set();
+      if (state.respAnonymousTexts.has(text)) return [];
+      state.respAnonymousTexts.add(text);
     }
 
     if (text) {
@@ -749,7 +752,11 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
 
   // Function call done (standard or custom_tool_call variant).
   if (eventType === "response.output_item.done" && (data.item?.type === RESPONSES_ITEM.FUNCTION_CALL || data.item?.type === "custom_tool_call")) {
-    const knownIdx = findToolChatIndex(state, data.item, data.item_id);
+    let knownIdx = findToolChatIndex(state, data.item, data.item_id);
+    // An item with no id and no name cannot start a call: it closes the current one.
+    if (knownIdx === undefined && !data.item.name && state.toolCallIndex > 0) {
+      knownIdx = state.toolCallIndex - 1;
+    }
     if (knownIdx === undefined) {
       const recovered = recoverOutputItem(data.item, state);
       if (recovered.length > 0) {

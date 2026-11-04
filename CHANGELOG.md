@@ -1,3 +1,11 @@
+# Unreleased
+
+- Responses (Codex e afins): resposta cortada ou filtrada (`response.incomplete`) agora chega como `length` ou `content_filter`, em vez de `stop`. No caminho Responses→Responses, esse evento deixa de ganhar um `response.failed` extra.
+- Responses: `response.failed`, evento `error` e stream que termina sem evento final agora chegam ao cliente como erro. Antes viravam fim normal, com texto `[Error] …` ou com argumentos de ferramenta cortados. Sem stream, retornam 502.
+- Responses: texto e chamadas de ferramenta que vêm só em `output_item.done` ou `response.completed.output` deixam de se perder, sem duplicar o que já foi transmitido.
+- Clientes Gemini e Antigravity: a mensagem de erro de stream não termina mais com `[DONE]`.
+- Segurança: `maskSensitiveHeaders` volta a mascarar credenciais nos logs de requisição (`ENABLE_REQUEST_LOGS`). O valor inteiro vira `<redacted>`.
+
 # v0.5.112-enhanced.4 (2026-11-04)
 
 - Combos: respostas legítimas com termos como "recharge", "invalid API key" e "free tier limit" deixam de ser confundidas com avisos de erro. O filtro reconhece os avisos conhecidos por assinaturas específicas e preserva respostas JSON e SSE; avisos reais continuam acionando fallback.

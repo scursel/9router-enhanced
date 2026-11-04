@@ -647,3 +647,23 @@ describe("Worker A - Tarefa 3: recuperar saída que veio sem delta", () => {
     expect(texts.join("")).toBe("oi");
   });
 });
+
+describe("id-less messages in response.completed", () => {
+  it("keeps distinct messages that have no id", () => {
+    const state = {};
+    const message = (text) => ({ type: "message", content: [{ type: "output_text", text }] });
+    const chunks = openaiResponsesToOpenAIResponse({ type: "response.completed", response: { status: "completed", output: [message("oi"), message("tchau")] } }, state);
+    const text = chunks.map((chunk) => chunk.choices?.[0]?.delta?.content || "").join("");
+    expect(text).toBe("oitchau");
+  });
+});
+
+describe("output_item.done without identifiers", () => {
+  it("closes the current call instead of creating an empty one", () => {
+    const state = {};
+    openaiResponsesToOpenAIResponse({ type: "response.output_item.added", item: { type: "function_call", call_id: "c1", name: "f" } }, state);
+    openaiResponsesToOpenAIResponse({ type: "response.function_call_arguments.delta", delta: "{}" }, state);
+    expect(openaiResponsesToOpenAIResponse({ type: "response.output_item.done", item: { type: "function_call" } }, state)).toBeNull();
+    expect(state.toolCallIndex).toBe(1);
+  });
+});
