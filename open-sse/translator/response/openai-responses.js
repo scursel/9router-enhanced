@@ -8,7 +8,8 @@ import { buildChunk } from "../concerns/chunk.js";
 import { buildUsage } from "../concerns/usage.js";
 import { fallbackToolCallId } from "../concerns/toolCall.js";
 import { reasoningDelta, extractReasoningText } from "../concerns/reasoning.js";
-import { ROLE, OPENAI_BLOCK, RESPONSES_ITEM, OPENAI_FINISH, MODEL_FALLBACK } from "../schema/index.js";
+import { ROLE, OPENAI_BLOCK, RESPONSES_ITEM, OPENAI_FINISH, MODEL_FALLBACK, RESPONSES_STATUS, RESPONSES_INCOMPLETE_FINISH } from "../schema/index.js";
+import { HTTP_STATUS } from "../../config/runtimeConfig.js";
 
 /**
  * Translate OpenAI chunk to Responses API events
@@ -503,6 +504,100 @@ function computeFinishReason(state) {
     : OPENAI_FINISH.STOP;
 }
 
+function recoverOutputItem(item, state) {
+  if (!item || typeof item !== "object") return [];
+  const chunks = [];
+
+  // Message item
+  if (item.type === RESPONSES_ITEM.MESSAGE || item.type === "message") {
+    state.respTextItems ??= new Set();
+    if (state.respTextAnonymous) return [];
+    if (item.id && state.respTextItems.has(item.id)) return [];
+
+    let text = "";
+    if (Array.isArray(item.content)) {
+      for (const part of item.content) {
+        if (!part || typeof part !== "object") continue;
+        if (part.type === RESPONSES_ITEM.OUTPUT_TEXT || part.type === "output_text") {
+          if (typeof part.text === "string") {
+            text += part.text;
+          }
+        }
+      }
+    }
+
+    if (item.id) {
+      state.respTextItems.add(item.id);
+    }
+
+    if (text) {
+      chunks.push(
+        buildChunk(
+          { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
+          { content: text }
+        )
+      );
+    }
+    return chunks;
+  }
+
+  // Tool items: function_call or custom_tool_call
+  if (
+    item.type === RESPONSES_ITEM.FUNCTION_CALL ||
+    item.type === "function_call" ||
+    item.type === RESPONSES_ITEM.CUSTOM_TOOL_CALL ||
+    item.type === "custom_tool_call"
+  ) {
+    state.respToolChatIndex ??= new Map();
+    state.respToolArgsEmitted ??= new Set();
+
+    const isCustom = item.type === RESPONSES_ITEM.CUSTOM_TOOL_CALL || item.type === "custom_tool_call";
+    const rawArgs = isCustom
+      ? (item.input !== undefined
+          ? (typeof item.input === "string" ? item.input : JSON.stringify(item.input))
+          : (typeof item.arguments === "string" ? item.arguments : "{}"))
+      : (typeof item.arguments === "string" ? item.arguments : "{}");
+
+    const key = item.id || item.call_id;
+    if (key && state.respToolChatIndex.has(key)) {
+      const idx = state.respToolChatIndex.get(key);
+      if (!state.respToolArgsEmitted.has(idx) && rawArgs) {
+        state.respToolArgsEmitted.add(idx);
+        chunks.push(
+          buildChunk(
+            { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
+            { tool_calls: [{ index: idx, function: { arguments: rawArgs } }] }
+          )
+        );
+      }
+    } else {
+      const callId = item.call_id || fallbackToolCallId();
+      state.currentToolCallId = callId;
+      const idx = state.toolCallIndex++;
+      if (key) state.respToolChatIndex.set(key, idx);
+      state.respToolChatIndex.set(callId, idx);
+      state.respToolArgsEmitted.add(idx);
+
+      chunks.push(
+        buildChunk(
+          { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
+          {
+            tool_calls: [{
+              index: idx,
+              id: callId,
+              type: OPENAI_BLOCK.FUNCTION,
+              function: { name: item.name || "", arguments: rawArgs }
+            }]
+          }
+        )
+      );
+    }
+    return chunks;
+  }
+
+  return chunks;
+}
+
 /**
  * Translate OpenAI Responses API chunk to OpenAI Chat Completions format
  * This is for when Codex returns data and we need to send it to an OpenAI-compatible client
@@ -511,6 +606,15 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
   if (!chunk) {
     // Flush: send final chunk with finish_reason
     if (state.finishReasonSent || !state.started) return null;
+
+    if (!state.respTerminalSeen) {
+      state.streamError = {
+        status: HTTP_STATUS.BAD_GATEWAY,
+        message: "stream closed before response.completed",
+      };
+      state.finishReasonSent = true;
+      return null;
+    }
 
     const finishReason = computeFinishReason(state);
 
@@ -554,6 +658,13 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
   if (eventType === "response.output_text.delta") {
     const delta = data.delta || "";
     if (!delta) return null;
+
+    state.respTextItems ??= new Set();
+    if (data.item_id) {
+      state.respTextItems.add(data.item_id);
+    } else {
+      state.respTextAnonymous = true;
+    }
 
     return buildChunk(
       { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
@@ -613,6 +724,15 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     );
   }
 
+  // Message done (standard message output_item.done)
+  if (eventType === "response.output_item.done" && (data.item?.type === RESPONSES_ITEM.MESSAGE || data.item?.type === "message")) {
+    const recovered = recoverOutputItem(data.item, state);
+    if (recovered.length > 0) {
+      return recovered.length === 1 ? recovered[0] : recovered;
+    }
+    return null;
+  }
+
   // Function call done (standard or custom_tool_call variant).
   // Index was assigned at added-time; nothing to advance. Some upstreams send
   // complete arguments only here (no deltas) — emit them once in that case.
@@ -633,9 +753,31 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     return null;
   }
 
-  // Response completed
-  if (eventType === "response.completed" || eventType === "response.done") {
-    // Extract usage from response.completed event
+  // Response completed / done / incomplete
+  if (eventType === "response.completed" || eventType === "response.done" || eventType === "response.incomplete") {
+    state.respTerminalSeen = true;
+
+    const status = data.response?.status || (eventType === "response.incomplete" ? RESPONSES_STATUS.INCOMPLETE : RESPONSES_STATUS.COMPLETED);
+
+    if (status === RESPONSES_STATUS.FAILED) {
+      if (state.finishReasonSent || state.streamError) return null;
+      const error = data.error || data.response?.error;
+      const message = error?.message || (typeof error === "string" ? error : null) || "Upstream response failed";
+      state.streamError = { status: HTTP_STATUS.BAD_GATEWAY, message };
+      state.error = error;
+      state.finishReasonSent = true;
+      return null;
+    }
+
+    const recovered = [];
+    if (Array.isArray(data.response?.output)) {
+      for (const item of data.response.output) {
+        const rec = recoverOutputItem(item, state);
+        if (rec.length > 0) recovered.push(...rec);
+      }
+    }
+
+    // Extract usage from response event
     const responseUsage = data.response?.usage;
     if (responseUsage && typeof responseUsage === "object") {
       const inputTokens = responseUsage.input_tokens || responseUsage.prompt_tokens || 0;
@@ -648,7 +790,13 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     }
     
     if (!state.finishReasonSent) {
-      const finishReason = computeFinishReason(state);
+      let finishReason;
+      if (status === RESPONSES_STATUS.INCOMPLETE) {
+        const reason = data.response?.incomplete_details?.reason;
+        finishReason = RESPONSES_INCOMPLETE_FINISH[reason] ?? OPENAI_FINISH.LENGTH;
+      } else {
+        finishReason = computeFinishReason(state);
+      }
 
       state.finishReasonSent = true;
       state.finishReason = finishReason; // Mark for usage injection in stream.js
@@ -664,28 +812,22 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
         finalChunk.usage = state.usage;
       }
       
-      return finalChunk;
+      return recovered.length > 0 ? [...recovered, finalChunk] : finalChunk;
     }
-    return null;
+    return recovered.length > 0 ? recovered : null;
   }
 
   // Error events from Responses API (e.g. model_not_found)
   if (eventType === "error" || eventType === "response.failed") {
+    state.respTerminalSeen = true;
     // Avoid emitting duplicate errors (error + response.failed arrive back-to-back)
-    if (state.finishReasonSent) return null;
+    if (state.finishReasonSent || state.streamError) return null;
 
     const error = data.error || data.response?.error;
-    if (error) {
-      state.error = error;
-      state.finishReasonSent = true;
-
-      // Surface the error as an OpenAI-compatible error chunk
-      return buildChunk(
-        { id: state.chatId || `chatcmpl-${Date.now()}`, created: state.created || Math.floor(Date.now() / 1000), model: state.model || MODEL_FALLBACK },
-        { content: `[Error] ${error.message || JSON.stringify(error)}` },
-        OPENAI_FINISH.STOP
-      );
-    }
+    const message = error?.message || (typeof error === "string" ? error : null) || "Upstream response failed";
+    state.streamError = { status: HTTP_STATUS.BAD_GATEWAY, message };
+    state.error = error;
+    state.finishReasonSent = true;
     return null;
   }
 

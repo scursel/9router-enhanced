@@ -124,6 +124,7 @@ describe("responses → claude end-to-end keeps parallel tool_use blocks separat
     for (const ev of hostileOrdering()) {
       for (const r of translateResponse(FORMATS.OPENAI_RESPONSES, FORMATS.CLAUDE, ev, state)) out.push(r);
     }
+    for (const r of translateResponse(FORMATS.OPENAI_RESPONSES, FORMATS.CLAUDE, { type: "response.completed", response: { status: "completed" } }, state)) out.push(r);
     for (const r of translateResponse(FORMATS.OPENAI_RESPONSES, FORMATS.CLAUDE, null, state)) out.push(r);
 
     const starts = out.filter((r) => r?.type === "content_block_start" && r?.content_block?.type === "tool_use");
