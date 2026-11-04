@@ -1,4 +1,4 @@
-# Unreleased
+# v0.5.112-enhanced.5 (2026-11-04)
 
 - Responses (Codex e afins): resposta cortada ou filtrada (`response.incomplete`) agora chega como `length` ou `content_filter`, em vez de `stop`. No caminho Responses→Responses, esse evento deixa de ganhar um `response.failed` extra.
 - Responses: `response.failed`, evento `error` e stream que termina sem evento final agora chegam ao cliente como erro. Antes viravam fim normal, com texto `[Error] …` ou com argumentos de ferramenta cortados. Sem stream, retornam 502.
