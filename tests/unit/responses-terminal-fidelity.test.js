@@ -488,4 +488,162 @@ describe("Worker A - Tarefa 3: recuperar saída que veio sem delta", () => {
     const texts = chunks.filter((c) => c.choices[0].delta.content).map((c) => c.choices[0].delta.content);
     expect(texts).toEqual(["anon"]);
   });
+
+  // Novos casos de revisão do coordenador:
+  it("Item 1: added without id (only call_id) + delta + completed.output with id fc1 does not duplicate tool header", () => {
+    const events = [
+      {
+        type: "response.output_item.added",
+        item: { type: "function_call", call_id: "c1", name: "f" },
+      },
+      {
+        type: "response.function_call_arguments.delta",
+        item_id: "c1",
+        delta: '{"a":1}',
+      },
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [{ id: "fc1", type: "function_call", call_id: "c1", name: "f", arguments: '{"a":1}' }],
+        },
+      },
+    ];
+    const { chunks } = runChunks(events);
+    const toolHeaders = [];
+    let totalArgs = "";
+    for (const c of chunks) {
+      for (const tc of c.choices?.[0]?.delta?.tool_calls || []) {
+        if (tc.id) toolHeaders.push(tc);
+        if (tc.function?.arguments) totalArgs += tc.function.arguments;
+      }
+    }
+    expect(toolHeaders).toHaveLength(1);
+    expect(toolHeaders[0].index).toBe(0);
+    expect(toolHeaders[0].id).toBe("c1");
+    expect(toolHeaders[0].function.name).toBe("f");
+    expect(totalArgs).toBe('{"a":1}');
+  });
+
+  it("Item 2: added with id fc1 + delta + completed.output without id does not duplicate tool header", () => {
+    const events = [
+      {
+        type: "response.output_item.added",
+        item: { id: "fc1", type: "function_call", call_id: "c1", name: "f" },
+      },
+      {
+        type: "response.function_call_arguments.delta",
+        item_id: "fc1",
+        delta: '{"a":1}',
+      },
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [{ type: "function_call", call_id: "c1", name: "f", arguments: '{"a":1}' }],
+        },
+      },
+    ];
+    const { chunks } = runChunks(events);
+    const toolHeaders = [];
+    let totalArgs = "";
+    for (const c of chunks) {
+      for (const tc of c.choices?.[0]?.delta?.tool_calls || []) {
+        if (tc.id) toolHeaders.push(tc);
+        if (tc.function?.arguments) totalArgs += tc.function.arguments;
+      }
+    }
+    expect(toolHeaders).toHaveLength(1);
+    expect(toolHeaders[0].index).toBe(0);
+    expect(toolHeaders[0].id).toBe("c1");
+    expect(toolHeaders[0].function.name).toBe("f");
+    expect(totalArgs).toBe('{"a":1}');
+  });
+
+  it("Item 3: output_item.done without prior added + completed.output with same call emits header once and args once", () => {
+    const fc = { type: "function_call", call_id: "c1", name: "f", arguments: '{"a":1}' };
+    const events = [
+      {
+        type: "response.output_item.done",
+        item: fc,
+      },
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [fc],
+        },
+      },
+    ];
+    const { chunks } = runChunks(events);
+    const toolHeaders = [];
+    let totalArgs = "";
+    for (const c of chunks) {
+      for (const tc of c.choices?.[0]?.delta?.tool_calls || []) {
+        if (tc.id) toolHeaders.push(tc);
+        if (tc.function?.arguments) totalArgs += tc.function.arguments;
+      }
+    }
+    expect(toolHeaders).toHaveLength(1);
+    expect(toolHeaders[0].index).toBe(0);
+    expect(toolHeaders[0].id).toBe("c1");
+    expect(toolHeaders[0].function.name).toBe("f");
+    expect(totalArgs).toBe('{"a":1}');
+    expect(chunks[chunks.length - 1].choices[0].finish_reason).toBe("tool_calls");
+  });
+
+  it("Item 4: output_item.done without added + completed with empty output emits full header and finish tool_calls", () => {
+    const fc = { type: "function_call", call_id: "c1", name: "f", arguments: '{"a":1}' };
+    const events = [
+      {
+        type: "response.output_item.done",
+        item: fc,
+      },
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [],
+        },
+      },
+    ];
+    const { chunks } = runChunks(events);
+    const toolHeaders = [];
+    let totalArgs = "";
+    for (const c of chunks) {
+      for (const tc of c.choices?.[0]?.delta?.tool_calls || []) {
+        if (tc.id) toolHeaders.push(tc);
+        if (tc.function?.arguments) totalArgs += tc.function.arguments;
+      }
+    }
+    expect(toolHeaders).toHaveLength(1);
+    expect(toolHeaders[0].id).toBe("c1");
+    expect(toolHeaders[0].function.name).toBe("f");
+    expect(totalArgs).toBe('{"a":1}');
+    expect(chunks[chunks.length - 1].choices[0].finish_reason).toBe("tool_calls");
+  });
+
+  it("Item 5: message without id in output_item.done + completed.output with same message without id emits text only once", () => {
+    const msgNoId = {
+      type: "message",
+      role: "assistant",
+      content: [{ type: "output_text", text: "oi" }],
+    };
+    const events = [
+      {
+        type: "response.output_item.done",
+        item: msgNoId,
+      },
+      {
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [msgNoId],
+        },
+      },
+    ];
+    const { chunks } = runChunks(events);
+    const texts = chunks.filter((c) => c.choices[0].delta.content).map((c) => c.choices[0].delta.content);
+    expect(texts.join("")).toBe("oi");
+  });
 });

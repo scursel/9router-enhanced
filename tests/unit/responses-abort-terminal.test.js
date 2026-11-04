@@ -107,6 +107,14 @@ describe("buildStreamErrorBytes", () => {
     expect(out).not.toContain("[DONE]");
     expect(jsonOf(out)).toMatchObject({ type: "error", error: { message: "stream stall timeout" } });
   });
+
+  it("emits error frame without [DONE] for Gemini-family clients (Gemini, Antigravity, Vertex)", () => {
+    for (const fmt of [FORMATS.GEMINI, FORMATS.GEMINI_CLI, FORMATS.ANTIGRAVITY, FORMATS.VERTEX]) {
+      const out = textOf(buildStreamErrorBytes(504, "stream stall timeout", fmt));
+      expect(out).toContain('data: {"error"');
+      expect(out).not.toContain("[DONE]");
+    }
+  });
 });
 
 // The wiring, not just the frame builder: the watchdog must hand its reason to
