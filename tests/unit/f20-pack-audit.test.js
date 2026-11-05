@@ -214,6 +214,115 @@ describe("pack secret audit (C1)", () => {
   });
 });
 
+// A `node_modules/node_modules -> node_modules` link (what `ln -s` leaves behind
+// when its target name is already a symlink to a directory) made the staged tree
+// reach 121 GB and filled the build machine's disk.
+describe("symlink loops and runaway copies", () => {
+  function dirDepth(root) {
+    let deepest = 0;
+    const walk = (dir, depth) => {
+      deepest = Math.max(deepest, depth);
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) walk(path.join(dir, entry.name), depth + 1);
+      }
+    };
+    walk(root, 0);
+    return deepest;
+  }
+
+  it("reports a self-referencing symlink instead of copying through it", () => {
+    const root = mkTmp();
+    const src = path.join(root, "src");
+    const dest = path.join(root, "dest");
+    touch(src, "node_modules/pkg/index.js");
+    fs.symlinkSync(path.join(src, "node_modules"), path.join(src, "node_modules", "node_modules"));
+
+    const problems = [];
+    pack.copyRecursive(src, dest, { problems });
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0].path).toContain(path.join("node_modules", "node_modules"));
+    expect(problems[0].error).toMatch(/symlink loop/);
+    expect(fs.existsSync(path.join(dest, "node_modules/pkg/index.js"))).toBe(true);
+    expect(fs.existsSync(path.join(dest, "node_modules/node_modules"))).toBe(false);
+  });
+
+  it("stops a loop that spans two directories", () => {
+    const root = mkTmp();
+    const src = path.join(root, "src");
+    const dest = path.join(root, "dest");
+    touch(src, "a/a.txt");
+    touch(src, "b/b.txt");
+    fs.symlinkSync(path.join(src, "b"), path.join(src, "a", "to-b"));
+    fs.symlinkSync(path.join(src, "a"), path.join(src, "b", "to-a"));
+
+    const problems = [];
+    pack.copyRecursive(src, dest, { problems });
+
+    expect(problems.length).toBeGreaterThan(0);
+    expect(problems.every((problem) => /symlink loop/.test(problem.error))).toBe(true);
+    expect(dirDepth(dest)).toBeLessThanOrEqual(3);
+  });
+
+  it("still follows symlinks that are not loops, even to the same target twice", () => {
+    const root = mkTmp();
+    const src = path.join(root, "src");
+    const dest = path.join(root, "dest");
+    const shared = path.join(root, "shared");
+    touch(shared, "lib.js");
+    touch(src, "keep.txt");
+    fs.mkdirSync(path.join(src, "one"));
+    fs.mkdirSync(path.join(src, "two"));
+    fs.symlinkSync(shared, path.join(src, "one", "dep"));
+    fs.symlinkSync(shared, path.join(src, "two", "dep"));
+
+    const problems = [];
+    pack.copyRecursive(src, dest, { problems });
+
+    expect(problems).toEqual([]);
+    expect(fs.existsSync(path.join(dest, "one/dep/lib.js"))).toBe(true);
+    expect(fs.existsSync(path.join(dest, "two/dep/lib.js"))).toBe(true);
+  });
+
+  it("aborts when the copy outgrows its budget, including through a symlink", () => {
+    const root = mkTmp();
+    const src = path.join(root, "src");
+    const shared = path.join(root, "shared");
+    touch(shared, "big.bin", "x".repeat(64));
+    fs.mkdirSync(src);
+    fs.symlinkSync(shared, path.join(src, "dep"));
+
+    expect(() =>
+      pack.copyRecursive(src, path.join(root, "dest"), { budget: pack.createCopyBudget(10) }),
+    ).toThrow(/PACK ABORT.*NINEROUTER_PACK_MAX_BYTES/s);
+  });
+
+  it("shares one budget across separate copy steps", () => {
+    const root = mkTmp();
+    touch(root, "one/a.bin", "x".repeat(6));
+    touch(root, "two/b.bin", "x".repeat(6));
+    const budget = pack.createCopyBudget(10);
+
+    pack.copyRecursive(path.join(root, "one"), path.join(root, "dest"), { budget });
+    expect(() =>
+      pack.copyRecursive(path.join(root, "two"), path.join(root, "dest"), { budget }),
+    ).toThrow(/PACK ABORT/);
+  });
+
+  it("reads the limit from the environment and ignores invalid values", () => {
+    const previous = process.env.NINEROUTER_PACK_MAX_BYTES;
+    try {
+      process.env.NINEROUTER_PACK_MAX_BYTES = "123";
+      expect(pack.createCopyBudget().limit).toBe(123);
+      process.env.NINEROUTER_PACK_MAX_BYTES = "nope";
+      expect(pack.createCopyBudget().limit).toBe(pack.DEFAULT_PACK_MAX_BYTES);
+    } finally {
+      if (previous === undefined) delete process.env.NINEROUTER_PACK_MAX_BYTES;
+      else process.env.NINEROUTER_PACK_MAX_BYTES = previous;
+    }
+  });
+});
+
 describe("staged version, not the root's (H2)", () => {
   it("writes the CLI version into the staged package.json only", () => {
     const stage = mkTmp();

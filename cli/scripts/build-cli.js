@@ -84,6 +84,9 @@ const SQLJS_BUNDLE_FILES = [
   "dist/sql-asm.js",
 ];
 
+const DEFAULT_PACK_MAX_BYTES = 2 * 1024 ** 3;
+const PACK_SIZE_LIMIT_CODE = "PACK_SIZE_LIMIT";
+
 function shouldExclude(name) {
   return EXCLUDE_PATTERNS.some(pattern => {
     if (pattern.includes("*")) {
@@ -216,9 +219,38 @@ function stageCliVersion({ cliAppDir, version }) {
   return { changed: true, before, after: version, path: pkgPath };
 }
 
+/**
+ * A cap on everything one pack copies. The staged tree is normally under 100 MB,
+ * so hitting this means the copy is running away, not that the bundle grew: a
+ * symlinked `node_modules/node_modules` once took it to 121 GB and filled the disk.
+ */
+function createCopyBudget(limit = readPackMaxBytes()) {
+  return { limit, used: 0 };
+}
+
+function readPackMaxBytes() {
+  const configured = Number(process.env.NINEROUTER_PACK_MAX_BYTES);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_PACK_MAX_BYTES;
+}
+
+function copyFileWithinBudget(from, to, budget) {
+  budget.used += fs.statSync(from).size;
+  if (budget.used > budget.limit) {
+    const error = new Error(
+      `PACK ABORT — the staged tree passed ${budget.limit} bytes while copying ${from}.` +
+        "\nLook for a stray symlink or an unexpected directory in the build output, or raise" +
+        "\nthe limit with NINEROUTER_PACK_MAX_BYTES if the bundle really is this large.",
+    );
+    error.code = PACK_SIZE_LIMIT_CODE;
+    throw error;
+  }
+  fs.copyFileSync(from, to);
+}
+
 function copyRecursive(src, dest, opts = {}) {
   const problems = opts.problems || [];
   const allow = opts.allow || [];
+  const budget = opts.budget || createCopyBudget();
   // Staged root the path-shaped secret rule is measured against. Recursion
   // threads it down so nested copies still see paths relative to the artifact.
   const stagedRoot = opts.stagedRoot || dest;
@@ -232,8 +264,27 @@ function copyRecursive(src, dest, opts = {}) {
     fs.mkdirSync(dest, { recursive: true });
   }
 
+  // Real paths of the directories being copied right now. Only a symlink can
+  // lead back into one of them; visiting the same target from two siblings is fine.
+  const ancestors = opts.ancestors || new Set([fs.realpathSync(src)]);
+
   let copied = 0;
   let excluded = 0;
+  const descend = (from, to, reportedPath) => {
+    const real = fs.realpathSync(from);
+    if (ancestors.has(real)) {
+      problems.push({ path: reportedPath, error: `symlink loop: resolves to ${real}, which is being copied` });
+      return;
+    }
+    ancestors.add(real);
+    try {
+      const nested = copyRecursive(from, to, { problems, allow, stagedRoot, budget, ancestors });
+      copied += nested.copied;
+      excluded += nested.excluded;
+    } finally {
+      ancestors.delete(real);
+    }
+  };
   const entries = fs.readdirSync(src, { withFileTypes: true });
   for (const entry of entries) {
     if (shouldExclude(entry.name)) {
@@ -262,30 +313,28 @@ function copyRecursive(src, dest, opts = {}) {
     }
 
     if (entry.isDirectory()) {
-      const nested = copyRecursive(srcPath, destPath, { problems, allow, stagedRoot });
-      copied += nested.copied;
-      excluded += nested.excluded;
+      descend(srcPath, destPath, srcPath);
     } else if (entry.isSymbolicLink()) {
       // Resolve and copy target (avoid linking outside bundle)
       try {
         const real = fs.realpathSync(srcPath);
         if (fs.statSync(real).isDirectory()) {
-          const nested = copyRecursive(real, destPath, { problems, allow, stagedRoot });
-          copied += nested.copied;
-          excluded += nested.excluded;
+          descend(real, destPath, srcPath);
         } else {
-          fs.copyFileSync(real, destPath);
+          copyFileWithinBudget(real, destPath, budget);
           copied += 1;
         }
       } catch (error) {
+        if (error.code === PACK_SIZE_LIMIT_CODE) throw error;
         // Reported, never swallowed: a half-copied bundle used to be invisible.
         problems.push({ path: srcPath, error: `symlink ${error.message}` });
       }
     } else {
       try {
-        fs.copyFileSync(srcPath, destPath);
+        copyFileWithinBudget(srcPath, destPath, budget);
         copied += 1;
       } catch (error) {
+        if (error.code === PACK_SIZE_LIMIT_CODE) throw error;
         problems.push({ path: srcPath, error: error.message });
       }
     }
@@ -387,7 +436,12 @@ function buildCliPackage() {
     .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean);
-  const copyOpts = { problems: copyProblems, allow: auditAllow, stagedRoot: cliAppDir };
+  const copyOpts = {
+    problems: copyProblems,
+    allow: auditAllow,
+    stagedRoot: cliAppDir,
+    budget: createCopyBudget(),
+  };
   console.log(`   CLI artifact: ${cliPkg.name}@${cliPkg.version}`);
   if (appPkg.version !== cliPkg.version) {
     console.log(
@@ -437,8 +491,7 @@ function buildCliPackage() {
   try {
     standaloneCopy = copyStandaloneBuild(appDir, buildDistDir, cliAppDir, copyOpts);
   } catch (error) {
-    console.error("❌ Next.js standalone build not found under .next/standalone");
-    console.error("Expected either .next/standalone/server.js or .next/standalone/app/");
+    console.error(`❌ ${error.message}`);
     process.exit(1);
   }
   console.log(`✅ Copied standalone build (${standaloneCopy.copied} files, ${standaloneCopy.excluded} excluded)\n`);
@@ -648,6 +701,8 @@ module.exports = {
   syncBundleModuleFiles,
   stageCliVersion,
   copyRecursive,
+  createCopyBudget,
+  DEFAULT_PACK_MAX_BYTES,
 };
 
 if (require.main === module) {
