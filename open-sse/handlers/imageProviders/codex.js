@@ -100,6 +100,7 @@ async function parseStream(response, log, callbacks = {}) {
   let bytesReceived = 0;
   let lastProgressLogMs = 0;
   let usage = null;
+  let upstreamError = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -150,6 +151,16 @@ async function parseStream(response, log, callbacks = {}) {
         } catch {}
       }
 
+      // Keep the upstream reason so callers don't fall back to the generic message.
+      if ((eventName === "error" || eventName === "response.failed" || eventName === "response.incomplete") && dataStr && !upstreamError) {
+        try {
+          const data = JSON.parse(dataStr);
+          const err = data?.error || data?.response?.error;
+          const reason = data?.response?.incomplete_details?.reason;
+          upstreamError = err?.message || (reason ? `response incomplete: ${reason}` : null);
+        } catch {}
+      }
+
       if ((eventName === "response.completed" || eventName === "response.done") && dataStr) {
         try {
           const data = JSON.parse(dataStr);
@@ -158,8 +169,11 @@ async function parseStream(response, log, callbacks = {}) {
       }
     }
   }
-  return { imageB64, usage };
+  return { imageB64, usage, upstreamError };
 }
+
+const NO_IMAGE_MESSAGE = "Codex did not return an image. Account may not be entitled (paid ChatGPT plan required).";
+const noImageMessage = (upstreamError) => (upstreamError ? `Codex did not return an image: ${upstreamError}` : NO_IMAGE_MESSAGE);
 
 // SSE Response that pipes codex progress + partial + done events to client
 function buildSseResponse(providerResponse, log, onSuccess, onUsage) {
@@ -170,12 +184,12 @@ function buildSseResponse(providerResponse, log, onSuccess, onUsage) {
         controller.enqueue(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       };
       try {
-        const { imageB64: b64, usage } = await parseStream(providerResponse, log, {
+        const { imageB64: b64, usage, upstreamError } = await parseStream(providerResponse, log, {
           onProgress: (info) => send("progress", info),
           onPartialImage: (info) => send("partial_image", info),
         });
         if (!b64) {
-          send("error", { message: "Codex did not return an image. Account may not be entitled (paid ChatGPT plan required)." });
+          send("error", { message: noImageMessage(upstreamError) });
         } else {
           if (usage && onUsage) await onUsage(usage);
           if (onSuccess) await onSuccess();
@@ -245,7 +259,9 @@ export default {
       prompt_cache_key: randomUUID(),
       stream: true,
       store: false,
-      reasoning: toolModel ? { effort: "medium", summary: "auto" } : null,
+      // Codex maps reasoning effort to the image model's "complexity" and, since
+      // 2026-11-05, rejects it: "Complexity 'medium' is not supported for this image model."
+      reasoning: null,
     };
   },
   // Custom: codex parses SSE → either pipe to client or collect b64
@@ -253,9 +269,9 @@ export default {
     if (streamToClient) {
       return { sseResponse: buildSseResponse(response, log, onRequestSuccess, onUsage) };
     }
-    const { imageB64: b64, usage } = await parseStream(response, log);
+    const { imageB64: b64, usage, upstreamError } = await parseStream(response, log);
     if (!b64) {
-      throw new Error("Codex did not return an image. Account may not be entitled (paid ChatGPT plan required).");
+      throw new Error(noImageMessage(upstreamError));
     }
     if (usage && onUsage) await onUsage(usage);
     return { created: nowSec(), data: [{ b64_json: b64 }] };
