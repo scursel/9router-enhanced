@@ -1,3 +1,8 @@
+# v0.5.112-enhanced.6 (2026-11-05)
+
+- Imagem via Codex (`cx/gpt-image-*`): o pedido deixa de mandar `reasoning: {effort: "medium"}`. Desde 2026-11-05 o Codex converte o esforço em "complexity" do modelo de imagem e recusa com `Complexity 'medium' is not supported for this image model.`, então toda geração com modelo de imagem forçado falhava em ~3 s.
+- Imagem via Codex: quando o stream traz `error`, `response.failed` ou `response.incomplete`, a mensagem real do Codex passa a chegar ao cliente. Antes aparecia sempre o genérico "Account may not be entitled (paid ChatGPT plan required)", que escondia a causa.
+
 # v0.5.112-enhanced.5 (2026-11-04)
 
 - Responses (Codex e afins): resposta cortada ou filtrada (`response.incomplete`) agora chega como `length` ou `content_filter`, em vez de `stop`. No caminho Responses→Responses, esse evento deixa de ganhar um `response.failed` extra.
