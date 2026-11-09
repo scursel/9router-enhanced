@@ -339,22 +339,30 @@ export function openaiToOpenAIResponsesRequest(model, body, stream, credentials)
   };
 
   // Extract system message as instructions
-  let hasSystemMessage = false;
+  const initialInstructions = [];
+  let seenTurn = false;
   const messages = body.messages || [];
 
   for (const msg of messages) {
     if (msg.role === ROLE.SYSTEM || msg.role === ROLE.DEVELOPER) {
-      // Use the first instruction-bearing message as instructions.
-      // OpenAI recommends role="developer" for GPT-5/Codex as the system-level prompt.
-      if (!hasSystemMessage) {
-        result.instructions = extractInstructionsText(msg.content);
-        hasSystemMessage = true;
+      const text = extractInstructionsText(msg.content);
+      if (!seenTurn) {
+        if (text) initialInstructions.push(text);
+      } else {
+        if (text) {
+          result.input.push({
+            type: RESPONSES_ITEM.MESSAGE,
+            role: ROLE.DEVELOPER,
+            content: [{ type: RESPONSES_ITEM.INPUT_TEXT, text }]
+          });
+        }
       }
       continue; // Skip instruction messages in input
     }
 
     // Convert user/assistant messages to input items
     if (msg.role === ROLE.USER || msg.role === ROLE.ASSISTANT) {
+      seenTurn = true;
       // Multi-turn continuity for store=false Responses backends (Codex / Grok CLI):
       // re-emit a reasoning item before the assistant message when the chat-format
       // history carried reasoning text and/or encrypted_content from a prior turn.
@@ -412,6 +420,7 @@ export function openaiToOpenAIResponsesRequest(model, body, stream, credentials)
 
     // Convert tool results - output must be a string for Responses API
     if (msg.role === ROLE.TOOL) {
+      seenTurn = true;
       result.input.push({
         type: RESPONSES_ITEM.FUNCTION_CALL_OUTPUT,
         call_id: clampResponsesCallId(msg.tool_call_id),
@@ -420,10 +429,8 @@ export function openaiToOpenAIResponsesRequest(model, body, stream, credentials)
     }
   }
 
-  // If no system message, leave instructions empty (will be filled by executor)
-  if (!hasSystemMessage) {
-    result.instructions = "";
-  }
+  // If initial instructions were collected, join with \n\n; else leave empty (will be filled by executor)
+  result.instructions = initialInstructions.length > 0 ? initialInstructions.join("\n\n") : "";
 
   // Convert tools format
   if (body.tools && Array.isArray(body.tools)) {

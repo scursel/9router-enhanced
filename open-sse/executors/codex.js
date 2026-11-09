@@ -60,6 +60,72 @@ function convertSystemToDeveloperRole(body) {
   }
 }
 
+const codexToolKey = (tool) => `${tool?.type}:${tool?.name || tool?.function?.name || ""}`;
+
+// Move tools carried by additional_tools input items (the Responses Lite prefix) into
+// body.tools without duplicating a definition, and drop those items from input.
+// Returns true when the input carried such a prefix.
+function moveAdditionalToolsToBody(body) {
+  const hadPrefix = body.input.some(item => item?.type === "additional_tools");
+  const tools = Array.isArray(body.tools) ? [...body.tools] : [];
+  const seen = new Set(tools.map(codexToolKey));
+  for (const item of body.input) {
+    if (item?.type !== "additional_tools" || !Array.isArray(item.tools)) continue;
+    for (const tool of item.tools) {
+      const key = codexToolKey(tool);
+      if (!seen.has(key)) { tools.push(tool); seen.add(key); }
+    }
+  }
+  body.tools = tools;
+  body.input = body.input.filter(item => item?.type !== "additional_tools");
+  return hadPrefix;
+}
+
+const INSTRUCTION_TEXT_PART_TYPES = new Set(["input_text", "text", "output_text"]);
+
+function isInstructionMessage(item) {
+  return !!item && typeof item === "object" && !Array.isArray(item)
+    && (item.role === "developer" || item.role === "system")
+    && (!item.type || item.type === "message");
+}
+
+// Text of an instruction message, or null when it carries non-text parts (e.g. input_image)
+// and therefore cannot be folded into the string-only instructions field without loss.
+function instructionMessageText(item) {
+  if (typeof item.content === "string") return item.content;
+  if (!Array.isArray(item.content)) return null;
+  const textOnly = item.content.every(part => typeof part === "string"
+    || (part && INSTRUCTION_TEXT_PART_TYPES.has(part.type)));
+  if (!textOnly) return null;
+  return item.content.map(part => (typeof part === "string" ? part : part.text || "")).filter(Boolean).join("\n");
+}
+
+// Non-Lite Codex: fold the leading run of text-only developer/system messages into
+// body.instructions, appended to the instructions that would otherwise be sent (the Codex
+// default when none were set — unless the input came as a Lite prefix, whose developer
+// message already is the instructions). The run stops at the first turn or at a multimodal
+// instruction message, which stays in input untouched; later instruction messages also
+// stay in input as developer items, keeping the cacheable conversation prefix intact.
+function foldLeadingInstructionMessages(body, { useDefaultInstructions = true } = {}) {
+  const folded = [];
+  let prefixLen = 0;
+  for (const item of body.input) {
+    if (!isInstructionMessage(item)) break;
+    const text = instructionMessageText(item);
+    if (text === null) break;
+    // Skip a message that only repeats the instructions already set (no duplicate prompt).
+    if (text && text !== body.instructions) folded.push(text);
+    prefixLen++;
+  }
+  if (prefixLen === 0) return;
+  body.input = body.input.slice(prefixLen);
+  if (folded.length === 0) return;
+  const base = typeof body.instructions === "string" && body.instructions.trim()
+    ? body.instructions
+    : (useDefaultInstructions ? CODEX_DEFAULT_INSTRUCTIONS : "");
+  body.instructions = base ? `${base}\n\n${folded.join("\n\n")}` : folded.join("\n\n");
+}
+
 // Strip server-generated item IDs (rs_/fc_/resp_/msg_) from input — avoids 404 with store=false
 function stripStoredItemReferences(body, preserveLitePrefix = false) {
   if (!Array.isArray(body.input)) return;
@@ -432,21 +498,18 @@ export class CodexExecutor extends BaseExecutor {
     if (isCodexResponsesLiteModel(upstreamModel) && Array.isArray(body.input)
       && (body.tools?.some?.(tool => tool?.type === "web_search")
         || body.input.some(item => item?.type === "additional_tools" && item.tools?.some?.(tool => tool?.type === "web_search")))) {
-      const tools = Array.isArray(body.tools) ? [...body.tools] : [];
-      const seen = new Set(tools.map(tool => `${tool?.type}:${tool?.name || tool?.function?.name || ""}`));
-      for (const item of body.input) {
-        if (item?.type !== "additional_tools" || !Array.isArray(item.tools)) continue;
-        for (const tool of item.tools) {
-          const name = `${tool?.type}:${tool?.name || tool?.function?.name || ""}`;
-          if (!seen.has(name)) { tools.push(tool); seen.add(name); }
-        }
-      }
-      body.tools = tools;
-      convertedLitePrefix = body.input.some(item => item?.type === "additional_tools");
-      body.input = body.input.filter(item => item?.type !== "additional_tools");
+      convertedLitePrefix = moveAdditionalToolsToBody(body);
     }
     const responsesLite = isCodexResponsesLiteModel(upstreamModel)
       && !body.tools?.some?.(tool => tool?.type === "web_search");
+
+    // Non-Lite models take tools/instructions as top-level fields: unpack a Lite-style
+    // additional_tools prefix into body.tools and fold the leading instruction messages.
+    if (!isCodexResponsesLiteModel(upstreamModel) && Array.isArray(body.input)) {
+      const hadLitePrefix = body.input.some(item => item?.type === "additional_tools")
+        && moveAdditionalToolsToBody(body);
+      foldLeadingInstructionMessages(body, { useDefaultInstructions: !hadLitePrefix });
+    }
 
     // Ensure input is present and non-empty (Codex API rejects empty input)
     if (!body.input || (Array.isArray(body.input) && body.input.length === 0)) {

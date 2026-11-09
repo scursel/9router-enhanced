@@ -36,10 +36,18 @@ const FORMAT_LEVELS = {
 
 const CODEX_GPT_5_6_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
+// OpenAI o-series reasoning models (o1 / o3 / o4 families, optional vendor prefix such as
+// "openai/o3-mini"). Trailing boundary keeps "o3x" / "o10" out. These models accept only
+// reasoning_effort low|medium|high — "none", "minimal", "xhigh" and "max" are rejected.
+export const OPENAI_O_SERIES_MODEL = /(?:^|\/)o[134](?=$|[-_.:(\[])/i;
+export const OPENAI_O_SERIES_LEVELS = ["low", "medium", "high"];
+export const isOpenAIOSeriesModel = (model) => OPENAI_O_SERIES_MODEL.test(String(model || ""));
+
 // Opus/Sonnet 4.6 lack xhigh (Anthropic + Kiro docs) — keep the 4-level+max set.
 const CLAUDE_NO_XHIGH = ["none", "low", "medium", "high", "max"];
 
-// Model-name pattern overrides (glob, first match wins) — more precise than format default.
+// Model-name pattern overrides (glob `pattern` or regex `match`, first match wins) — more
+// precise than format default.
 const PATTERN_THINKING = [
   // chat.deepseek.com has only a thinking on/off toggle (executor sends
   // thinking_enabled). Ids naming think/reasoner/R1 always think. These must
@@ -50,6 +58,7 @@ const PATTERN_THINKING = [
   { provider: "deepseek-web", pattern: "*", levels: L.onOff },
   // Gemini 4 (Argon) rejects "minimal" with 400 — LOW is the floor; cannot disable thinking.
   { pattern: "*gemini-4*", levels: ["low", "medium", "high"] },
+  { provider: "openai", match: OPENAI_O_SERIES_MODEL, levels: OPENAI_O_SERIES_LEVELS },
   { pattern: "*claude*4.6*", levels: CLAUDE_NO_XHIGH },
   { pattern: "*claude*4-6*", levels: CLAUDE_NO_XHIGH },
   { provider: "codex", pattern: "*gpt-6*", levels: CODEX_GPT_5_6_LEVELS },
@@ -123,7 +132,8 @@ export function getThinkingLevels(provider, model) {
     ? getProviderModels("cx").find((entry) => entry.id === baseId)?.thinkingLevels
     : null;
   const hit = PATTERN_THINKING.find((entry) =>
-    (!entry.provider || entry.provider === provider) && matchPattern(entry.pattern, model)
+    (!entry.provider || entry.provider === provider)
+    && (entry.match ? entry.match.test(String(model || "")) : matchPattern(entry.pattern, model))
   );
   let levels = modelLevels || hit?.levels
     || (isOpenAICompatibleNode(provider) && OPENAI_MAX_EFFORT_MODEL.test(baseId) ? CODEX_GPT_5_6_LEVELS : null)

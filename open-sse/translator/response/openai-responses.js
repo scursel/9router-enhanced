@@ -858,8 +858,8 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     return null;
   }
 
-  // Reasoning summary delta → emit as reasoning_content for client thinking display
-  if (eventType === "response.reasoning_summary_text.delta") {
+  // Reasoning summary delta or reasoning text delta → emit as reasoning_content for client thinking display
+  if (eventType === "response.reasoning_summary_text.delta" || eventType === "response.reasoning_text.delta") {
     const delta = data.delta || "";
     if (!delta) return null;
     return buildChunk(

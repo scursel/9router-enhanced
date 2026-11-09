@@ -1,3 +1,11 @@
+# v0.5.116-enhanced.2 (2026-11-09)
+
+- OpenAI o1/o3/o4: parâmetros de amostragem que esses modelos recusam (`temperature`, `top_p`, penalidades, `logprobs`, `n`, `seed`) saem do pedido, e `max_tokens` / `max_output_tokens` viram `max_completion_tokens`. O esforço de thinking fica em `low` / `medium` / `high` (`none` e `minimal` descem para `low`; `xhigh` / `max` sobem para `high`). Outros modelos e o salto Claude no GitHub Copilot continuam como antes.
+- Responses: mensagens system/developer do início da conversa se juntam em `instructions` com `\n\n`. As que aparecem depois de um turno de user/assistant/tool entram no `input` como `developer`, na ordem, em vez de serem descartadas.
+- Codex: `gpt-6.1-sol[1m]` e `gpt-6.1-terra[1m]` entram como Lite, com janela de 872k e o id upstream do modelo base. Sufixos `[1m]`, `[900k]` e `-900k` herdam o preço do modelo base. `o3-mini` é só texto.
+- Codex que não é Lite: `additional_tools` volta para `body.tools`, e o texto system/developer do prefixo é acrescentado às instruções (incluindo as padrão). Imagem nesse prefixo permanece no `input`. Modelos Lite não mudam. `response.reasoning_text.delta` passa a aparecer como `reasoning_content`.
+- Responses → Chat: ferramentas em `additional_tools` entram em `tools` sem duplicar o nome.
+
 # v0.5.112-enhanced.6 (2026-11-05)
 
 - Imagem via Codex (`cx/gpt-image-*`): o pedido deixa de mandar `reasoning: {effort: "medium"}`. Desde 2026-11-05 o Codex converte o esforço em "complexity" do modelo de imagem e recusa com `Complexity 'medium' is not supported for this image model.`, então toda geração com modelo de imagem forçado falhava em ~3 s.

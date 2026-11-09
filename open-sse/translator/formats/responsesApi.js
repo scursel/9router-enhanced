@@ -96,6 +96,7 @@ export function convertResponsesApiFormat(body) {
   let currentAssistantMsg = null;
   let pendingToolCalls = [];
   let pendingToolResults = [];
+  const additionalTools = [];
 
   const inputItems = normalizeResponsesInput(body.input);
   if (!inputItems) return body;
@@ -170,6 +171,9 @@ export function convertResponsesApiFormat(body) {
       // Skip reasoning items - they are for display only
       continue;
     }
+    else if (itemType === RESPONSES_ITEM.ADDITIONAL_TOOLS) {
+      if (Array.isArray(item.tools)) additionalTools.push(...item.tools);
+    }
   }
 
   // Flush remaining
@@ -180,6 +184,21 @@ export function convertResponsesApiFormat(body) {
     for (const tr of pendingToolResults) {
       result.messages.push(tr);
     }
+  }
+
+  // Lite clients carry tools in an additional_tools input prefix; merge them without
+  // duplicating a definition already present in body.tools (or repeated in the prefix).
+  if (additionalTools.length > 0) {
+    const tools = Array.isArray(result.tools) ? [...result.tools] : [];
+    const toolKey = (tool) => `${tool?.type}:${tool?.name || tool?.function?.name || ""}`;
+    const seen = new Set(tools.map(toolKey));
+    for (const tool of additionalTools) {
+      const key = toolKey(tool);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tools.push(tool);
+    }
+    result.tools = tools;
   }
 
   // Cleanup Responses API specific fields

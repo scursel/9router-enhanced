@@ -1,4 +1,5 @@
 import { getCapabilitiesForModel } from "../../providers/capabilities.js";
+import { isOpenAIOSeriesModel } from "../../providers/thinkingLevels.js";
 
 // Strip request params a given provider/model rejects upstream (e.g. HTTP 400).
 // Config-driven: add a rule instead of scattering `delete body.x` across executors.
@@ -44,8 +45,14 @@ const STRIP_RULES = [
   // 4/4 identical calls without the field 200.
   { provider: "opencode-go", match: /^deepseek/i, drop: ["response_format"] },
   // Current OpenAI models (gpt-5.x / gpt-6.x) reject `max_tokens` with HTTP 400
-  // ("Use 'max_completion_tokens' instead"). Clients send `max_tokens`, so rename it.
-  { provider: "openai", renameParams: { max_tokens: "max_completion_tokens" } },
+  // ("Use 'max_completion_tokens' instead"). Clients send `max_tokens` or `max_output_tokens`, so rename it.
+  { provider: "openai", renameParams: { max_tokens: "max_completion_tokens", max_output_tokens: "max_completion_tokens" } },
+  // OpenAI reasoning models (o1, o3, o4 family, vendor prefix allowed): drop unsupported parameters.
+  {
+    provider: "openai",
+    match: isOpenAIOSeriesModel,
+    drop: ["temperature", "top_p", "presence_penalty", "frequency_penalty", "logprobs", "top_logprobs", "n", "seed"],
+  },
 ];
 
 // Test a rule's match (regex or predicate) against the model id.

@@ -3,7 +3,7 @@
 // never hardcoded per-model here. See .docs/thinking/plan.md MATRIX VI-A.
 
 import { getCapabilitiesForModel } from "../../providers/capabilities.js";
-import { getThinkingLevels } from "../../providers/thinkingLevels.js";
+import { getThinkingLevels, isOpenAIOSeriesModel, OPENAI_O_SERIES_LEVELS } from "../../providers/thinkingLevels.js";
 import { PROVIDERS } from "../../providers/index.js";
 import { CLAUDE_MIN_BUDGET_TOKENS, LEVEL_TO_BUDGET, budgetToLevel, effortToBudget, effortToThinkingLevel } from "./thinking.js";
 
@@ -173,7 +173,30 @@ function toLevel(cfg) {
   return null;
 }
 
-function normalizeOpenAILevel(level, supportedLevels) {
+// Effort scale used to clamp an out-of-range level onto the nearest supported one.
+const OPENAI_EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+
+// OpenAI o-series (o1/o3/o4) only take low|medium|high: clamp every other level onto the
+// nearest supported one ("none"/"minimal" → floor, "xhigh"/"max"/"ultra" → ceiling).
+function clampOSeriesLevel(level, supportedLevels) {
+  const allowed = supportedLevels?.length
+    ? supportedLevels.filter((l) => OPENAI_O_SERIES_LEVELS.includes(l))
+    : OPENAI_O_SERIES_LEVELS;
+  if (allowed.includes(level)) return level;
+  const rank = OPENAI_EFFORT_ORDER.indexOf(level);
+  if (rank < 0) return level;
+  const ranked = allowed
+    .map((l) => ({ l, r: OPENAI_EFFORT_ORDER.indexOf(l) }))
+    .filter((x) => x.r >= 0)
+    .sort((a, b) => a.r - b.r);
+  if (!ranked.length) return OPENAI_O_SERIES_LEVELS[0];
+  if (rank < ranked[0].r) return ranked[0].l;
+  if (rank > ranked[ranked.length - 1].r) return ranked[ranked.length - 1].l;
+  return ranked.reduce((best, x) => (Math.abs(x.r - rank) < Math.abs(best.r - rank) ? x : best)).l;
+}
+
+function normalizeOpenAILevel(level, supportedLevels, oSeries = false) {
+  if (oSeries) return clampOSeriesLevel(level, supportedLevels);
   if (level !== "max" && level !== "ultra") return level;
   if (supportedLevels?.includes(level)) return level;
   if (level === "ultra" && supportedLevels?.includes("max")) return "max";
@@ -263,7 +286,7 @@ function stripAll(body) {
 }
 
 // Apply unified thinking config to body in the resolved provider-native format.
-function applyFormat(fmt, body, cfg, caps, supportedLevels, display, model = "", budgetPassthrough = false) {
+function applyFormat(fmt, body, cfg, caps, supportedLevels, display, model = "", budgetPassthrough = false, oSeries = false) {
   const none = cfg.mode === "none";
   const canDisable = caps.thinkingCanDisable !== false;
   // Model cannot disable thinking → clamp "none" to minimal effort instead.
@@ -271,10 +294,14 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display, model = "",
 
   switch (fmt) {
     case "openai": {
-      if (none && canDisable) { body.reasoning_effort = "none"; break; }
+      // o-series rejects "none": clamp it to the lowest effort they accept instead.
+      if (none && canDisable) {
+        body.reasoning_effort = oSeries ? clampOSeriesLevel("none", supportedLevels) : "none";
+        break;
+      }
       const level = toLevel(eff);
       // "auto" (Claude adaptive) is not in OpenAI's enum → omit, upstream default applies.
-      if (level && level !== "auto") body.reasoning_effort = normalizeOpenAILevel(level, supportedLevels);
+      if (level && level !== "auto") body.reasoning_effort = normalizeOpenAILevel(level, supportedLevels, oSeries);
       break;
     }
     case "openai-responses": {
@@ -288,7 +315,7 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display, model = "",
         const current = body.reasoning && typeof body.reasoning === "object" && !Array.isArray(body.reasoning)
           ? body.reasoning
           : {};
-        body.reasoning = { ...current, effort: normalizeOpenAILevel(level, supportedLevels) };
+        body.reasoning = { ...current, effort: normalizeOpenAILevel(level, supportedLevels, oSeries) };
         if (!body.reasoning.summary) body.reasoning.summary = "auto";
       }
       delete body.reasoning_effort;
@@ -486,6 +513,9 @@ export function applyThinking(targetFormat, model, body, provider = null, intent
   // An OpenAI-shaped client's ask arrives via the captured intent instead.
   const display = typeof body.thinking?.display === "string" ? body.thinking.display : intent?.display;
   stripAll(body);
-  applyFormat(fmt, body, cfg, caps, supportedLevels, display, cleanModel, isOpenAICompatibleNode(provider));
+  // OpenAI o-series clamp is scoped to the openai provider (where its level set is declared);
+  // every other provider keeps the previous pass-through.
+  const oSeries = provider === "openai" && isOpenAIOSeriesModel(cleanModel);
+  applyFormat(fmt, body, cfg, caps, supportedLevels, display, cleanModel, isOpenAICompatibleNode(provider), oSeries);
   return body;
 }
