@@ -63,6 +63,14 @@ function createSpinner(text) {
 }
 
 const pkg = require("./package.json");
+const {
+  getPidFilePath,
+  writePidRecord,
+  readPidRecord,
+  removePidRecordIfOwner,
+  stopRecordedInstance,
+  isPortInUse,
+} = require("./src/cli/utils/launcherProcess");
 const { ensureSqliteRuntime, buildEnvWithRuntime } = require("./hooks/sqliteRuntime");
 const { ensureTrayRuntime } = require("./hooks/trayRuntime");
 const args = process.argv.slice(2);
@@ -632,34 +640,36 @@ function killTunnelByPidFile() {
   killByPidFile(path.join(tunnelDir, "tailscale.pid"));
 }
 
-// Kill cloudflared whose --url targets this app's port (covers stale PID file case)
+// Kill cloudflared whose --url targets this app's port (covers stale PID file case).
+// Runs the process scan asynchronously so it never blocks launcher startup.
 function killCloudflaredByAppPort(appPort) {
-  if (!appPort) return [];
+  if (!appPort) return;
   const portMatchers = [`localhost:${appPort}`, `127.0.0.1:${appPort}`];
-  const pids = [];
-  try {
-    if (process.platform === "win32") {
-      const psCmd = `powershell -NonInteractive -WindowStyle Hidden -Command "Get-WmiObject Win32_Process -Filter 'Name=\\"cloudflared.exe\\"' | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation"`;
-      const output = execSync(psCmd, { encoding: "utf8", windowsHide: true, timeout: 5000 });
-      const lines = output.split("\n").slice(1).filter(l => l.trim());
-      lines.forEach(line => {
-        if (portMatchers.some(m => line.includes(m))) {
-          const match = line.match(/^"(\d+)"/);
-          if (match && match[1]) pids.push(match[1]);
-        }
-      });
-    } else {
-      const output = execSync("ps -eo pid,command 2>/dev/null", { encoding: "utf8", timeout: 5000 });
-      output.split("\n").forEach(line => {
-        if (line.includes("cloudflared") && portMatchers.some(m => line.includes(m))) {
-          const parts = line.trim().split(/\s+/);
-          const pid = parts[0];
-          if (pid && !isNaN(pid)) pids.push(pid);
-        }
-      });
-    }
-  } catch { }
-  return pids;
+  const isWin = process.platform === "win32";
+  const scanCmd = isWin
+    ? `powershell -NonInteractive -WindowStyle Hidden -Command "Get-WmiObject Win32_Process -Filter 'Name=\\"cloudflared.exe\\"' | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation"`
+    : "ps -eo pid,command 2>/dev/null";
+  exec(scanCmd, { encoding: "utf8", windowsHide: true, timeout: 5000 }, (err, output) => {
+    if (err || !output) return;
+    const pids = [];
+    const lines = isWin ? output.split("\n").slice(1) : output.split("\n");
+    lines.forEach(line => {
+      if (!portMatchers.some(m => line.includes(m))) return;
+      if (isWin) {
+        const match = line.match(/^"(\d+)"/);
+        if (match) pids.push(Number(match[1]));
+      } else if (line.includes("cloudflared")) {
+        const pid = Number(line.trim().split(/\s+/)[0]);
+        if (Number.isSafeInteger(pid) && pid > 0) pids.push(pid);
+      }
+    });
+    pids.forEach(pid => {
+      try {
+        if (isWin) execSync(`taskkill /F /T /PID ${pid}`, { stdio: "ignore", windowsHide: true, timeout: 3000 });
+        else process.kill(pid, "SIGKILL");
+      } catch { }
+    });
+  });
 }
 
 // Kill all 9router processes → replaced by the ownership matcher +
@@ -744,13 +754,12 @@ function checkForUpdate() {
       return;
     }
 
-    const spinner = createSpinner("Checking for updates...").start();
+    // Silent: runs in parallel with server startup, whose spinner owns the line.
     let resolved = false;
 
     const safetyTimeout = setTimeout(() => {
       if (!resolved) {
         resolved = true;
-        spinner.stop();
         resolve(null);
       }
     }, 8000);
@@ -759,7 +768,6 @@ function checkForUpdate() {
       if (resolved) return;
       resolved = true;
       clearTimeout(safetyTimeout);
-      spinner.stop();
       resolve(version);
     };
 
@@ -824,12 +832,44 @@ if (IS_MAIN && !fs.existsSync(serverPath)) {
 // CHANGELOG's 8 s budget exists to protect. They now ask-shutdown-then-kill:
 // SIGTERM → wait up to SHUTDOWN_GRACE_MS → SIGKILL only survivors, and only
 // processes this installation provably owns (exact paths / cwd / LISTEN owner).
+//
+// Upstream v0.5.116 fast path, adapted: the previous launcher records its own
+// and its server's PID in <dataDir>/launcher.pid. Stop exactly those (PID-reuse
+// guarded by the recorded executable) with the same graceful ask-then-kill, and
+// run the machine-wide ownership scan + LISTEN kill only when the port is still
+// occupied afterwards (e.g. a launcher from a build without a record).
+const launcherPidFile = getPidFilePath(getAppDataDir());
+
+async function stopPreviousInstance(appPort) {
+  const record = readPidRecord(launcherPidFile);
+  // stopRecordedInstance only validates here (alive + same executable); the
+  // actual stop goes through terminatePidsGracefully so the server can drain.
+  const recorded = record ? stopRecordedInstance(record, { killPid: () => {} }) : [];
+  try { fs.unlinkSync(launcherPidFile); } catch { }
+  if (recorded.length > 0) await terminatePidsGracefully(recorded);
+
+  const probeHost = host === DEFAULT_HOST ? "127.0.0.1" : host;
+  if (!(await isPortInUse(appPort, probeHost))) {
+    // MITM + tunnel run on separate ports/processes — off the critical path.
+    setImmediate(() => {
+      try { killProxyByPidFile(); } catch {}
+      try { killTunnelByPidFile(); } catch {}
+      try { killCloudflaredByAppPort(appPort); } catch {}
+    });
+    return;
+  }
+  await killAllAppProcesses(appPort);
+  await killProcessOnPort(appPort);
+}
+
 if (IS_MAIN) {
-  // Start server immediately; run update check in parallel (not on the critical path).
+  // Show progress immediately; run update check in parallel (not on the critical path).
+  const startupSpinner = createSpinner(`Starting ${APP_NAME} v${pkg.version}...`).start();
   const updatePromise = checkForUpdate();
-  killAllAppProcesses(port)
-    .then(() => killProcessOnPort(port))
-    .then(() => startServer(updatePromise));
+  stopPreviousInstance(port).then(() => {
+    startupSpinner.stop();
+    startServer(updatePromise);
+  });
 }
 
 // Show interface selection menu
@@ -900,7 +940,7 @@ function startServer(updatePromise) {
   function spawnServer() {
     serverStartTime = Date.now();
     crashLog = [];
-    const child = spawn(RUNTIME, ["--dns-result-order=ipv4first", "--max-old-space-size=6144", serverPath], {
+    const child = spawn(RUNTIME, ["--max-old-space-size=6144", serverPath], {
       cwd: standaloneDir,
       stdio: showLog ? "inherit" : ["ignore", "pipe", "pipe"],
       detached: true,
@@ -923,10 +963,15 @@ function startServer(updatePromise) {
         });
       }
     }
+    // Lets the next launch stop exactly this instance without a process scan.
+    try {
+      writePidRecord(launcherPidFile, { cliPid: process.pid, serverPid: child.pid || null, port, exe: path.basename(RUNTIME) });
+    } catch { /* non-fatal: next launch falls back to the port check */ }
     return child;
   }
 
   let server = spawnServer();
+  const bootSpinner = createSpinner("Starting server...");
 
   // Server shutdown budget lives at module scope now (SHUTDOWN_GRACE_MS,
   // F23/M1) so the restart path (killAllAppProcesses / killProcessOnPort)
@@ -983,6 +1028,8 @@ function startServer(updatePromise) {
   function cleanup({ graceful = true } = {}) {
     if (isCleaningUp) return;
     isCleaningUp = true;
+    bootSpinner.stop();
+    removePidRecordIfOwner(launcherPidFile, process.pid);
     try {
       // Kill tray if running
       try {
@@ -1058,7 +1105,7 @@ function startServer(updatePromise) {
   });
 
   // Initialize tray icon (runs alongside TUI)
-  const initTrayIcon = () => {
+  const initTrayIcon = (callbacks = {}) => {
     try {
       const { initTray } = require("./src/cli/tray/tray");
       initTray({
@@ -1069,10 +1116,12 @@ function startServer(updatePromise) {
           cleanup();
           exitAfterServerStops();
         },
-        onOpenDashboard: () => openBrowser(url)
+        onOpenDashboard: () => openBrowser(url),
+        ...callbacks
       });
     } catch (err) {
       // Tray not available - continue without it
+      if (typeof callbacks.onError === "function") callbacks.onError(err);
     }
   };
 
@@ -1085,17 +1134,32 @@ function startServer(updatePromise) {
     console.log(`\n🚀 ${pkg.name} v${pkg.version}`);
     console.log(`Server: http://${displayHost}:${port}`);
 
+    bootSpinner.start();
     waitServerReady(port).then(() => {
-      initTrayIcon();
-      console.log("\n💡 Router is now running in system tray. Close this terminal if you want.");
-      console.log("   Right-click tray icon to open dashboard or quit.\n");
+      bootSpinner.stop();
+      // Only claim the tray is running once the tray process actually became
+      // ready. Reporting it up front hid every failure (missing
+      // libappindicator, EACCES, wrong architecture) behind a success message.
+      initTrayIcon({
+        onReady: () => {
+          console.log("\n💡 Router is now running in system tray. Close this terminal if you want.");
+          console.log("   Right-click tray icon to open dashboard or quit.\n");
+        },
+        onError: (err) => {
+          console.log("\n⚠️  No tray icon — the server keeps running.");
+          if (err?.message) console.log(`   ${err.message.split("\n").join("\n   ")}`);
+          console.log(`   Dashboard: http://${displayHost}:${port}\n`);
+        }
+      });
     });
 
     return;
   }
 
   // Wait for server to be ready, then show interface menu loop + tray
+  bootSpinner.start();
   waitServerReady(port).then(async () => {
+    bootSpinner.stop();
     // Resolve parallel update check (already running); don't block server start on it.
     const latestVersion = await latestVersionPromise;
     // Start tray icon alongside TUI

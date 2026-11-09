@@ -2,6 +2,7 @@ import { AI_PROVIDERS } from "@/shared/constants/providers";
 import { getApiKeys } from "@/lib/localDb";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { UPDATER_CONFIG } from "@/shared/constants/config";
+import { listTtsVoices } from "@/lib/ttsVoices.js";
 
 const CLI_TOKEN_SALT = "9r-cli-auth";
 
@@ -50,18 +51,23 @@ export async function GET(request) {
       );
     }
 
-    // Self-fetch targets our own loopback port: request.url is derived from the
-    // client-controlled Host header and must never steer this fetch (fixed-path GET SSRF).
-    const internalOrigin = `http://127.0.0.1:${process.env.PORT || UPDATER_CONFIG.appPort}`;
-    const baseUrl = PROVIDER_API[provider](internalOrigin);
-    const url = lang ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}lang=${encodeURIComponent(lang)}` : baseUrl;
-    const res = await fetch(url, { cache: "no-store", headers: await getInternalHeaders() });
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      return Response.json(
-        { error: { message: data.error || `Upstream ${res.status}`, type: "server_error" } },
-        { status: res.status, headers: { "Access-Control-Allow-Origin": "*" } },
-      );
+    let data;
+    if (provider === "edge-tts" || provider === "local-device") {
+      // The public route has API-key auth; a server self-fetch cannot use that
+      // key to enter the dashboard-protected API. Reuse its service directly.
+      data = await listTtsVoices(provider, lang);
+    } else {
+      const internalOrigin = `http://127.0.0.1:${process.env.PORT || UPDATER_CONFIG.appPort}`;
+      const baseUrl = PROVIDER_API[provider](internalOrigin);
+      const url = lang ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}lang=${encodeURIComponent(lang)}` : baseUrl;
+      const res = await fetch(url, { cache: "no-store", headers: await getInternalHeaders() });
+      data = await res.json();
+      if (!res.ok || data.error) {
+        return Response.json(
+          { error: { message: data.error || `Upstream ${res.status}`, type: "server_error" } },
+          { status: res.status, headers: { "Access-Control-Allow-Origin": "*" } },
+        );
+      }
     }
 
     // Internal API shape: { voices } when lang filter, else { byLang, languages }

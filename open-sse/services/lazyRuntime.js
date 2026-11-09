@@ -68,33 +68,52 @@ async function runtimeRequireFor(dir) {
   return createRequire(path.join(dir, "package.json"));
 }
 
-// A CJS package imported by file path (steps 2/3 below) exposes its exports
-// only on `default`; callers destructure by name (`const { chromium } = ...`).
-function withNamedExports(mod) {
-  const exported = mod?.default;
-  return exported && typeof exported === "object" ? { ...exported, ...mod } : mod;
+const inflight = new Map();
+
+// createRequire.resolve applies the CJS "require" condition, which returns the
+// CJS entry for packages that ship both (playwright-core: require→index.js,
+// import→index.mjs). Prefer the ESM entry so named exports survive the file-URL
+// import below.
+function resolveRuntimeEntry(runtimeRequire, pkg) {
+  try {
+    return runtimeRequire.resolve(pkg, { conditions: ["import"] });
+  } catch {
+    return runtimeRequire.resolve(pkg);
+  }
 }
 
-const inflight = new Map();
+// Importing a CJS entry via file URL bypasses the exports map, and
+// cjs-module-lexer cannot detect named exports through chained re-exports
+// (`module.exports = require('./coreBundle').inprocess.playwright`), so
+// consumers destructuring `{ chromium }` get undefined. Merge `default`'s
+// own properties as a fallback.
+function unwrapCjsNamespace(mod) {
+  if (mod?.default && typeof mod.default === "object") {
+    return { ...mod.default, ...mod };
+  }
+  return mod;
+}
 
 async function load(pkg) {
   // 1) Resolvable from the app install (dev machine / traced standalone).
   try {
-    return await import(/* webpackIgnore: true */ pkg);
+    return await import(/* webpackIgnore: true */ /* @vite-ignore */ pkg);
   } catch (error) {
     if (!isModuleMissing(error)) throw error;
   }
   // 2) Already present in the runtime dir from a previous install.
   const runtimeRequire = await runtimeRequireFor(getRuntimeDir());
   try {
-    return await import(/* webpackIgnore: true */ pathToFileURL(runtimeRequire.resolve(pkg)).href);
+    const entry = resolveRuntimeEntry(runtimeRequire, pkg);
+    return unwrapCjsNamespace(await import(/* webpackIgnore: true */ /* @vite-ignore */ pathToFileURL(entry).href));
   } catch (error) {
     if (!isModuleMissing(error)) throw error;
   }
   // 3) Download on demand, then import from the runtime dir.
   const version = LAZY_DEP_VERSIONS[pkg] || "latest";
   const dir = getRuntimeDir();
-  const freshImport = () => import(/* webpackIgnore: true */ pathToFileURL(resolveFreshInstall(dir, pkg)).href);
+  const freshImport = async () =>
+    unwrapCjsNamespace(await import(/* webpackIgnore: true */ /* @vite-ignore */ pathToFileURL(resolveFreshInstall(dir, pkg)).href));
   await installIntoRuntime(pkg, version);
   try {
     return await freshImport();
@@ -116,7 +135,7 @@ function resolveFreshInstall(dir, pkg) {
   const pick = (target) => {
     if (typeof target === "string") return target;
     if (!target || typeof target !== "object") return null;
-    for (const condition of ["require", "node", "default"]) {
+    for (const condition of ["import", "require", "node", "default"]) {
       const hit = pick(target[condition]);
       if (hit) return hit;
     }
@@ -129,7 +148,7 @@ function resolveFreshInstall(dir, pkg) {
 
 export function loadRuntimeDep(pkg) {
   if (!inflight.has(pkg)) {
-    inflight.set(pkg, load(pkg).then(withNamedExports).finally(() => inflight.delete(pkg)));
+    inflight.set(pkg, load(pkg).then(unwrapCjsNamespace).finally(() => inflight.delete(pkg)));
   }
   return inflight.get(pkg);
 }
