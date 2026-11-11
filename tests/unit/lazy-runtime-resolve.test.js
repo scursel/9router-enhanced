@@ -66,6 +66,7 @@ describe("lazyRuntime", () => {
         "mkdir -p node_modules/late-pkg/dist",
         `echo '${JSON.stringify({ name: "late-pkg", exports: { ".": { require: "./dist/late.cjs", import: "./dist/late.js" } } })}' > node_modules/late-pkg/package.json`,
         "echo \"module.exports = { marker: 'installed-on-demand' };\" > node_modules/late-pkg/dist/late.cjs",
+        "echo \"export const marker = 'installed-on-demand';\" > node_modules/late-pkg/dist/late.js",
         "",
       ].join("\n"));
       fs.chmodSync(fakeNpm, 0o755);

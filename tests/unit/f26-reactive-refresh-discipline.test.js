@@ -12,6 +12,7 @@
 // These tests count actual POSTs against a mocked IdP fetch.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mockRootUndiciFetch, unmockRootUndiciFetch } from "../helpers/undiciFetchMock.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -191,7 +192,7 @@ describe("B — refreshWithRetry/DefaultExecutor: invalid_grant is NOT retried (
   function idpResponses(...specs) {
     let i = 0;
     fetchCalls = 0;
-    global.fetch = vi.fn(async () => {
+    mockRootUndiciFetch(vi.fn(async () => {
       fetchCalls++;
       const s = specs[Math.min(i++, specs.length - 1)];
       return {
@@ -200,7 +201,7 @@ describe("B — refreshWithRetry/DefaultExecutor: invalid_grant is NOT retried (
         text: async () => s.text,
         json: async () => JSON.parse(s.text),
       };
-    });
+    }));
   }
 
   beforeEach(() => {
@@ -209,11 +210,12 @@ describe("B — refreshWithRetry/DefaultExecutor: invalid_grant is NOT retried (
 
   afterEach(() => {
     global.fetch = originalFetch;
+    unmockRootUndiciFetch();
   });
 
   async function loadExecutorStack() {
-    // proxyFetch snapshots globalThis.fetch at module load → mock must be in
-    // place before the (re-)import (same trick codex-refresh-token.test.js uses).
+    // proxyFetch always fetches through the root undici package → the undici
+    // mock must be in place before the (re-)import (see helpers/undiciFetchMock.js).
     const { DefaultExecutor } = await import("../../open-sse/executors/default.js");
     const { refreshWithRetry, isUnrecoverableRefreshError } = await import("../../open-sse/services/tokenRefresh.js");
     return { executor: new DefaultExecutor("claude"), refreshWithRetry, isUnrecoverableRefreshError };

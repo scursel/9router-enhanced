@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mockRootUndiciFetch, unmockRootUndiciFetch } from "../helpers/undiciFetchMock.js";
 
 describe("undici keep-alive dead-socket protection & fresh-socket retry", () => {
   const savedEnv = { ...process.env };
@@ -18,7 +19,8 @@ describe("undici keep-alive dead-socket protection & fresh-socket retry", () => 
 
   afterEach(() => {
     process.env = { ...savedEnv };
-    vi.doUnmock("undici");
+    unmockRootUndiciFetch();
+    vi.doUnmock("../../open-sse/utils/proxyFetch.js");
   });
 
   it("keeps the existing 4s default, clamps keepAliveMaxTimeout, and honors FETCH_KEEPALIVE_TIMEOUT_MS", async () => {
@@ -80,10 +82,7 @@ describe("undici keep-alive dead-socket protection & fresh-socket retry", () => 
     const fetchMock = vi.fn()
       .mockRejectedValueOnce(Object.assign(new Error("fetch failed"), { cause: { code: "UND_ERR_SOCKET" } }))
       .mockResolvedValueOnce({ status: 200, ok: true });
-    vi.doMock("undici", async () => {
-      const actual = await vi.importActual("undici");
-      return { ...actual, fetch: fetchMock };
-    });
+    mockRootUndiciFetch(fetchMock);
 
     const {
       proxyAwareFetch,
@@ -113,10 +112,7 @@ describe("undici keep-alive dead-socket protection & fresh-socket retry", () => 
   it("does not replay on the fresh socket when the caller aborted or the body is a locked stream", async () => {
     const fetchMock = vi.fn()
       .mockRejectedValue(Object.assign(new Error("fetch failed"), { cause: { code: "UND_ERR_SOCKET" } }));
-    vi.doMock("undici", async () => {
-      const actual = await vi.importActual("undici");
-      return { ...actual, fetch: fetchMock };
-    });
+    mockRootUndiciFetch(fetchMock);
 
     const { proxyAwareFetch, resetDirectDispatchersForTests } = await import("../../open-sse/utils/proxyFetch.js");
     resetDirectDispatchersForTests();
@@ -135,10 +131,7 @@ describe("undici keep-alive dead-socket protection & fresh-socket retry", () => 
 
   it("does not replay on an ambiguous bare fetch failed (request may have been served)", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
-    vi.doMock("undici", async () => {
-      const actual = await vi.importActual("undici");
-      return { ...actual, fetch: fetchMock };
-    });
+    mockRootUndiciFetch(fetchMock);
 
     const { proxyAwareFetch, resetDirectDispatchersForTests } = await import("../../open-sse/utils/proxyFetch.js");
     resetDirectDispatchersForTests();
@@ -156,10 +149,7 @@ describe("undici keep-alive dead-socket protection & fresh-socket retry", () => 
     process.env.FETCH_FRESH_RETRY = "off";
     const fetchMock = vi.fn()
       .mockRejectedValue(Object.assign(new Error("fetch failed"), { cause: { code: "UND_ERR_SOCKET" } }));
-    vi.doMock("undici", async () => {
-      const actual = await vi.importActual("undici");
-      return { ...actual, fetch: fetchMock };
-    });
+    mockRootUndiciFetch(fetchMock);
 
     const { proxyAwareFetch, resetDirectDispatchersForTests } = await import("../../open-sse/utils/proxyFetch.js");
     resetDirectDispatchersForTests();
@@ -175,10 +165,7 @@ describe("undici keep-alive dead-socket protection & fresh-socket retry", () => 
 
   it("uses the fresh-socket dispatcher immediately when forceFreshSocket is requested", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce({ status: 200, ok: true });
-    vi.doMock("undici", async () => {
-      const actual = await vi.importActual("undici");
-      return { ...actual, fetch: fetchMock };
-    });
+    mockRootUndiciFetch(fetchMock);
 
     const { proxyAwareFetch, getFreshRetryDispatcher, resetDirectDispatchersForTests } = await import("../../open-sse/utils/proxyFetch.js");
     resetDirectDispatchersForTests();

@@ -1,10 +1,21 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mockRootUndiciFetch, unmockRootUndiciFetch } from "../helpers/undiciFetchMock.js";
 
 describe("xai/oauth service", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
-    vi.stubGlobal("fetch", vi.fn());
+    // src/lib/oauth/providers.js imports open-sse/index.js for its proxyFetch
+    // side effect, which replaces globalThis.fetch — intercept the undici copy
+    // proxyFetch calls instead.
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mockRootUndiciFetch(fetchMock);
+  });
+
+  afterEach(() => {
+    unmockRootUndiciFetch();
+    vi.unstubAllGlobals();
   });
 
   it("validates discovered endpoints are https x.ai URLs", async () => {
