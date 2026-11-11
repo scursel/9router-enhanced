@@ -34,6 +34,11 @@ function collect(chunks) {
     if (Array.isArray(out)) events.push(...out);
     else if (out) events.push(out);
   }
+  // The terminal (message_delta/message_stop) is deferred until usage is known;
+  // stream.js flushes the translator at [DONE]/EOF. Mirror that here.
+  const tail = openaiToClaudeResponse(null, state);
+  if (Array.isArray(tail)) events.push(...tail);
+  else if (tail) events.push(tail);
   return { state, events };
 }
 

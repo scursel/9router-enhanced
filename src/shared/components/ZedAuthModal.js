@@ -37,7 +37,7 @@ export default function ZedAuthModal({ isOpen, providerInfo, onSuccess, onClose 
     const flow = flowRef.current;
     if (flow.proxyStarted && !flow.stopSent) {
       flow.stopSent = true;
-      fetch("/api/oauth/zed/stop-proxy").catch(() => {});
+      fetch("/api/oauth/zed/stop-proxy", { method: "POST" }).catch(() => {});
     }
   }, []);
 
@@ -82,7 +82,7 @@ export default function ZedAuthModal({ isOpen, providerInfo, onSuccess, onClose 
     pollAbortRef.current = false;
 
     try {
-      const startRes = await fetch("/api/oauth/zed/start-proxy");
+    const startRes = await fetch("/api/oauth/zed/start-proxy", { method: "POST" });
       const startData = await startRes.json();
       if (!startRes.ok || !startData.success || !startData.callbackUrl) {
         throw new Error(startData.reason || startData.error || "Failed to start Zed callback server");

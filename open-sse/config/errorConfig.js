@@ -50,11 +50,13 @@ const COOLDOWN = {
 /**
  * Unified error classification rules.
  * Checked top-to-bottom: text rules first (by order), then status rules.
- * Each rule: { text?, status?, cooldownMs?, backoff? }
+ * Each rule: { text?, status?, cooldownMs?, backoff?, skipOnRequestSize? }
  *   - text: substring match (case-insensitive) on error message
  *   - status: HTTP status code match
  *   - cooldownMs: fixed cooldown duration
  *   - backoff: true = use exponential backoff (rate limit)
+ *   - skipOnRequestSize: true = do not let this rule override the
+ *     request-error-status gate when the text matches REQUEST_SIZE_PATTERNS
  */
 export const ERROR_RULES = [
   // --- Text-based rules (checked first, order = priority) ---
@@ -70,7 +72,10 @@ export const ERROR_RULES = [
   { text: "quota exceeded",           backoff: true },
   { text: "insufficient credit",      backoff: true },
   { text: "credit balance is too low", backoff: true },
-  { text: "capacity",                 backoff: true },
+  // `skipOnRequestSize`: "context capacity" describes a prompt that does not
+  // fit the model, not an account out of capacity — the request-status gate
+  // must not promote it to account fallback (see REQUEST_SIZE_PATTERNS).
+  { text: "capacity",                 backoff: true, skipOnRequestSize: true },
   { text: "overloaded",               backoff: true },
 
   // --- Status-based rules (fallback when text doesn't match) ---
@@ -79,6 +84,38 @@ export const ERROR_RULES = [
   { status: 403, cooldownMs: COOLDOWN.long },
   { status: 404, cooldownMs: COOLDOWN.long },
   { status: 429, backoff: true },
+];
+
+/**
+ * Wording that identifies a REQUEST-SIZE failure — the prompt does not fit the
+ * model's context window — rather than an account/upstream capacity shortage.
+ * Matched as case-insensitive substrings against the already-lowercased error
+ * text. Such messages can contain "capacity" ("context capacity of this
+ * model"), so the request-status gate in checkFallbackError must not let the
+ * `capacity` rule rotate accounts over a deterministic 400.
+ *
+ * Known blind spot: a genuine per-minute token throttle phrased only as
+ * "maximum tokens per minute" (no "rate limit") matches none of these, so it
+ * keeps falling back — the safe direction for an account-level condition.
+ */
+export const REQUEST_SIZE_PATTERNS = [
+  "context length",
+  "context window",
+  "context capacity",
+  "maximum context",
+  "max context",
+  "token limit",
+  "too many tokens",
+  "prompt is too long",
+  "prompt too long",
+  "request too large",
+  "request is too large",
+  "input is too long",
+  "input too long",
+  "reduce the length",
+  "string too long",
+  "body too large",
+  "payload too large",
 ];
 
 // Backward compat: COOLDOWN_MS object (used by index.js re-export)

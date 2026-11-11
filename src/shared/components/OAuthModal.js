@@ -201,14 +201,14 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
     const flow = flowRef.current;
     if (flow.proxyStarted && !flow.stopSent && flow.proxyProvider) {
       flow.stopSent = true;
-      fetch(`/api/oauth/${flow.proxyProvider}/stop-proxy`).catch(() => {});
+      fetch(`/api/oauth/${flow.proxyProvider}/stop-proxy`, { method: "POST" }).catch(() => {});
     }
   }, []);
 
   // Trae/Windsurf/Zed proxy OAuth flow: dynamic-port local callback → auto exchange.
   const startProxyFlow = useCallback(async (providerId) => {
     // 1. Start the local callback server (returns a dynamic port + callback URL).
-    const startRes = await fetch(`/api/oauth/${providerId}/start-proxy`);
+    const startRes = await fetch(`/api/oauth/${providerId}/start-proxy`, { method: "POST" });
     const startData = await startRes.json();
     if (!startRes.ok || !startData.success || !startData.callbackUrl) {
       throw new Error(startData.reason || startData.error || `Failed to start ${providerId} callback server`);
@@ -390,7 +390,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
           proxyUrl.searchParams.set("state", data.state);
           proxyUrl.searchParams.set("code_verifier", data.codeVerifier);
           proxyUrl.searchParams.set("redirect_uri", redirectUri);
-          const proxyRes = await fetch(proxyUrl.toString());
+          const proxyRes = await fetch(proxyUrl.toString(), { method: "POST" });
           const proxyData = await proxyRes.json();
           codexProxyActive = proxyData.success;
           codexServerSide = !!proxyData.serverSide;
@@ -409,7 +409,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
           proxyUrl.searchParams.set("state", data.state);
           proxyUrl.searchParams.set("code_verifier", data.codeVerifier);
           proxyUrl.searchParams.set("redirect_uri", redirectUri);
-          const proxyRes = await fetch(proxyUrl.toString());
+          const proxyRes = await fetch(proxyUrl.toString(), { method: "POST" });
           const proxyData = await proxyRes.json();
           xaiProxyActive = proxyData.success;
           xaiServerSide = !!proxyData.serverSide;

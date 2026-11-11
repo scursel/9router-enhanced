@@ -14,7 +14,7 @@ vi.mock("open-sse/utils/proxyFetch.js", () => ({ proxyAwareFetch: (url, options)
 vi.mock("@/sse/services/model.js", () => ({ getModelInfo: async () => ({ provider: "codex", model: "transcribe" }) }));
 vi.mock("@/sse/services/keyAccess.js", () => ({ getKeyAccessContext: async () => ({}), enforceKeyAccessResolved: async () => null }));
 vi.mock("@/lib/network/connectionProxy.js", () => ({ resolveConnectionProxyConfig: async () => ({}) }));
-vi.mock("open-sse/services/oauthCredentialManager.js", () => ({ shouldRefreshCredentials: () => true, refreshProviderCredentials: mocks.refresh }));
+vi.mock("open-sse/services/oauthCredentialManager.js", () => ({ shouldRefreshCredentials: () => true, refreshProviderCredentials: mocks.refresh, withCredentialRefreshLock: async (_provider, _credentials, fn) => fn() }));
 const { POST } = await import("../../src/app/api/v1/audio/transcriptions/route.js");
 function request() {
   const pcm = Buffer.alloc(44 + 4800);

@@ -63,9 +63,10 @@ const STREAM_MODE = {
   PASSTHROUGH: "passthrough" // No translation, normalize output, extract usage
 };
 
-// Upper bound on the deferred response.completed wait: a chat->responses stream
-// that saw finish_reason without usage must not hold the client's terminal event
-// forever when the upstream stalls with no usage trailer and no [DONE].
+// Upper bound on the deferred terminal wait: a chat->responses stream (or an
+// openai->claude stream) that saw finish_reason without usage must not hold the
+// client's terminal event forever when the upstream stalls with no usage trailer
+// and no [DONE].
 const PENDING_COMPLETION_FLUSH_MS = 3000;
 
 /**
@@ -190,16 +191,44 @@ export function createSSEStream(options = {}) {
     }
   };
 
-  // Emit the deferred response.completed now — at [DONE], or when the watchdog
-  // below gives up on a usage trailer that never arrives.
-  const flushPendingCompletion = (controller) => {
+  // Inject usage into a terminal item exactly once: an estimate when the
+  // provider never reported usage, otherwise the buffered real counts. Shared
+  // by the transform loop, the flush loop and the deferred-terminal flush.
+  const applyFinishUsage = (item) => {
+    const isFinishChunk = item.type === "message_delta" || item.choices?.[0]?.finish_reason;
+    if (!state?.finishReason || !isFinishChunk) return item;
+    if (!hasValidUsage(item.usage) && totalContentLength > 0) {
+      const estimated = estimateUsage(body, totalContentLength, sourceFormat);
+      item.usage = filterUsageForFormat(estimated, sourceFormat); // Filter + already has buffer
+      state.usage = estimated;
+    } else if (state.usage) {
+      // Add buffer and filter usage for client (but keep original in state.usage for logging)
+      const buffered = addBufferToUsage(state.usage);
+      item.usage = filterUsageForFormat(buffered, sourceFormat);
+    }
+    return item;
+  };
+
+  // A translator can defer its terminal event until a usage trailer that may
+  // never arrive (openai→claude, openai→responses). Emit it now — at [DONE] or
+  // when the watchdog below gives up.
+  const hasPendingTerminal = () =>
+    (targetFormat === FORMATS.OPENAI && sourceFormat === FORMATS.OPENAI_RESPONSES &&
+      state?.completionPending && !state?.completedSent) ||
+    state?.claudeFinishPending === true;
+
+  const flushPendingTerminal = (controller) => {
     const completed = translateResponse(targetFormat, sourceFormat, null, state);
     for (const item of completed || []) {
       if (item === null || item === undefined) continue;
+      applyFinishUsage(item);
       const output = formatSSE(item, sourceFormat);
       reqLogger?.appendConvertedChunk?.(output);
       controller.enqueue(sharedEncoder.encode(output));
       sseEmittedCount++;
+      if (state?.finishReason && (item.type === "message_delta" || item.choices?.[0]?.finish_reason)) {
+        finishForwarded = true;
+      }
     }
     finalizeStream();
   };
@@ -395,12 +424,11 @@ export function createSSEStream(options = {}) {
         // For Ollama: done=true is the final chunk with finish_reason/usage, must translate
         // For other formats: done=true is the [DONE] sentinel, skip
         if (parsed && parsed.done && targetFormat !== FORMATS.OLLAMA) {
-          // A direct Chat-to-Responses translation can defer response.completed
-          // while waiting for a usage trailer. [DONE] ends that opportunity even
-          // if the upstream keeps the HTTP connection open, so finish now.
-          if (targetFormat === FORMATS.OPENAI && sourceFormat === FORMATS.OPENAI_RESPONSES &&
-              state.completionPending && !state.completedSent) {
-            flushPendingCompletion(controller);
+          // A translator can defer its terminal event while waiting for a usage
+          // trailer. [DONE] ends that opportunity even if the upstream keeps the
+          // HTTP connection open, so finish now.
+          if (hasPendingTerminal()) {
+            flushPendingTerminal(controller);
           }
 
           // Synthesize response.failed if the Responses stream never sent a terminal event
@@ -502,34 +530,26 @@ export function createSSEStream(options = {}) {
             }
 
             // Inject estimated usage if finish chunk has no valid usage
-            const isFinishChunk = item.type === "message_delta" || item.choices?.[0]?.finish_reason;
-            if (state.finishReason && isFinishChunk && !hasValidUsage(item.usage) && totalContentLength > 0) {
-              const estimated = estimateUsage(body, totalContentLength, sourceFormat);
-              item.usage = filterUsageForFormat(estimated, sourceFormat); // Filter + already has buffer
-              state.usage = estimated;
-            } else if (state.finishReason && isFinishChunk && state.usage) {
-              // Add buffer and filter usage for client (but keep original in state.usage for logging)
-              const buffered = addBufferToUsage(state.usage);
-              item.usage = filterUsageForFormat(buffered, sourceFormat);
-            }
+            applyFinishUsage(item);
 
             const output = formatSSE(item, sourceFormat);
             reqLogger?.appendConvertedChunk?.(output);
             controller.enqueue(sharedEncoder.encode(output));
             sseEmittedCount++;
-            if (state.finishReason && isFinishChunk) finishForwarded = true;
+            if (state.finishReason && (item.type === "message_delta" || item.choices?.[0]?.finish_reason)) {
+              finishForwarded = true;
+            }
           }
         }
 
         // The completion deferral can outlive the upstream: a broken chat upstream
         // may stall after finish_reason with no usage trailer and no [DONE], holding
         // the connection open. Bound the wait so the client still gets a terminal event.
-        if (targetFormat === FORMATS.OPENAI && sourceFormat === FORMATS.OPENAI_RESPONSES &&
-            state?.completionPending && !state?.completedSent && !completionFlushTimer) {
+        if (hasPendingTerminal() && !completionFlushTimer) {
           completionFlushTimer = setTimeout(() => {
             completionFlushTimer = null;
-            if (state?.completedSent) return;
-            try { flushPendingCompletion(controller); } catch { /* controller already closed */ }
+            if (!hasPendingTerminal()) return;
+            try { flushPendingTerminal(controller); } catch { /* controller already closed */ }
           }, PENDING_COMPLETION_FLUSH_MS);
         }
       }
@@ -554,13 +574,26 @@ export function createSSEStream(options = {}) {
             if (buffer.startsWith("data:") && !buffer.startsWith("data: ")) {
               output = "data: " + buffer.slice(5);
             }
-            reqLogger?.appendConvertedChunk?.(output);
-            controller.enqueue(sharedEncoder.encode(output));
+            const bufTrimmed = output.trim();
+            const isDoneSentinel = bufTrimmed.startsWith("data:") && bufTrimmed.slice(5).trim() === "[DONE]";
+            // A line that arrived without its closing newline is only safe to
+            // forward when it is a complete event. A truncated JSON payload
+            // would otherwise be glued to the sentinel appended below
+            // (`…"condata: [DONE]`), corrupting the SSE stream.
+            let forward = true;
+            if (!isDoneSentinel && bufTrimmed.startsWith("data:")) {
+              try { JSON.parse(bufTrimmed.slice(5).trim()); } catch { forward = false; }
+            }
+            if (forward) {
+              if (!output.endsWith("\n")) output += "\n";
+              if (!output.endsWith("\n\n")) output += "\n";
+              reqLogger?.appendConvertedChunk?.(output);
+              controller.enqueue(sharedEncoder.encode(output));
+            }
             // F27/RM8: a trailing sentinel that never crossed transform() (no
             // closing newline) was forwarded here AND re-appended below → 2×
             // `data: [DONE]`. Latch it.
-            const bufTrimmed = buffer.trim();
-            if (bufTrimmed.startsWith("data:") && bufTrimmed.slice(5).trim() === "[DONE]") streamDoneSent = true;
+            if (isDoneSentinel) streamDoneSent = true;
           }
 
           // IMPORTANT: In passthrough mode we still must terminate the SSE stream.
@@ -608,6 +641,7 @@ export function createSSEStream(options = {}) {
             if (translated?.length > 0) {
               for (const item of translated) {
                 if (item === null || item === undefined) continue;
+                applyFinishUsage(item);
                 const output = formatSSE(item, sourceFormat);
                 reqLogger?.appendConvertedChunk?.(output);
                 controller.enqueue(sharedEncoder.encode(output));
@@ -629,6 +663,7 @@ export function createSSEStream(options = {}) {
         if (flushed?.length > 0) {
           for (const item of flushed) {
             if (item === null || item === undefined) continue;
+            applyFinishUsage(item);
             const output = formatSSE(item, sourceFormat);
             reqLogger?.appendConvertedChunk?.(output);
             controller.enqueue(sharedEncoder.encode(output));

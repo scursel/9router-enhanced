@@ -1,6 +1,7 @@
 import { register } from "../index.js";
 import { FORMATS } from "../formats.js";
 import { GEMINI_ROLE, OPENAI_FINISH, GEMINI_FINISH } from "../schema/index.js";
+import { HTTP_STATUS } from "../../config/runtimeConfig.js";
 
 // Convert OpenAI SSE chunk → plain Gemini streaming chunk (achado A1, T1.2.md).
 // Closes the missing `openai:gemini` RESPONSE route: without it the 2nd hop of
@@ -42,6 +43,16 @@ function toUsageMetadata(usage) {
 
 export function openaiToGeminiResponse(chunk, state) {
   if (!chunk) return null;
+
+  // Mid-stream upstream error (`{"error":{...}}`). stream.js turns
+  // state.streamError into a client-format error frame; without this the
+  // Gemini client received the partial candidates and a silent EOF.
+  if (chunk.error) {
+    const error = chunk.error;
+    const message = error?.message || (typeof error === "string" ? error : null) || "Upstream error";
+    state.streamError = { status: HTTP_STATUS.BAD_GATEWAY, message };
+    return null;
+  }
 
   const choice = chunk.choices?.[0];
   if (!choice) {

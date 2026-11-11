@@ -6,6 +6,7 @@ import { handleComboChat } from "../../open-sse/services/combo.js";
 const db = vi.hoisted(() => ({
   getProviderConnections: vi.fn(),
   updateProviderConnection: vi.fn(),
+  writes: [],
 }));
 vi.mock("@/lib/localDb", () => db);
 vi.mock("@/lib/network/connectionProxy", () => ({
@@ -22,6 +23,15 @@ beforeEach(() => {
   vi.setSystemTime(new Date("2026-10-22T00:00:00.000Z"));
   vi.spyOn(console, "error").mockImplementation(() => {});
   db.getProviderConnections.mockResolvedValue([{ id: "cb-account", backoffLevel: 2 }]);
+  db.writes.length = 0;
+  // markAccountUnavailable resolves its patch against the stored row inside the
+  // write transaction; emulate that so the assertion sees the persisted level.
+  db.updateProviderConnection.mockImplementation(async (id, patch) => {
+    const row = { id: "cb-account", backoffLevel: 2 };
+    const resolved = typeof patch === "function" ? patch({ ...row }) : patch;
+    db.writes.push({ id, patch: resolved });
+    return resolved;
+  });
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -56,7 +66,8 @@ describe("CodeBuddy Intl block backoff (#5024)", () => {
   it("persists the account cooldown and incremented backoff level through the cbai alias", async () => {
     const result = await markAccountUnavailable("cb-account", 400, "request illegal", "cbai", "test-model");
     expect(result.shouldFallback).toBe(true);
-    expect(db.updateProviderConnection).toHaveBeenCalledWith("cb-account", expect.objectContaining({
+    expect(db.writes).toHaveLength(1);
+    expect(db.writes[0].patch).toEqual(expect.objectContaining({
       "modelLock_test-model": new Date(Date.now() + BACKOFF_CONFIG.base * 4).toISOString(),
       backoffLevel: 3,
       errorCode: 400,

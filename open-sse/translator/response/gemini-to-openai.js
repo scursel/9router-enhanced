@@ -8,6 +8,7 @@ import { encodeDataUri } from "../concerns/image.js";
 import { toOpenAIFinish } from "../concerns/finishReason.js";
 import { canonicalToolCallSignature } from "../concerns/toolCall.js";
 import { TOOL_LOOP_BREAKER_THRESHOLD } from "../../config/appConstants.js";
+import { HTTP_STATUS } from "../../config/runtimeConfig.js";
 import { storeGeminiThoughtSignature } from "../../services/thoughtSignatureStore.js";
 
 // Build chunk meta for current gemini state
@@ -56,6 +57,17 @@ export function geminiToOpenAIResponse(chunk, state) {
   
   // Handle Antigravity wrapper
   const response = chunk.response || chunk;
+
+  // Mid-stream upstream error (`{"error":{"code","message","status"}}`).
+  // stream.js turns state.streamError into a client-format error frame;
+  // without this the OpenAI client got the partial text and a silent EOF.
+  if (response?.error) {
+    const error = response.error;
+    const message = error?.message || (typeof error === "string" ? error : null) || "Upstream error";
+    state.streamError = { status: HTTP_STATUS.BAD_GATEWAY, message };
+    return null;
+  }
+
   if (!response || !response.candidates?.[0]) return null;
 
   const results = [];

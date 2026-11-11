@@ -10,6 +10,11 @@ import {
   verifyOidcIdToken,
 } from "@/lib/auth/oidc";
 import { setDashboardAuthCookie } from "@/lib/auth/dashboardSession";
+import {
+  hasSsoAllowlist,
+  isSsoEmailAllowed,
+  SSO_EMAIL_NOT_ALLOWED,
+} from "@/lib/auth/ssoAllowlist";
 
 function clearOidcCookies(cookieStore) {
   cookieStore.delete("oidc_state");
@@ -71,11 +76,29 @@ export async function GET(request) {
       nonce: storedNonce,
     });
 
+    const oidcEmail = pickOidcEmail(payload) || null;
+    const allowlistConfigured = hasSsoAllowlist(config.ssoAllowedEmails, config.ssoAllowedEmailDomains);
+    // An explicitly unverified e-mail is not a trustworthy allowlist key.
+    const explicitlyUnverified =
+      payload.email_verified === false || String(payload.email_verified).toLowerCase() === "false";
+    if (allowlistConfigured && explicitlyUnverified) {
+      throw new Error(SSO_EMAIL_NOT_ALLOWED);
+    }
+    if (
+      !isSsoEmailAllowed({
+        email: oidcEmail,
+        allowedEmails: config.ssoAllowedEmails,
+        allowedDomains: config.ssoAllowedEmailDomains,
+      })
+    ) {
+      throw new Error(SSO_EMAIL_NOT_ALLOWED);
+    }
+
     clearOidcCookies(cookieStore);
     await setDashboardAuthCookie(cookieStore, request, {
       oidc: true,
       oidcSub: payload.sub || null,
-      oidcEmail: pickOidcEmail(payload) || null,
+      oidcEmail,
       oidcName: pickOidcDisplayName(payload),
     });
 

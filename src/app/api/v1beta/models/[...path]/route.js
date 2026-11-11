@@ -109,6 +109,8 @@ export async function POST(request, { params }) {
       method: "POST",
       headers: request.headers,
       body: JSON.stringify(convertedBody),
+      // Keep the client's abort signal: a disconnect must abort the upstream.
+      signal: request.signal,
     });
 
     const response = await handleChat(newRequest);

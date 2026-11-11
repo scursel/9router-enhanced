@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const dbMocks = vi.hoisted(() => ({
   getProviderConnections: vi.fn(),
   updateProviderConnection: vi.fn(),
+  writes: [],
 }));
 
 vi.mock("@/lib/localDb", () => dbMocks);
@@ -20,12 +21,22 @@ const { markAccountUnavailable } = await import("../../src/sse/services/auth.js"
 
 beforeEach(() => {
   vi.clearAllMocks();
-  dbMocks.getProviderConnections.mockResolvedValue([{
+  dbMocks.writes.length = 0;
+  const row = {
     id: "github-a",
     provider: "github",
     name: "github-a",
     backoffLevel: 4,
-  }]);
+  };
+  dbMocks.getProviderConnections.mockResolvedValue([row]);
+  // markAccountUnavailable hands the repo a function patch that is resolved
+  // against the row inside the write transaction; emulate that resolution so
+  // these assertions describe what actually lands in the database.
+  dbMocks.updateProviderConnection.mockImplementation(async (id, patch) => {
+    const resolved = typeof patch === "function" ? patch({ ...row }) : patch;
+    dbMocks.writes.push({ id, patch: resolved });
+    return resolved;
+  });
 });
 
 describe("GitHub monthly usage exhaustion", () => {
@@ -42,17 +53,15 @@ describe("GitHub monthly usage exhaustion", () => {
         "claude-fable-5",
       );
 
-      expect(dbMocks.updateProviderConnection).toHaveBeenCalledWith(
-        "github-a",
-        expect.objectContaining({
-          modelLock___all: "2026-09-01T00:00:00.000Z",
-          testStatus: "unavailable",
-          errorCode: 402,
-          backoffLevel: 0,
-        }),
-      );
-      expect(dbMocks.updateProviderConnection.mock.calls[0][1])
-        .not.toHaveProperty("modelLock_claude-fable-5");
+      expect(dbMocks.writes).toHaveLength(1);
+      expect(dbMocks.writes[0].id).toBe("github-a");
+      expect(dbMocks.writes[0].patch).toEqual(expect.objectContaining({
+        modelLock___all: "2026-09-01T00:00:00.000Z",
+        testStatus: "unavailable",
+        errorCode: 402,
+        backoffLevel: 0,
+      }));
+      expect(dbMocks.writes[0].patch).not.toHaveProperty("modelLock_claude-fable-5");
     } finally {
       vi.useRealTimers();
     }
@@ -71,14 +80,11 @@ describe("GitHub monthly usage exhaustion", () => {
         "claude-fable-5",
       );
 
-      expect(dbMocks.updateProviderConnection).toHaveBeenCalledWith(
-        "github-a",
-        expect.objectContaining({
-          "modelLock_claude-fable-5": "2026-08-04T19:32:00.000Z",
-        }),
-      );
-      expect(dbMocks.updateProviderConnection.mock.calls[0][1])
-        .not.toHaveProperty("modelLock___all");
+      expect(dbMocks.writes).toHaveLength(1);
+      expect(dbMocks.writes[0].patch).toEqual(expect.objectContaining({
+        "modelLock_claude-fable-5": "2026-08-04T19:32:00.000Z",
+      }));
+      expect(dbMocks.writes[0].patch).not.toHaveProperty("modelLock___all");
     } finally {
       vi.useRealTimers();
     }

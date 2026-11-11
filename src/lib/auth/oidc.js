@@ -15,6 +15,28 @@ function trimTrailingSlashes(value) {
   return (value || "").trim().replace(/\/+$/, "");
 }
 
+/**
+ * True when two issuer URLs identify the same configured issuer for the purpose
+ * of releasing the STORED client secret. Host is case-insensitive and trailing
+ * slashes are insignificant; path case is significant. Unparseable input only
+ * matches itself, so a malformed stored issuer never widens secret release.
+ */
+export function isSameOidcIssuer(left, right) {
+  const a = trimTrailingSlashes(left);
+  const b = trimTrailingSlashes(right);
+  if (!a || !b) return false;
+  try {
+    const urlA = new URL(a);
+    const urlB = new URL(b);
+    return (
+      urlA.origin === urlB.origin &&
+      trimTrailingSlashes(urlA.pathname) === trimTrailingSlashes(urlB.pathname)
+    );
+  } catch {
+    return a === b;
+  }
+}
+
 function normalizeScopes(value) {
   return (value || DEFAULT_SCOPES).trim() || DEFAULT_SCOPES;
 }
@@ -61,12 +83,14 @@ export async function getOidcRuntimeConfig() {
     clientSecret: settings.oidcClientSecret.trim(),
     scopes: normalizeScopes(settings.oidcScopes),
     loginLabel: (settings.oidcLoginLabel || DEFAULT_LOGIN_LABEL).trim() || DEFAULT_LOGIN_LABEL,
+    ssoAllowedEmails: settings.ssoAllowedEmails,
+    ssoAllowedEmailDomains: settings.ssoAllowedEmailDomains,
   };
 }
 
-export async function fetchOidcDiscovery(issuerUrl) {
+export async function fetchOidcDiscovery(issuerUrl, { fetchImpl = fetch } = {}) {
   const discoveryUrl = `${trimTrailingSlashes(issuerUrl)}/.well-known/openid-configuration`;
-  const res = await fetch(discoveryUrl, { cache: "no-store" });
+  const res = await fetchImpl(discoveryUrl, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Failed to load OIDC discovery document from ${discoveryUrl}`);
   }
@@ -148,6 +172,7 @@ export async function probeOidcClientSecret({
   clientId,
   clientSecret,
   redirectUri,
+  fetchImpl = fetch,
 }) {
   if (!clientSecret) {
     return {
@@ -166,7 +191,7 @@ export async function probeOidcClientSecret({
     code_verifier: "__oidc_test_invalid_verifier__",
   });
 
-  const res = await fetch(tokenEndpoint, {
+  const res = await fetchImpl(tokenEndpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,

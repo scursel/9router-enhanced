@@ -1,6 +1,6 @@
 import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
 import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/connectionProxy";
-import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
+import { formatRetryAfter, checkFallbackError, isModelLockActive, getModelLockKey, getEarliestModelLockUntil, MODEL_LOCK_PREFIX } from "open-sse/services/accountFallback.js";
 import { MAX_RATE_LIMIT_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import { getAntigravityQuotaCache, getAntigravityModelQuota } from "./antigravityQuota.js";
@@ -272,23 +272,26 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
 
   // GitHub premium-request exhaustion is account-wide until the next UTC month.
   const githubResetAtMs = githubMonthlyResetMs(status, errorText, provider);
+  const providerId = resolveProviderId(provider);
 
-  // Provider-specific precise cooldown (e.g. codex usage_limit_reached resets_at) overrides backoff
-  let shouldFallback, cooldownMs, newBackoffLevel, applyCooldownOnly;
+  // `shouldFallback` and `applyCooldownOnly` do not depend on the backoff level,
+  // so this pass only decides whether a write is warranted at all. The cooldown
+  // and the level that are actually persisted are recomputed below from the row
+  // as it is inside the write transaction: the snapshot above is stale as soon
+  // as a concurrent failure has written its own escalation.
+  let shouldFallback, cooldownMs, applyCooldownOnly;
   if (githubResetAtMs) {
     shouldFallback = true;
     cooldownMs = githubResetAtMs - Date.now();
-    newBackoffLevel = 0;
   } else if (resetsAtMs && resetsAtMs > Date.now()) {
     shouldFallback = true;
     // Antigravity quota API provides exact per-model resetAt. Do not truncate it.
-    cooldownMs = resolveProviderId(provider) === "antigravity"
+    cooldownMs = providerId === "antigravity"
       ? resetsAtMs - Date.now()
       : Math.min(resetsAtMs - Date.now(), MAX_RATE_LIMIT_COOLDOWN_MS);
-    newBackoffLevel = 0;
   } else {
-    ({ shouldFallback, cooldownMs, newBackoffLevel, applyCooldownOnly } =
-      checkFallbackError(status, errorText, backoffLevel, resolveProviderId(provider)));
+    ({ shouldFallback, cooldownMs, applyCooldownOnly } =
+      checkFallbackError(status, errorText, backoffLevel, providerId));
   }
   // `applyCooldownOnly`: the failure belongs to a resource every credential
   // shares (an upstream pool) or to a model the upstream will not serve at this
@@ -303,26 +306,58 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   if (!(cooldownMs > 0)) return { shouldFallback, cooldownMs: 0 };
 
   const reason = typeof errorText === "string" ? errorText.slice(0, 200) : "Provider error";
-  const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs);
+  // GitHub's monthly cap is account-wide, so it locks `modelLock___all`.
+  const lockModel = githubResetAtMs ? null : model;
+  const lockKey = getModelLockKey(lockModel);
 
-  await updateProviderConnection(connectionId, {
-    ...lockUpdate,
-    testStatus: "unavailable",
-    lastError: reason,
-    errorCode: status,
-    lastErrorAt: new Date().toISOString(),
-    backoffLevel: newBackoffLevel ?? backoffLevel
+  let applied = null;
+  await updateProviderConnection(connectionId, (existing) => {
+    const storedLevel = existing?.backoffLevel || 0;
+    const now = Date.now();
+    let level, waitMs;
+    if (githubResetAtMs) {
+      // Account-wide lock until the next UTC month: the ladder restarts after it.
+      level = 0;
+      waitMs = githubResetAtMs - now;
+    } else if (resetsAtMs && resetsAtMs > now) {
+      // The upstream stated the exact reset; the ladder restarts after it too.
+      level = 0;
+      waitMs = providerId === "antigravity"
+        ? resetsAtMs - now
+        : Math.min(resetsAtMs - now, MAX_RATE_LIMIT_COOLDOWN_MS);
+    } else {
+      const decision = checkFallbackError(status, errorText, storedLevel, providerId);
+      waitMs = decision.cooldownMs;
+      level = decision.newBackoffLevel ?? storedLevel;
+      // One escalation per lock window. A failure that lands while this model is
+      // already locked belongs to the same burst: it extends the wait but does
+      // not advance the ladder again, and the stored level is never lowered.
+      if (level > storedLevel && isModelLockActive(existing, lockModel)) level = storedLevel;
+    }
+    if (!(waitMs > 0)) return null;
+    const storedUntil = new Date(existing?.[lockKey] || 0).getTime();
+    // Never shorten a lock that is still active: take the later expiry.
+    const until = Math.max(now + waitMs, Number.isFinite(storedUntil) ? storedUntil : 0);
+    applied = { cooldownMs: until - now };
+    return {
+      [lockKey]: new Date(until).toISOString(),
+      testStatus: "unavailable",
+      lastError: reason,
+      errorCode: status,
+      lastErrorAt: new Date(now).toISOString(),
+      backoffLevel: level
+    };
   });
 
-  const lockKey = Object.keys(lockUpdate)[0];
+  const appliedCooldownMs = applied?.cooldownMs ?? cooldownMs;
   const connName = conn?.displayName || conn?.name || conn?.email || connectionId.slice(0, 8);
-  log.warn("AUTH", `${connName} locked ${lockKey} for ${Math.round(cooldownMs / 1000)}s [${status}]`);
+  log.warn("AUTH", `${connName} locked ${lockKey} for ${Math.round(appliedCooldownMs / 1000)}s [${status}]`);
 
   if (provider && status && reason) {
     console.error(`❌ ${provider} [${status}]: ${reason}`);
   }
 
-  return { shouldFallback, cooldownMs };
+  return { shouldFallback, cooldownMs: appliedCooldownMs };
 }
 
 /**
@@ -330,6 +365,11 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
  * - Clears modelLock_${model} (the model that just succeeded)
  * - Lazy-cleans any other expired modelLock_* keys
  * - Resets error state only if no active locks remain
+ * The set of locks to clear and the "any active locks left?" decision are both
+ * taken from the stored row inside the update transaction, so a lock written by
+ * a concurrent request is neither cleared nor ignored. A per-model success does
+ * NOT clear `modelLock___all`: account-wide locks (e.g. GitHub's monthly cap)
+ * are not disproved by one model succeeding.
  * @param {string} connectionId
  * @param {object} currentConnection - credentials object (has _connection) or raw connection
  * @param {string|null} model - model that succeeded
@@ -338,41 +378,54 @@ export async function clearAccountError(connectionId, currentConnection, model =
   if (!connectionId || connectionId === "noauth") return;
   const conn = currentConnection._connection || currentConnection;
   const now = Date.now();
-  const allLockKeys = Object.keys(conn).filter(k => k.startsWith("modelLock_"));
+  const succeededKey = model ? getModelLockKey(model) : null;
+  const allLockKeys = Object.keys(conn).filter(k => k.startsWith(MODEL_LOCK_PREFIX));
 
-  if (!conn.testStatus && !conn.lastError && allLockKeys.length === 0) return;
+  // Fast path only — the authoritative decision is taken from the stored row
+  // inside the update below. Skipping here is safe: a lock written after this
+  // snapshot is newer evidence than the success that triggered this call, and
+  // must not be cleared by it.
+  const snapshotClearable = allLockKeys.some(k =>
+    (succeededKey && k === succeededKey) ||
+    (conn[k] && new Date(conn[k]).getTime() <= now));
+  if (!snapshotClearable && conn.testStatus !== "unavailable" && !conn.lastError) return;
 
-  // Keys to clear: current model's lock + all expired locks
-  const keysToClear = allLockKeys.filter(k => {
-    if (model && k === `modelLock_${model}`) return true; // succeeded model
-    if (model && k === "modelLock___all") return true;    // account-level lock
-    const expiry = conn[k];
-    return expiry && new Date(expiry).getTime() <= now;   // expired
-  });
-
-  if (keysToClear.length === 0 && conn.testStatus !== "unavailable" && !conn.lastError) return;
-
-  // Check if any active locks remain after clearing
-  const remainingActiveLocks = allLockKeys.filter(k => {
-    if (keysToClear.includes(k)) return false;
-    const expiry = conn[k];
-    return expiry && new Date(expiry).getTime() > now;
-  });
-
-  const clearObj = Object.fromEntries(keysToClear.map(k => [k, null]));
-
-  // Only reset error state if no active locks remain
-  if (remainingActiveLocks.length === 0) {
-    Object.assign(clearObj, {
-      testStatus: "active",
-      lastError: null,
-      errorCode: null,
-      lastErrorAt: null,
-      backoffLevel: 0
+  await updateProviderConnection(connectionId, (existing) => {
+    const at = Date.now();
+    const lockKeys = Object.keys(existing || {}).filter(k => k.startsWith(MODEL_LOCK_PREFIX));
+    // Clear the scope that just succeeded plus every lock that already expired.
+    // A lock another request wrote for a different model is NOT cleared: this
+    // success says nothing about it. The account-wide lock is deliberately not
+    // cleared by a per-model success either — it is set by account-wide
+    // conditions (e.g. GitHub's monthly cap) that one model's success does not
+    // disprove.
+    const keysToClear = lockKeys.filter(k => {
+      if (succeededKey && k === succeededKey) return true;
+      const expiry = existing[k];
+      return expiry && new Date(expiry).getTime() <= at;
     });
-  }
 
-  await updateProviderConnection(connectionId, clearObj);
+    // Reset the error state only when no lock is still active, judged from the
+    // row being written — not from the request-time snapshot.
+    const remainingActiveLocks = lockKeys.filter(k => {
+      if (keysToClear.includes(k)) return false;
+      const expiry = existing[k];
+      return expiry && new Date(expiry).getTime() > at;
+    });
+
+    const clearObj = Object.fromEntries(keysToClear.map(k => [k, null]));
+    if (remainingActiveLocks.length === 0) {
+      Object.assign(clearObj, {
+        testStatus: "active",
+        lastError: null,
+        errorCode: null,
+        lastErrorAt: null,
+        backoffLevel: 0
+      });
+    }
+
+    return Object.keys(clearObj).length === 0 ? null : clearObj;
+  });
 }
 
 /**

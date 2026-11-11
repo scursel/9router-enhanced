@@ -15,23 +15,38 @@ export function parseDataUri(url) {
 import { lookup } from "node:dns/promises";
 import { Agent } from "undici";
 import { MAX_IMAGE_BYTES, FETCH_TIMEOUT_MS, IMAGE_SIGNATURES, BLOCKED_HOSTS } from "../../config/mediaConfig.js";
+import { isBlockedIpv4, isBlockedIpv6Groups, parseIPv6ToGroups } from "@/shared/utils/ssrfGuard.js";
 
 // True if an IPv4/IPv6 address is private/reserved (SSRF target).
-function isPrivateIp(ip) {
+// Delegates to the authoritative ssrfGuard predicates to avoid divergence.
+export function isPrivateIp(ip) {
   if (!ip) return true;
-  // IPv6 loopback / unique-local / link-local
-  if (ip === "::1" || ip.startsWith("fc") || ip.startsWith("fd") || ip.startsWith("fe80")) return true;
-  // IPv4-mapped IPv6 (::ffff:a.b.c.d) -> extract tail
-  const v4 = ip.includes(".") ? ip.split(":").pop() : ip;
-  const parts = v4.split(".").map((n) => Number.parseInt(n, 10));
-  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return ip.includes(":") ? false : true;
-  const [a, b] = parts;
-  if (a === 10 || a === 127 || a === 0) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 169 && b === 254) return true; // link-local + cloud metadata
-  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
-  return false;
+  
+  // Try IPv6 first (it can contain embedded IPv4)
+  const groups = parseIPv6ToGroups(ip);
+  if (groups !== null) {
+    if (isBlockedIpv6Groups(groups)) return true;
+    // Valid IPv6 that's not blocked
+    return false;
+  }
+  
+  // Not IPv6, try as IPv4
+  if (isBlockedIpv4(ip)) return true;
+  
+  // Check if it's a valid IPv4 address (not blocked)
+  // isBlockedIpv4 returns false for valid public IPv4, but also for invalid strings
+  // We need to distinguish between the two
+  const parts = ip.split(".");
+  if (parts.length === 4) {
+    const nums = parts.map((n) => Number.parseInt(n, 10));
+    if (!nums.some((n) => Number.isNaN(n) || n < 0 || n > 255)) {
+      // Valid IPv4 that's not blocked
+      return false;
+    }
+  }
+  
+  // Invalid IP - treat as potentially dangerous (matches original behavior)
+  return true;
 }
 
 // Resolve host once and return only public IPs (SSRF guard).

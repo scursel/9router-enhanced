@@ -99,7 +99,52 @@ export function stripContinuityFields(body) {
   return body;
 }
 
-export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, onStreamComplete: onStreamCompleteCb, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, customPromptEnabled, customPrompt, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, providerOverrides, usageEventId, comboName, skipUpstreamRetry = false, streamReadinessTimeoutMs = STREAM_FIRST_CHUNK_TIMEOUT_MS }) {
+// Non-standard nginx-style "client closed request" (same value chat.js uses).
+const CLIENT_ABORTED_STATUS = 499;
+
+// Sentinel for "the client left before we finished waiting".
+const CLIENT_ABORTED = Symbol("client-aborted");
+
+/**
+ * An attempt that ended because the CLIENT left, not because the account
+ * failed. chat.js uses `clientAborted` to release the slot without recording
+ * an account lock or a breaker failure, and a combo stops dispatching members.
+ */
+function clientAbortResult(message = "Request aborted") {
+  return { ...createErrorResult(CLIENT_ABORTED_STATUS, message), clientAborted: true };
+}
+
+/** Release a response body we are not going to read (best effort). */
+function discardResponseBody(response) {
+  try {
+    response?.body?.cancel?.().catch?.(() => {});
+  } catch {
+    // already consumed or locked — nothing to release
+  }
+}
+
+/**
+ * Resolve `promise`, or the CLIENT_ABORTED sentinel as soon as `signal` aborts.
+ * The abandoned promise keeps its handlers attached, so a later rejection is
+ * never an unhandled rejection.
+ */
+function raceClientAbort(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) {
+    Promise.resolve(promise).catch(() => {});
+    return Promise.resolve(CLIENT_ABORTED);
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => resolve(CLIENT_ABORTED);
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(promise).then(
+      (value) => { signal.removeEventListener("abort", onAbort); resolve(value); },
+      (error) => { signal.removeEventListener("abort", onAbort); reject(error); },
+    );
+  });
+}
+
+export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, onStreamError, onStreamComplete: onStreamCompleteCb, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, customPromptEnabled, customPrompt, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, providerOverrides, usageEventId, comboName, clientSignal = null, skipUpstreamRetry = false, streamReadinessTimeoutMs = STREAM_FIRST_CHUNK_TIMEOUT_MS }) {
   const { provider, model } = modelInfo;
   const requestStartTime = Date.now();
   // Stable per-session color so all lines of one CLI conversation share a tag
@@ -111,6 +156,11 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     }
   })();
   const reqTag = log?.tagForSession ? log.tagForSession(sessionSeed) : (log?.nextTag ? log.nextTag() : "");
+
+  // A client that is already gone must not consume an account attempt: answer
+  // before translation, credential refresh, or dispatch. chat.js releases the
+  // semaphore slot and records no account penalty on this result.
+  if (clientSignal?.aborted) return clientAbortResult();
 
   const sourceFormat = sourceFormatOverride || detectFormat(body);
 
@@ -423,10 +473,25 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     },
     onError: (error) => {
       settlePending();
-      if (onDisconnect) onDisconnect(error);
+      // A stream that dies after the first byte is an UPSTREAM failure, not a
+      // client close: chat.js counts it toward the breaker and labels it as
+      // such. Only an error caused by the client's own abort keeps the
+      // disconnect path (release the slot, no penalty).
+      if (clientSignal?.aborted || !onStreamError) {
+        if (onDisconnect) onDisconnect(error);
+      } else {
+        onStreamError(error);
+      }
     },
     log, provider, model, reqTag
   });
+
+  // The executor's signal is the stream controller's (stall watchdog, response
+  // body cancel) merged with the client's request signal, so a client that
+  // disconnects aborts the in-flight upstream fetch even before the first byte.
+  const executorSignal = clientSignal
+    ? AbortSignal.any([streamController.signal, clientSignal])
+    : streamController.signal;
 
   const proxyOptions = {
     connectionProxyEnabled: credentials?.providerSpecificData?.connectionProxyEnabled === true,
@@ -477,7 +542,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       credentials,
       providerSessionId: sessionSeed,
       clientTool,
-      signal: streamController.signal,
+      signal: executorSignal,
       log,
       proxyOptions,
       providerOverrides,
@@ -494,8 +559,13 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     }
     reqLogger.logTargetRequest(providerUrl, providerHeaders, finalBody);
   } catch (error) {
+    // Keyed on the client signal, not error.name: an abort with a custom
+    // reason rejects with an "Error" (see executors/base.js).
+    const abortedByClient = clientSignal?.aborted === true;
     const isConnectTimeout = /fetch connect timeout/i.test(error?.message || "");
-    const mappedStatus = error?.name === "AbortError" ? (isConnectTimeout ? HTTP_STATUS.REQUEST_TIMEOUT : 499) : HTTP_STATUS.BAD_GATEWAY;
+    const mappedStatus = abortedByClient
+      ? CLIENT_ABORTED_STATUS
+      : (error?.name === "AbortError" ? (isConnectTimeout ? HTTP_STATUS.REQUEST_TIMEOUT : CLIENT_ABORTED_STATUS) : HTTP_STATUS.BAD_GATEWAY);
     settlePending(true);
     appendRequestLog({ model, provider, connectionId, status: `FAILED ${mappedStatus}` }).catch(() => { });
     saveRequestDetail(buildRequestDetail({
@@ -509,10 +579,11 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       status: "error"
     })).catch(() => { });
 
+    if (abortedByClient) return clientAbortResult();
     if (error?.name === "AbortError") {
       streamController.handleError(error);
       if (isConnectTimeout) return createErrorResult(HTTP_STATUS.REQUEST_TIMEOUT, "Upstream connect timeout");
-      return createErrorResult(499, "Request aborted");
+      return createErrorResult(CLIENT_ABORTED_STATUS, "Request aborted");
     }
     const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
     if (log?.errorLine) {
@@ -568,17 +639,21 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
             credentials,
             providerSessionId: sessionSeed,
             clientTool,
-            signal: streamController.signal,
+            signal: executorSignal,
             log,
             proxyOptions,
             providerOverrides,
             skipUpstreamRetry,
           });
-          if (retryResult.response.ok) {
-            providerResponse = retryResult.response;
-            providerUrl = retryResult.url;
-            providerResponseFormat = retryResult.responseFormat || targetFormat;
-          }
+          // Adopt the retry's response whatever its status: the refresh
+          // succeeded, so the original 401/403 is stale. Keeping it when the
+          // retry was not ok classified the account by the OLD status — a 503
+          // after a successful refresh locked the account as an auth failure —
+          // and lost the retry's status/body/headers.
+          discardResponseBody(providerResponse);
+          providerResponse = retryResult.response;
+          providerUrl = retryResult.url;
+          providerResponseFormat = retryResult.responseFormat || targetFormat;
         } catch { log?.warn?.("TOKEN", `${provider.toUpperCase()} | retry after refresh failed`); }
       } else {
         log?.warn?.("TOKEN", `${provider.toUpperCase()} | refresh failed`);
@@ -662,7 +737,19 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // account / combo loop can fall back on — but only while no byte has reached
   // the client. Budget: short for a combo member with a next member to try,
   // the first-chunk timeout otherwise. Non-SSE bodies pass through untouched.
-  const readiness = await ensureStreamReadiness(providerResponse, { timeoutMs: streamReadinessTimeoutMs });
+  const readiness = await raceClientAbort(
+    ensureStreamReadiness(providerResponse, { timeoutMs: streamReadinessTimeoutMs }),
+    clientSignal,
+  );
+  if (readiness === CLIENT_ABORTED) {
+    // The client left while we were still waiting for the first byte: the
+    // upstream fetch was aborted through executorSignal, no account penalty is
+    // recorded, and the account loop releases its slot.
+    settlePending(true);
+    discardResponseBody(providerResponse);
+    appendRequestLog({ model, provider, connectionId, status: `FAILED ${CLIENT_ABORTED_STATUS}` }).catch(() => { });
+    return clientAbortResult();
+  }
   if (!readiness.ok) return failUpstream(readiness.status, readiness.message);
   providerResponse = readiness.response;
 

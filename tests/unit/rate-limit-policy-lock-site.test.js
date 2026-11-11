@@ -157,6 +157,7 @@ describe("checkFallbackError — a pooled throttle is settled from the upstream'
 const dbMocks = vi.hoisted(() => ({
   getProviderConnections: vi.fn(),
   updateProviderConnection: vi.fn(),
+  writes: [],
 }));
 
 vi.mock("@/lib/localDb", () => dbMocks);
@@ -180,8 +181,17 @@ describe("markAccountUnavailable — pooled throttle stops rotation but still re
 
   beforeEach(() => {
     vi.clearAllMocks();
+    dbMocks.writes.length = 0;
     dbMocks.getProviderConnections.mockResolvedValue(ACCOUNTS);
-    dbMocks.updateProviderConnection.mockResolvedValue(undefined);
+    // markAccountUnavailable resolves its patch against the stored row inside
+    // the write transaction; emulate that so the assertions see the persisted
+    // values (backoff level, lock expiry) rather than the callback itself.
+    dbMocks.updateProviderConnection.mockImplementation(async (id, patch) => {
+      const row = ACCOUNTS.find((account) => account.id === id);
+      const resolved = typeof patch === "function" ? patch({ ...row }) : patch;
+      dbMocks.writes.push({ id, patch: resolved });
+      return resolved;
+    });
   });
 
   // Mirrors chat.js: the loop continues to the next account ONLY while
@@ -206,9 +216,9 @@ describe("markAccountUnavailable — pooled throttle stops rotation but still re
 
   it("the account is still paused for the upstream's window, not hammered", async () => {
     await simulateComboLoop(500, SHARED_POOL_500, "z-ai/glm-5.2:free");
-    expect(dbMocks.updateProviderConnection).toHaveBeenCalledTimes(1);
+    expect(dbMocks.writes).toHaveLength(1);
 
-    const [, update] = dbMocks.updateProviderConnection.mock.calls[0];
+    const update = dbMocks.writes[0].patch;
     const lockKey = Object.keys(update).find((k) => k.startsWith("modelLock_"));
     expect(lockKey).toBe("modelLock_z-ai/glm-5.2:free");
 
@@ -225,8 +235,8 @@ describe("markAccountUnavailable — pooled throttle stops rotation but still re
     // Discriminating assertion: rotating is only useful if each credential gets
     // its own bounded cooldown written. A loop that "rotated" without recording
     // anything would satisfy the count above and hammer the upstream.
-    expect(dbMocks.updateProviderConnection).toHaveBeenCalledTimes(ACCOUNTS.length);
-    for (const [, update] of dbMocks.updateProviderConnection.mock.calls) {
+    expect(dbMocks.writes).toHaveLength(ACCOUNTS.length);
+    for (const { patch: update } of dbMocks.writes) {
       const lockUntil = new Date(update[Object.keys(update).find((k) => k.startsWith("modelLock_"))]).getTime();
       expect(lockUntil).toBeGreaterThan(Date.now());
     }
@@ -235,8 +245,8 @@ describe("markAccountUnavailable — pooled throttle stops rotation but still re
   it("a retired free tier does not walk the combo at all", async () => {
     const tried = await simulateComboLoop(500, UNSUPPORTED_FREE_500, "deepseek/deepseek-v4-flash-0731:free");
     expect(tried).toBe(1);
-    expect(dbMocks.updateProviderConnection).toHaveBeenCalledTimes(1);
-    const [, update] = dbMocks.updateProviderConnection.mock.calls[0];
+    expect(dbMocks.writes).toHaveLength(1);
+    const update = dbMocks.writes[0].patch;
     const lockKey = Object.keys(update).find((k) => k.startsWith("modelLock_"));
     const lockUntilMs = new Date(update[lockKey]).getTime() - Date.now();
     // The 30-minute tier, not the 30-second transient default.

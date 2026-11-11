@@ -55,7 +55,7 @@ function isBlockedIpv4Int(ip) {
   });
 }
 
-function isBlockedIpv4(host) {
+export function isBlockedIpv4(host) {
   const ip = ipv4ToInt(host);
   if (ip === null) return false;
   return isBlockedIpv4Int(ip);
@@ -78,7 +78,7 @@ function parseHextets(s) {
 // and reasoning about the numeric value — rather than pattern-matching the source
 // string — is what makes this immune to "which textual form did the URL parser
 // pick" bugs: "::ffff:127.0.0.1" and "::ffff:7f00:1" produce identical groups.
-function parseIPv6ToGroups(rawHost) {
+export function parseIPv6ToGroups(rawHost) {
   let host = rawHost.toLowerCase();
 
   const v4TailMatch = host.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
@@ -116,7 +116,7 @@ function parseIPv6ToGroups(rawHost) {
   return groups.length === 8 ? groups : null;
 }
 
-function isBlockedIpv6Groups(g) {
+export function isBlockedIpv6Groups(g) {
   const isZero = (n) => g[n] === 0;
   // loopback ::1
   if ([0, 1, 2, 3, 4, 5, 6].every(isZero) && g[7] === 1) return true;

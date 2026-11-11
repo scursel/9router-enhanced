@@ -95,15 +95,20 @@ async function completeXaiManualCode(code, state) {
 export async function GET(request, { params }) {
   try {
     const { provider, action } = await params;
+    
+    // Side-effecting actions must use POST
+    if (action === "start-proxy" || action === "stop-proxy") {
+      return NextResponse.json({ error: "Method not allowed" }, { status: 405 });
+    }
+    
     const { searchParams } = new URL(request.url);
-
+    
     if (action === "authorize") {
       // Xiaomi Desktop: custom ECDH flow — generate keypair, start proxy, return authorize URL
       if (provider === "xiaomi-mimo") {
         const { generateKeyPair, buildAuthorizeUrl, getKeyName } = await import("@/lib/oauth/providers/xiaomi-mimo");
         const { publicKey, privateKeyDer } = generateKeyPair();
         const state = searchParams.get("state") || crypto.randomUUID();
-
         // Start the callback proxy (or reuse if already running)
         const proxyResult = await startXiaomiMimoProxy();
         if (!proxyResult.success) {
@@ -136,49 +141,6 @@ export async function GET(request, { params }) {
       }
       const authData = await generateAuthData(provider, redirectUri, Object.keys(meta).length ? meta : undefined);
       return NextResponse.json(authData);
-    }
-
-    if (action === "start-proxy") {
-      // Trae/Windsurf/Zed use a dynamic-port local callback server (singleton session,
-      // state is registered separately via /register-session after /authorize).
-      if (provider === "trae") {
-        const result = await startTraeProxy();
-        return NextResponse.json(result);
-      }
-      if (provider === "windsurf") {
-        const result = await startWindsurfProxy();
-        return NextResponse.json(result);
-      }
-      if (provider === "zed") {
-        // Prefer ZED_HOSTED_CONFIG.defaultNativeAppPort (58443) so the browser redirect
-        // matches what Zed expects; falls back to a random port if it's busy.
-        const result = await startZedProxy(searchParams.get("native_app_port") || ZED_HOSTED_CONFIG.defaultNativeAppPort);
-        return NextResponse.json(result);
-      }
-      if (provider === "xiaomi-mimo") {
-        const result = await startXiaomiMimoProxy();
-        return NextResponse.json(result);
-      }
-      if (!["codex", "xai"].includes(provider)) {
-        return NextResponse.json({ error: "Proxy only supported for codex/xai/trae/windsurf/zed" }, { status: 400 });
-      }
-      const appPort = searchParams.get("app_port");
-      if (!appPort) {
-        return NextResponse.json({ error: "Missing app_port" }, { status: 400 });
-      }
-      const state = searchParams.get("state");
-      const codeVerifier = searchParams.get("code_verifier");
-      const redirectUri = searchParams.get("redirect_uri");
-      const result = provider === "xai"
-        ? await startXaiProxy(Number(appPort))
-        : await startCodexProxy(Number(appPort));
-      let serverSide = false;
-      if (result.success && state && codeVerifier && redirectUri) {
-        serverSide = provider === "xai"
-          ? registerXaiSession({ state, codeVerifier, redirectUri })
-          : registerCodexSession({ state, codeVerifier, redirectUri });
-      }
-      return NextResponse.json({ ...result, serverSide });
     }
 
     if (action === "poll-status") {
@@ -215,17 +177,6 @@ export async function GET(request, { params }) {
         return NextResponse.json(payload);
       }
       return NextResponse.json({ status: session.status });
-    }
-
-    if (action === "stop-proxy") {
-      if (provider === "trae") stopTraeProxy();
-      else if (provider === "windsurf") stopWindsurfProxy();
-      else if (provider === "zed") stopZedProxy();
-      else if (provider === "xai") stopXaiProxy();
-      else if (provider === "codex") stopCodexProxy();
-      else if (provider === "xiaomi-mimo") stopXiaomiMimoProxy();
-      else return NextResponse.json({ error: "Proxy only supported for codex/xai/trae/windsurf/zed/xiaomi-mimo" }, { status: 400 });
-      return NextResponse.json({ success: true });
     }
 
     if (action === "ide-status") {
@@ -317,13 +268,69 @@ export async function GET(request, { params }) {
 export async function POST(request, { params }) {
   try {
     const { provider, action } = await params;
+    
+    // Side-effecting proxy actions - these only need searchParams, not body
+    if (action === "start-proxy") {
+      const { searchParams } = new URL(request.url);
+      // Trae/Windsurf/Zed use a dynamic-port local callback server (singleton session,
+      // state is registered separately via /register-session after /authorize).
+      if (provider === "trae") {
+        const result = await startTraeProxy();
+        return NextResponse.json(result);
+      }
+      if (provider === "windsurf") {
+        const result = await startWindsurfProxy();
+        return NextResponse.json(result);
+      }
+      if (provider === "zed") {
+        // Prefer ZED_HOSTED_CONFIG.defaultNativeAppPort (58443) so the browser redirect
+        // matches what Zed expects; falls back to a random port if it's busy.
+        const result = await startZedProxy(searchParams.get("native_app_port") || ZED_HOSTED_CONFIG.defaultNativeAppPort);
+        return NextResponse.json(result);
+      }
+      if (provider === "xiaomi-mimo") {
+        const result = await startXiaomiMimoProxy();
+        return NextResponse.json(result);
+      }
+      if (!["codex", "xai"].includes(provider)) {
+        return NextResponse.json({ error: "Proxy only supported for codex/xai/trae/windsurf/zed" }, { status: 400 });
+      }
+      const appPort = searchParams.get("app_port");
+      if (!appPort) {
+        return NextResponse.json({ error: "Missing app_port" }, { status: 400 });
+      }
+      const state = searchParams.get("state");
+      const codeVerifier = searchParams.get("code_verifier");
+      const redirectUri = searchParams.get("redirect_uri");
+      const result = provider === "xai"
+        ? await startXaiProxy(Number(appPort))
+        : await startCodexProxy(Number(appPort));
+      let serverSide = false;
+      if (result.success && state && codeVerifier && redirectUri) {
+        serverSide = provider === "xai"
+          ? registerXaiSession({ state, codeVerifier, redirectUri })
+          : registerCodexSession({ state, codeVerifier, redirectUri });
+      }
+      return NextResponse.json({ ...result, serverSide });
+    }
+    
+    if (action === "stop-proxy") {
+      if (provider === "trae") stopTraeProxy();
+      else if (provider === "windsurf") stopWindsurfProxy();
+      else if (provider === "zed") stopZedProxy();
+      else if (provider === "xai") stopXaiProxy();
+      else if (provider === "codex") stopCodexProxy();
+      else if (provider === "xiaomi-mimo") stopXiaomiMimoProxy();
+      else return NextResponse.json({ error: "Proxy only supported for codex/xai/trae/windsurf/zed/xiaomi-mimo" }, { status: 400 });
+      return NextResponse.json({ success: true });
+    }
+    
     let body;
     try {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: "Invalid or empty request body" }, { status: 400 });
     }
-
     if (action === "lease-connect") {
       // MiniMax Code: create a connection that borrows the desktop app's
       // sign-in over the local auth-lease pipe (authType "mcode-lease"). The

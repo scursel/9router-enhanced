@@ -57,6 +57,10 @@ import { resolveSmartChoice } from "../services/systemoneRouter.js";
 const CAPACITY_PROBE_MS = 2000;
 const CAPACITY_WAIT_DEFAULT_MS = 60_000;
 
+// Non-standard nginx-style "client closed request" (same value chatCore uses
+// for an attempt that ended because the client left).
+const CLIENT_ABORTED_STATUS = 499;
+
 // Real combos only: a member answering 2xx with an upstream error notice as
 // its text ("…accounts that have not been recharged…") makes the combo try
 // the next member instead of returning the notice. Off: COMBO_SOFT_ERROR_GUARD=off.
@@ -261,6 +265,13 @@ function fusionMemberHandler(clientRawRequest, request, apiKey, comboPath) {
  *   selection; falls back to the resolved model.
  */
 async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, attemptUsage = null, requestedModel = null) {
+  // A client that already left must not consume an account attempt or a combo
+  // member: answer before credential lookup or dispatch.
+  if (request?.signal?.aborted) {
+    log.warn("CHAT", `[${modelStr}] client disconnected before dispatch`);
+    return errorResponse(CLIENT_ABORTED_STATUS, "Request aborted");
+  }
+
   const modelInfo = await getModelInfo(modelStr);
 
   // If provider is null, this might be a combo name - check and handle
@@ -368,7 +379,17 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let lastHeaders = null;
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { requestedModel: requestedModel || model });
+    let credentials;
+    try {
+      credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { requestedModel: requestedModel || model });
+    } catch (error) {
+      // A credential lookup that throws cannot be attributed to one account,
+      // so it cannot be excluded and retried: answer with the existing
+      // exhausted shape instead of looping on the same failure forever.
+      const message = error?.message || String(error);
+      log.error("CHAT", `[${provider}/${model}] credential lookup failed: ${message}`);
+      return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, message);
+    }
 
     // All accounts unavailable
     if (!credentials || credentials.allRateLimited) {
@@ -404,16 +425,37 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     }
 
     // Account selection shown in the unified "▶" line (acc:...)
-    const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
+    let refreshedCredentials;
+    try {
+      refreshedCredentials = await checkAndRefreshToken(provider, credentials);
 
-    // Ensure real project ID is available for providers that need it (P0 fix: cold miss)
-    if ((provider === "antigravity" || provider === "gemini-cli") && !refreshedCredentials.projectId) {
-      const pid = await getProjectIdForConnection(credentials.connectionId, refreshedCredentials.accessToken, provider);
-      if (pid) {
-        refreshedCredentials.projectId = pid;
-        // Persist to DB in background so subsequent requests have it immediately
-        updateProviderCredentials(credentials.connectionId, { projectId: pid }).catch(() => { });
+      // Ensure real project ID is available for providers that need it (P0 fix: cold miss)
+      if ((provider === "antigravity" || provider === "gemini-cli") && !refreshedCredentials.projectId) {
+        const pid = await getProjectIdForConnection(credentials.connectionId, refreshedCredentials.accessToken, provider);
+        if (pid) {
+          refreshedCredentials.projectId = pid;
+          // Persist to DB in background so subsequent requests have it immediately
+          updateProviderCredentials(credentials.connectionId, { projectId: pid }).catch(() => { });
+        }
       }
+    } catch (error) {
+      // Preparing ONE account (token refresh / project-id lookup) failed. That
+      // is this account's failure, not the request's: exclude only it and keep
+      // the loop going. Bounded because every pass must add a NEW id — a
+      // credential we cannot identify (or already excluded) ends the loop with
+      // the existing "all accounts unavailable" answer.
+      const connectionId = credentials?.connectionId;
+      const message = error?.message || String(error);
+      const status = error?.statusCode ?? error?.status ?? null;
+      log.error("CHAT", `[${provider}/${model}] account ${credentials?.connectionName || connectionId || "?"} preparation failed${status ? ` (${status})` : ""}: ${message}`);
+      lastError = message;
+      lastStatus = status;
+      if (!connectionId || connectionId === "noauth" || excludeConnectionIds.has(connectionId)) {
+        return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, message || "All accounts unavailable");
+      }
+      excludeConnectionIds.add(connectionId);
+      capacityDeferred.delete(connectionId);
+      continue;
     }
 
     // Gate per-account (skip noauth / missing connectionId)
@@ -543,6 +585,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         providerOverrides: (chatSettings.providerOverrides || {})[provider] || null,
         // Detect source format by endpoint + body
         sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
+        // The client's request signal: aborts the upstream fetch when the
+        // client disconnects before the first byte (see chatCore).
+        clientSignal: request?.signal || null,
         // D13/CB2: combo identity for the winning member's usage row.
         comboName: attemptUsage?.comboName || null,
         // Fast failover while a next combo member is waiting: no same-upstream
@@ -574,7 +619,28 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
           }
           releaseOnce();
         },
+        onStreamError: (error) => {
+          // A stream that dies after the first byte is an upstream failure, not
+          // a client close: count it toward the breaker so an account whose
+          // streams keep breaking is eventually skipped, and label it as such.
+          // Deliberately NO account lock here — a mid-stream failure does not
+          // prove the credential is unusable for the next request.
+          if (settleOutcome()) {
+            if (breakerName) recordFailure(breakerName, { statusCode: HTTP_STATUS.BAD_GATEWAY });
+            log.warn("CHAT", `[${provider}/${model}] upstream stream error on ${credentials.connectionName}: ${error?.message || String(error)}`);
+          }
+          releaseOnce();
+        },
       });
+
+      // The client left before the first byte: chatCore aborted the upstream
+      // fetch and recorded no account penalty. Release the slot (finally) and
+      // resolve an outstanding HALF_OPEN probe conservatively, but never count
+      // a breaker failure or lock the account for a client abort.
+      if (result.clientAborted) {
+        if (breakerName && settleOutcome()) settleProbe(breakerName, "client disconnect");
+        return result.response;
+      }
 
       if (result.success) {
         const contentType = result.response?.headers?.get?.("content-type") || "";
@@ -637,6 +703,15 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
 
       return result.response;
     } catch (error) {
+      // A client that left while we were waiting is not an account failure,
+      // even when the abort surfaced as a throw from the response handler.
+      // Release the slot (finally), resolve an outstanding probe, and answer
+      // 499 without excluding or locking the account.
+      if (request?.signal?.aborted) {
+        log.warn("CHAT", `[${provider}/${model}] client disconnected during attempt`);
+        if (breakerName && settleOutcome()) settleProbe(breakerName, "client disconnect");
+        return errorResponse(CLIENT_ABORTED_STATUS, "Request aborted");
+      }
       // RH4 (T1.1): handleChatCore has throw-capable call sites outside its
       // own try (translateRequest, createRequestLogger, and
       // pipeWithDisconnect's TypeError on a 204/205 body), and the quota /
