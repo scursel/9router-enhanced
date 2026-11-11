@@ -5,6 +5,7 @@ import { buildChunk } from "../concerns/chunk.js";
 import { toOpenAIUsage } from "../concerns/usage.js";
 import { reasoningDelta } from "../concerns/reasoning.js";
 import { toOpenAIFinish } from "../concerns/finishReason.js";
+import { HTTP_STATUS } from "../../config/runtimeConfig.js";
 
 // Create OpenAI chunk helper
 function createChunk(state, delta, finishReason = null) {
@@ -182,6 +183,19 @@ export function claudeToOpenAIResponse(chunk, state) {
         results.push({ ...createChunk(state, {}, finishReason), ...usageObj });
         state.finishReasonSent = true;
       }
+      break;
+    }
+
+    // Anthropic reports mid-stream failures as `event: error` (overloaded,
+    // api_error, …). Without this case the event was dropped and an OpenAI
+    // client saw the partial text followed by [DONE] — a successful-looking
+    // truncated answer. stream.js reads state.streamError and emits the error
+    // frame in the client's format (utils/streamHelpers.js buildStreamErrorBytes).
+    case "error": {
+      const error = chunk.error;
+      const message = error?.message || (typeof error === "string" ? error : null) || "Upstream error";
+      state.streamError = { status: HTTP_STATUS.BAD_GATEWAY, message };
+      state.finishReasonSent = true;
       break;
     }
   }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
+import { normalizeDomainList, normalizeEmailList } from "@/lib/auth/ssoAllowlist";
 import { resetComboRotation } from "open-sse/services/combo.js";
 import bcrypt from "bcryptjs";
 
@@ -42,6 +43,23 @@ export async function PATCH(request) {
 
     // Strip protected secrets before any internal handling sets them
     for (const key of PROTECTED_SETTING_KEYS) delete body[key];
+
+    // SSO allowlists are stored normalized (trimmed, lowercased, deduped) so the
+    // OIDC/SAML callbacks can match without re-implementing the rules.
+    for (const [key, normalize] of [
+      ["ssoAllowedEmails", normalizeEmailList],
+      ["ssoAllowedEmailDomains", normalizeDomainList],
+    ]) {
+      if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
+      const value = body[key];
+      const entriesAreStrings =
+        (Array.isArray(value) || typeof value === "string") &&
+        (!Array.isArray(value) || value.every((entry) => typeof entry === "string"));
+      if (!entriesAreStrings) {
+        return NextResponse.json({ error: `${key} must be an array of strings` }, { status: 400 });
+      }
+      body[key] = normalize(value);
+    }
 
     // An explicit newPassword must be a non-empty string: `if (body.newPassword)`
     // below is falsy for "", which used to answer 200 while changing nothing.

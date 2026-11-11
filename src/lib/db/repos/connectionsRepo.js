@@ -283,6 +283,11 @@ export async function createProviderConnection(data) {
 // === "active") to a single model's lock, so a per-model event (reactive 401 refresh,
 // clearCooldown) can't unlock the account's other models. Omitting it = legacy
 // account-wide reset. The scope never leaks into the persisted row.
+//
+// `data` may also be a function `(existing) => patch`: it is called with the row as
+// read inside this transaction, so a read-modify-write decision (lock merge, backoff
+// level, which locks to clear) cannot be made from a stale request-time snapshot.
+// Returning null/undefined from the callback skips the write entirely.
 export async function updateProviderConnection(id, data, opts = {}) {
   const db = await getAdapter();
   let result;
@@ -290,10 +295,12 @@ export async function updateProviderConnection(id, data, opts = {}) {
     const row = db.get(`SELECT * FROM providerConnections WHERE id = ?`, [id]);
     if (!row) { result = null; return; }
     const existing = rowToConn(row);
-    const normalized = resetHealthStateOnActivation(existing, data, opts?.modelLockScope);
+    const patch = typeof data === "function" ? data(existing) : data;
+    if (!patch) { result = existing; return; }
+    const normalized = resetHealthStateOnActivation(existing, patch, opts?.modelLockScope);
     const merged = { ...existing, ...normalized, updatedAt: new Date().toISOString() };
     upsert(db, merged);
-    if (data.priority !== undefined) reorderInTx(db, existing.provider);
+    if (patch.priority !== undefined) reorderInTx(db, existing.provider);
     result = merged;
   });
   return result;

@@ -1,4 +1,10 @@
-import { ERROR_RULES, BACKOFF_CONFIG, TRANSIENT_COOLDOWN_MS, ERROR_TYPES } from "../config/errorConfig.js";
+import {
+  ERROR_RULES,
+  BACKOFF_CONFIG,
+  TRANSIENT_COOLDOWN_MS,
+  ERROR_TYPES,
+  REQUEST_SIZE_PATTERNS
+} from "../config/errorConfig.js";
 import {
   FAILURE_CLASS,
   classifyUpstreamFailure,
@@ -73,7 +79,10 @@ export function getQuotaCooldown(backoffLevel = 0) {
  *  2. Request-caused statuses (REQUEST_ERROR_STATUSES: 400/406/413/422) → same
  *     non-locking answer — deterministic client errors: every account returns
  *     the same error, so fallback would only self-DoS the combo. Exception:
- *     rate-limit / quota / capacity wording, which is account state.
+ *     rate-limit / quota / capacity wording, which is account state — unless
+ *     the text is request-size wording ("context capacity", "request too
+ *     large"), where the capacity rule is skipped and the answer stays
+ *     request-scoped.
  *  3. Everything else keeps the historical ERROR_RULES behaviour: rate/quota/
  *     upstream/transient → shouldFallback:true with a cooldown (429 backoff,
  *     5xx and unmatched → transient; 404 stays per-model 2-min lock by design;
@@ -125,7 +134,13 @@ export function checkFallbackError(status, errorText, backoffLevel = 0, provider
     // Rate-limit / quota / capacity wording describes the account or upstream,
     // not the request, even when a provider reports it under a 4xx (official
     // 20a43f5a). Only those backoff rules may override the request-status gate.
-    const accountRule = ERROR_RULES.find(r => r.backoff && r.text && lowerError.includes(r.text));
+    // A rule marked `skipOnRequestSize` is exempt when the text is about the
+    // prompt not fitting the model ("context capacity", "request too large"):
+    // that is request-caused and must not rotate or lock accounts.
+    const requestSize = REQUEST_SIZE_PATTERNS.some((pattern) => lowerError.includes(pattern));
+    const accountRule = ERROR_RULES.find(
+      (r) => r.backoff && r.text && lowerError.includes(r.text) && !(r.skipOnRequestSize && requestSize)
+    );
     if (!accountRule) return { shouldFallback: false, cooldownMs: 0, requestScoped: true };
   }
 
@@ -295,10 +310,12 @@ export function getModelLockKey(model) {
  * Reads flat field `modelLock_${model}` (or `modelLock___all` when model=null).
  */
 export function isModelLockActive(connection, model) {
+  const now = Date.now();
+  const isActive = (expiry) => !!expiry && new Date(expiry).getTime() > now;
   const key = getModelLockKey(model);
-  const expiry = connection[key] || connection[MODEL_LOCK_ALL];
-  if (!expiry) return false;
-  return new Date(expiry).getTime() > Date.now();
+  // Both scopes are independent: an expired per-model lock must not hide a
+  // still-active account-wide lock (and vice versa).
+  return isActive(connection[key]) || isActive(connection[MODEL_LOCK_ALL]);
 }
 
 /**

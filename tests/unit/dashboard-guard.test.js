@@ -80,7 +80,7 @@ describe("dashboard guard public LLM API access", () => {
     expect(response.body.error).toBe("API key required for remote API access");
   });
 
-  it("allows loopback peer IP regardless of Host", async () => {
+  it("allows a loopback peer with a loopback Host", async () => {
     const response = await proxy(localRequest("/v1/chat/completions", {
       host: "localhost:20128",
       "x-9r-real-ip": "127.0.0.1",

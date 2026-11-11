@@ -80,6 +80,7 @@ describe("checkFallbackError — request-caused errors do not fallback (RH2)", (
 const dbMocks = vi.hoisted(() => ({
   getProviderConnections: vi.fn(),
   updateProviderConnection: vi.fn(),
+  writes: [],
 }));
 
 vi.mock("@/lib/localDb", () => dbMocks);
@@ -101,8 +102,17 @@ describe("markAccountUnavailable call-site — a 400 must not lock any combo acc
 
   beforeEach(() => {
     vi.clearAllMocks();
+    dbMocks.writes.length = 0;
     dbMocks.getProviderConnections.mockResolvedValue(ACCOUNTS);
-    dbMocks.updateProviderConnection.mockResolvedValue(undefined);
+    // markAccountUnavailable resolves its patch against the stored row inside
+    // the write transaction; emulate that so the assertions read the persisted
+    // patch rather than the callback.
+    dbMocks.updateProviderConnection.mockImplementation(async (id, patch) => {
+      const row = ACCOUNTS.find((account) => account.id === id);
+      const resolved = typeof patch === "function" ? patch({ ...row }) : patch;
+      dbMocks.writes.push({ id, patch: resolved });
+      return resolved;
+    });
   });
 
   // chat.js's account loop continues to the next account ONLY while
@@ -149,8 +159,8 @@ describe("markAccountUnavailable call-site — a 400 must not lock any combo acc
     const { tried, propagated } = await simulateChatAccountLoop(401, "Invalid API key provided", "openai", "gpt-4o");
     expect(propagated).toBeNull();
     expect(tried).toBe(2);
-    expect(dbMocks.updateProviderConnection).toHaveBeenCalledTimes(2);
-    for (const [, patch] of dbMocks.updateProviderConnection.mock.calls) {
+    expect(dbMocks.writes).toHaveLength(2);
+    for (const { patch } of dbMocks.writes) {
       expect(new Date(patch["modelLock_gpt-4o"]).getTime()).toBeGreaterThan(Date.now());
       expect(patch.errorCode).toBe(401);
     }
@@ -160,6 +170,6 @@ describe("markAccountUnavailable call-site — a 400 must not lock any combo acc
     const { tried, propagated } = await simulateChatAccountLoop(429, "rate limit exceeded", "openai", "gpt-4o");
     expect(propagated).toBeNull();
     expect(tried).toBe(ACCOUNTS.length);
-    expect(dbMocks.updateProviderConnection).toHaveBeenCalledTimes(ACCOUNTS.length);
+    expect(dbMocks.writes).toHaveLength(ACCOUNTS.length);
   });
 });

@@ -39,6 +39,10 @@ const DEFAULT_SETTINGS = {
   samlLoginLabel: "Sign in with SAML SSO",
   samlAttributeEmail: "email",
   samlAttributeName: "name",
+  // Optional SSO sign-in allowlist shared by the OIDC and SAML callbacks.
+  // Empty lists keep the pre-allowlist behaviour (any IdP-authenticated identity).
+  ssoAllowedEmails: [],
+  ssoAllowedEmailDomains: [],
   enableObservability: false,
   observabilityMaxRecords: 1000,
   observabilityBatchSize: 20,

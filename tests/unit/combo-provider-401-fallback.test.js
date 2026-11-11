@@ -3,6 +3,7 @@ const state = vi.hoisted(() => ({
   rows: [],
   settings: {},
   attempted: [],
+  writes: [],
   core: vi.fn(),
   read: vi.fn(),
   write: vi.fn(),
@@ -175,6 +176,7 @@ beforeEach(() => {
     comboStrategy: "fallback",
   };
   state.attempted = [];
+  state.writes = [];
   state.read.mockImplementation(async ({ provider, isActive } = {}) =>
     state.rows.filter(
       (row) =>
@@ -184,7 +186,13 @@ beforeEach(() => {
   );
   state.write.mockImplementation(async (id, patch) => {
     const row = state.rows.find((candidate) => candidate.id === id);
-    Object.assign(row, patch);
+    if (!row) return null;
+    // markAccountUnavailable / clearAccountError hand the repo a function patch
+    // that is resolved against the row inside the write transaction.
+    const resolved = typeof patch === "function" ? patch({ ...row }) : patch;
+    if (!resolved) return row;
+    Object.assign(row, resolved);
+    state.writes.push({ id, patch: resolved });
     return row;
   });
   state.validate.mockResolvedValue(false);
@@ -297,6 +305,6 @@ it("refresh callback preserves another model's lock", async () => {
   expect(state.attempted).toEqual(["A"]);
   expect(state.rows[0].modelLock_other).toBe(lock);
   expect(
-    state.write.mock.calls.every(([, patch]) => patch.testStatus !== "active"),
+    state.writes.every(({ patch }) => patch.testStatus !== "active"),
   ).toBe(true);
 });

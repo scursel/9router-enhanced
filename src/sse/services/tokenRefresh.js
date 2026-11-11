@@ -26,9 +26,16 @@ import {
 import {
   refreshProviderCredentials as _refreshProviderCredentials,
   shouldRefreshCredentials as _shouldRefreshCredentials,
+  withCredentialRefreshLock,
 } from "open-sse/services/oauthCredentialManager.js";
 
 export const TOKEN_EXPIRY_BUFFER_MS = BUFFER_MS;
+
+// A rotated refresh token that cannot be persisted is a credential-loss risk:
+// the next refresh would send a dead RT (invalid_grant → re-login). Retry the
+// DB write a few times before giving up loudly.
+const CREDENTIAL_PERSIST_ATTEMPTS = 3;
+const CREDENTIAL_PERSIST_RETRY_DELAY_MS = 100;
 
 // ─── Re-exports wrapped with local logger ─────────────────────────────────────
 
@@ -217,6 +224,53 @@ export async function updateProviderCredentials(connectionId, newCredentials) {
 // ─── Local-specific: proactive token refresh ─────────────────────────────────
 
 /**
+ * Adopt a newer token set from the DB. Another refresh may have rotated the
+ * refresh token; replaying a stale one revokes the whole session.
+ * @param {object} creds
+ * @returns {Promise<object>}
+ */
+async function adoptLatestDbTokens(creds) {
+  if (!creds.connectionId) return creds;
+  const latest = await getProviderConnectionById(creds.connectionId).catch(() => null);
+  const latestRefreshMs = Date.parse(latest?.lastRefreshAt || "");
+  const credsRefreshMs = Date.parse(creds.lastRefreshAt || "");
+  const dbIsNewer = Number.isFinite(latestRefreshMs)
+    && (!Number.isFinite(credsRefreshMs) || latestRefreshMs > credsRefreshMs);
+  if (dbIsNewer && latest.refreshToken && latest.refreshToken !== creds.refreshToken) {
+    return {
+      ...creds,
+      refreshToken: latest.refreshToken,
+      accessToken: latest.accessToken || creds.accessToken,
+      expiresAt: latest.expiresAt || latest.tokenExpiresAt || creds.expiresAt,
+      lastRefreshAt: latest.lastRefreshAt || creds.lastRefreshAt,
+    };
+  }
+  return creds;
+}
+
+/**
+ * Persist refreshed credentials with a bounded retry. Returns false only after
+ * the last attempt fails; the caller keeps the fresh access token for this
+ * request but must surface the credential-loss risk.
+ * @returns {Promise<boolean>}
+ */
+async function persistRefreshedCredentials(provider, connectionId, mergedCreds) {
+  if (!connectionId) return true;
+  for (let attempt = 1; attempt <= CREDENTIAL_PERSIST_ATTEMPTS; attempt++) {
+    if (await updateProviderCredentials(connectionId, mergedCreds)) return true;
+    if (attempt < CREDENTIAL_PERSIST_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, CREDENTIAL_PERSIST_RETRY_DELAY_MS * attempt));
+    }
+  }
+  log.error("TOKEN_REFRESH", "CREDENTIAL LOSS RISK: rotated refresh token could not be persisted after retries; the next refresh may fail with invalid_grant and require re-login", {
+    provider,
+    connectionId,
+    attempts: CREDENTIAL_PERSIST_ATTEMPTS,
+  });
+  return false;
+}
+
+/**
  * Check whether the provider token (and, for GitHub, the Copilot token) is
  * about to expire and refresh it proactively.
  *
@@ -232,49 +286,51 @@ export async function checkAndRefreshToken(provider, credentials, options = {}) 
     creds.connectionId = creds.id;
   }
 
-  // Adopt latest DB tokens: OpenAI rotates the refresh token on every refresh, and
-  // refreshing with a stale snapshot (reuse) revokes the whole session → account logout.
-  if (creds.connectionId) {
-    const latest = await getProviderConnectionById(creds.connectionId).catch(() => null);
-    const latestRefreshMs = Date.parse(latest?.lastRefreshAt || "");
-    const credsRefreshMs = Date.parse(creds.lastRefreshAt || "");
-    const dbIsNewer = Number.isFinite(latestRefreshMs)
-      && (!Number.isFinite(credsRefreshMs) || latestRefreshMs > credsRefreshMs);
-    if (dbIsNewer && latest.refreshToken && latest.refreshToken !== creds.refreshToken) {
-      creds = {
-        ...creds,
-        refreshToken: latest.refreshToken,
-        accessToken: latest.accessToken || creds.accessToken,
-        expiresAt: latest.expiresAt || latest.tokenExpiresAt || creds.expiresAt,
-        lastRefreshAt: latest.lastRefreshAt || creds.lastRefreshAt,
-      };
-    }
-  }
+  // Adopt latest DB tokens (best effort): OpenAI rotates the refresh token on
+  // every refresh, and refreshing with a stale snapshot (reuse) revokes the
+  // whole session → account logout. The authoritative re-read happens again
+  // inside the single-flight lock below.
+  creds = await adoptLatestDbTokens(creds);
 
   const force = options?.force === true;
 
   // ── 1. Regular access-token expiry ────────────────────────────────────────
   if (force || _shouldRefreshCredentials(provider, creds)) {
-    const expiresAt = creds.expiresAt ? new Date(creds.expiresAt).getTime() : null;
-    const remaining = expiresAt ? expiresAt - Date.now() : null;
-    const refreshLead = _getRefreshLeadMs(provider);
+    // Re-read INSIDE the lock: another refresh can complete between the read
+    // above and this acquisition, and replaying its (now dead) RT would revoke
+    // the session. When another refresh is already in flight the lock returns
+    // that refresh's result instead of running this callback.
+    const refreshed = await withCredentialRefreshLock(provider, creds, async () => {
+      creds = await adoptLatestDbTokens(creds);
 
-    log.info("TOKEN_REFRESH", "Refreshing provider credentials proactively", {
-      provider,
-      expiresIn: remaining === null ? null : Math.round(remaining / 1000),
-      refreshLeadMs: refreshLead,
-      lastRefreshAt: creds.lastRefreshAt || null,
-    });
+      // The concurrent refresh already made this credential fresh.
+      if (!force && !_shouldRefreshCredentials(provider, creds)) {
+        return creds;
+      }
 
-    const newCreds = await _refreshProviderCredentials(provider, creds, log);
-    if (newCreds?.accessToken || newCreds?.apiKey || newCreds?.copilotToken) {
+      const expiresAt = creds.expiresAt ? new Date(creds.expiresAt).getTime() : null;
+      const remaining = expiresAt ? expiresAt - Date.now() : null;
+      const refreshLead = _getRefreshLeadMs(provider);
+
+      log.info("TOKEN_REFRESH", "Refreshing provider credentials proactively", {
+        provider,
+        expiresIn: remaining === null ? null : Math.round(remaining / 1000),
+        refreshLeadMs: refreshLead,
+        lastRefreshAt: creds.lastRefreshAt || null,
+      });
+
+      const newCreds = await _refreshProviderCredentials(provider, creds, log);
+      if (!(newCreds?.accessToken || newCreds?.apiKey || newCreds?.copilotToken)) {
+        return null;
+      }
+
       const mergedCreds = {
         ...newCreds,
         existingProviderSpecificData: creds.providerSpecificData,
       };
 
-      // Persist to DB (non-blocking path continues below)
-      await updateProviderCredentials(creds.connectionId, mergedCreds);
+      // Persist the rotated token; a failure is retried, then surfaced.
+      const persisted = await persistRefreshedCredentials(provider, creds.connectionId, mergedCreds);
 
       creds = {
         ...creds,
@@ -286,9 +342,16 @@ export async function checkAndRefreshToken(provider, credentials, options = {}) 
           ? { ...creds.providerSpecificData, ...newCreds.providerSpecificData }
           : creds.providerSpecificData,
       };
+      if (!persisted) creds.refreshPersistFailed = true;
 
       // Non-blocking: refresh projectId with the new access token
       _refreshProjectId(provider, creds.connectionId, creds.accessToken);
+
+      return creds;
+    });
+
+    if (refreshed) {
+      creds = { ...creds, ...refreshed };
     }
   }
 

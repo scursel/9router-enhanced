@@ -1,3 +1,25 @@
+# v0.5.116-enhanced.3 (2026-11-11)
+
+Auditoria da lógica do gateway depois do merge da v0.5.116.
+
+- Segurança: o dashboard só trata um pedido como local quando o `Host` também é de loopback. Acesso por hostname próprio apontando para 127.0.0.1, ou por `0.0.0.0`, deixa de contar como local.
+- Segurança (SSO): novas listas `ssoAllowedEmails` e `ssoAllowedEmailDomains` nas settings, aplicadas no login OIDC e SAML. Vazias, nada muda; preenchidas, só entram e-mails listados e `email_verified: false` é recusado. Ainda não há tela no dashboard, só a API de settings.
+- Segurança (OIDC "Test"): o teste só reaproveita o segredo guardado para o mesmo issuer, exige token endpoint em https e recusa destinos de rede privada, inclusive depois de redirect. IdPs internos deixam de passar nesse botão; o login real não mudou.
+- Segurança: a API de conexões deixa de devolver `cookie`, `quotaCookie`, `clientSecret`, `copilotToken`, `storageState`, `mimoPassToken` e o `sessionToken` da AWS. Salvar a conexão sem esses campos preserva os valores guardados.
+- Segurança: `start-proxy` e `stop-proxy` do OAuth só aceitam POST (GET responde 405). A checagem de IP privado em URLs de imagem usa a mesma regra do guard de SSRF, cobrindo os formatos IPv6 que escapavam. `/systemone` entra nos prefixos públicos.
+- Contas: o bloqueio de conta é gravado de forma atômica. Um bloqueio ativo nunca é encurtado, o backoff sobe uma vez por janela e sucesso em um modelo não limpa mais o bloqueio da conta inteira (`modelLock___all`). Os dois bloqueios são verificados de forma independente.
+- Contas: um 400 por pedido grande demais fica restrito ao pedido, sem bloquear a conta.
+- Pedidos: quando o cliente desconecta, a resposta é 499 e a busca por outras contas para. Erro ao preparar uma conta exclui só aquela conta; falha ao ler credenciais vira 503. Depois de um refresh de token, a nova resposta é adotada qualquer que seja o status. Erro do provedor no meio do stream conta para o circuit breaker, sem bloquear a conta. Requer Node 20.3 ou mais novo (`AbortSignal.any`).
+- Streaming: erro do provedor no meio da resposta chega como erro (502) a clientes Claude, OpenAI e Gemini, em vez de texto parcial com fim normal.
+- Streaming (OpenAI → Claude): resposta que termina sem `finish_reason` fecha os blocos e entrega os argumentos de ferramenta pendentes. O fim da mensagem espera o trailer de uso (até o `[DONE]` ou 3 s), para o uso real chegar ao cliente e ao registro.
+- Streaming: uso real substitui a estimativa, em vez de ficar o maior dos dois. Chamada de ferramenta sem id ganha um id no caminho OpenAI → Responses. Em passthrough, uma última linha JSON cortada não é mais colada no `[DONE]`.
+- Tradução: mensagem `developer` vira `system` para destinos que não conhecem o papel (Claude, Gemini, Kiro, Cursor); OpenAI, Responses e Codex continuam recebendo `developer`. `tool_choice: {type: "none"}` do Claude vira `"none"`. `tool_choice` plano do Responses (`{type: "function", name}`) é convertido para a forma aninhada. Lote paralelo de ferramentas respondido pela metade ganha respostas-placeholder em destinos OpenAI.
+- RTK: o filtro de grep só é escolhido quando pelo menos 60% das linhas são `caminho:linha:conteúdo`, e devolve a entrada intacta se alguma linha não casar. Log com horário não é mais cortado. O aviso do limite de 2000 linhas diz quantas foram omitidas.
+- Custos: tokens de reasoning da OpenAI (chat e Responses) são cobrados uma vez, não duas. Provedores que reportam reasoning por fora da saída (total = prompt + saída + reasoning) continuam somando.
+- Persistência: o sql.js grava em disco no máximo 1 s depois da primeira escrita pendente, mesmo sob tráfego contínuo. Um registro de requisição que não serializa é descartado com aviso, sem travar os demais; a fila em memória fica limitada a 1000 registros.
+- Tokens: a gravação de um refresh token rotacionado é tentada 3 vezes e, se falhar, gera o log `CREDENTIAL LOSS RISK`. O banco é relido dentro do lock antes do refresh, para não reenviar um token já trocado.
+- Testes: os mocks de `undici` passam a atingir a cópia que o `proxyFetch` realmente importa; 46 testes faziam chamadas reais de rede e falhavam offline.
+
 # v0.5.116-enhanced.2 (2026-11-09)
 
 - OpenAI o1/o3/o4: parâmetros de amostragem que esses modelos recusam (`temperature`, `top_p`, penalidades, `logprobs`, `n`, `seed`) saem do pedido, e `max_tokens` / `max_output_tokens` viram `max_completion_tokens`. O esforço de thinking fica em `low` / `medium` / `high` (`none` e `minimal` descem para `low`; `xhigh` / `max` sobem para `high`). Outros modelos e o salto Claude no GitHub Copilot continuam como antes.

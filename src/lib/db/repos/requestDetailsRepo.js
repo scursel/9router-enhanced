@@ -6,6 +6,9 @@ const DEFAULT_BATCH_SIZE = 20;
 const DEFAULT_FLUSH_INTERVAL_MS = 5000;
 const DEFAULT_MAX_JSON_SIZE = 5 * 1024;
 const CONFIG_CACHE_TTL_MS = 5000;
+// Hard upper bound on the in-memory write buffer. Only reachable while a
+// flush keeps failing; without it a stuck DB grows memory without limit.
+const MAX_BUFFERED_RECORDS = 1000;
 
 let cachedConfig = null;
 let cachedConfigTs = 0;
@@ -70,6 +73,12 @@ let flushTimer = null;
 let flushingPromise = null;
 const pendingAdmissions = new Set();
 
+// Drop the oldest records once the buffer exceeds its hard cap.
+function trimWriteBuffer() {
+  const overflow = writeBuffer.length - MAX_BUFFERED_RECORDS;
+  if (overflow > 0) writeBuffer.splice(0, overflow);
+}
+
 function sanitizeHeaders(headers) {
   if (!headers || typeof headers !== "object") return {};
   const sensitiveKeys = ["authorization", "x-api-key", "cookie", "token", "api-key"];
@@ -80,7 +89,7 @@ function sanitizeHeaders(headers) {
   return sanitized;
 }
 
-export const __test__ = { sanitizeHeaders };
+export const __test__ = { sanitizeHeaders, MAX_BUFFERED_RECORDS };
 
 function generateDetailId(model) {
   const timestamp = new Date().toISOString();
@@ -103,30 +112,37 @@ function truncateField(obj, maxSize) {
 function persistBatchSync(db, items, config) {
   db.transaction(() => {
     for (const item of items) {
-      if (!item.id) item.id = generateDetailId(item.model);
-      if (!item.timestamp) item.timestamp = new Date().toISOString();
-      if (item.request?.headers) item.request.headers = sanitizeHeaders(item.request.headers);
+      // One record that can never serialise (circular object, BigInt) must not
+      // roll back the batch and block the buffer forever: drop it, warn once,
+      // keep the others.
+      try {
+        if (!item.id) item.id = generateDetailId(item.model);
+        if (!item.timestamp) item.timestamp = new Date().toISOString();
+        if (item.request?.headers) item.request.headers = sanitizeHeaders(item.request.headers);
 
-      const record = {
-        id: item.id,
-        provider: item.provider || null,
-        model: item.model || null,
-        connectionId: item.connectionId || null,
-        timestamp: item.timestamp,
-        status: item.status || null,
-        latency: item.latency || {},
-        tokens: item.tokens || {},
-        request: truncateField(item.request, config.maxJsonSize),
-        providerRequest: truncateField(item.providerRequest, config.maxJsonSize),
-        providerResponse: truncateField(item.providerResponse, config.maxJsonSize),
-        response: truncateField(item.response, config.maxJsonSize),
-        pxpipe: item.pxpipe || undefined,
-      };
+        const record = {
+          id: item.id,
+          provider: item.provider || null,
+          model: item.model || null,
+          connectionId: item.connectionId || null,
+          timestamp: item.timestamp,
+          status: item.status || null,
+          latency: item.latency || {},
+          tokens: item.tokens || {},
+          request: truncateField(item.request, config.maxJsonSize),
+          providerRequest: truncateField(item.providerRequest, config.maxJsonSize),
+          providerResponse: truncateField(item.providerResponse, config.maxJsonSize),
+          response: truncateField(item.response, config.maxJsonSize),
+          pxpipe: item.pxpipe || undefined,
+        };
 
-      db.run(
-        `INSERT INTO requestDetails(id, timestamp, provider, model, connectionId, status, data) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET timestamp = excluded.timestamp, provider = excluded.provider, model = excluded.model, connectionId = excluded.connectionId, status = excluded.status, data = excluded.data`,
-        [record.id, record.timestamp, record.provider, record.model, record.connectionId, record.status, stringifyJson(record)]
-      );
+        db.run(
+          `INSERT INTO requestDetails(id, timestamp, provider, model, connectionId, status, data) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET timestamp = excluded.timestamp, provider = excluded.provider, model = excluded.model, connectionId = excluded.connectionId, status = excluded.status, data = excluded.data`,
+          [record.id, record.timestamp, record.provider, record.model, record.connectionId, record.status, stringifyJson(record)]
+        );
+      } catch (err) {
+        console.warn(`[requestDetailsRepo] dropping request detail${item?.id ? ` ${item.id}` : ""} (unserialisable or rejected by the DB): ${err?.message || err}`);
+      }
     }
 
     const cnt = db.get(`SELECT COUNT(*) as c FROM requestDetails`);
@@ -163,6 +179,7 @@ function flushToDatabaseSync() {
         persistBatchSync(db, items, config);
       } catch (err) {
         writeBuffer.unshift(...items);
+        trimWriteBuffer();
         console.error("[requestDetailsRepo] exit flush batch failed:", err?.message || err);
         return;
       }
@@ -189,6 +206,7 @@ async function flushToDatabase() {
           persistBatchSync(db, items, config);
         } catch (err) {
           writeBuffer.unshift(...items);
+          trimWriteBuffer();
           console.error("[requestDetailsRepo] Batch write failed:", err?.message || err);
           throw err;
         }
@@ -210,6 +228,7 @@ export async function saveRequestDetail(detail) {
       config = await getObservabilityConfig();
       if (config && config.enabled) {
         writeBuffer.push(detail);
+        trimWriteBuffer();
       }
     } catch (e) {
       console.error("[requestDetailsRepo] save admission err:", e);

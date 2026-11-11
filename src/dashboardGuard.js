@@ -45,7 +45,7 @@ const PUBLIC_API_PATHS = [
 
 // Public top-level prefixes (LLM API endpoints with their own API key auth).
 // Keep root-level rewrites here too: middleware runs before Next.js rewrites.
-const PUBLIC_PREFIXES = ["/v1", "/v1beta", "/api/v1", "/api/v1beta", "/codex", "/responses"];
+const PUBLIC_PREFIXES = ["/v1", "/v1beta", "/api/v1", "/api/v1beta", "/codex", "/responses", "/systemone"];
 
 // Always require JWT token regardless of requireLogin setting
 const ALWAYS_PROTECTED = [
@@ -147,6 +147,9 @@ function isLoopbackHostname(h) {
   } else if (name.indexOf(":") !== -1 && name.indexOf(":") === name.lastIndexOf(":")) {
     name = name.slice(0, name.indexOf(":"));
   }
+  // "localhost." is the absolute (FQDN) spelling of the same reserved name
+  // (RFC 6761 §6.3): the trailing dot does not change which host was addressed.
+  if (name.endsWith(".")) name = name.slice(0, -1);
   if (name.startsWith("::ffff:")) name = name.slice(7);
   return LOOPBACK_HOSTS.has(name);
 }
@@ -168,6 +171,12 @@ export function isLocalRequest(request) {
   // a reverse proxy, so the loopback socket is the proxy hop, not the end-user.
   if (request.headers.get("x-9r-via-proxy")) return false;
   if (!isLoopbackPeer(request)) return false;
+  // The Host the caller addressed must be loopback as well. A tunnel/reverse proxy on
+  // this machine dials the socket over loopback while relaying a public hostname, and
+  // DNS rebinding sends same-origin requests to 127.0.0.1 carrying the attacker's Host;
+  // neither may inherit local privileges. No Host at all is not local (HTTP/1.1 requires
+  // it, HTTP/2 maps :authority here).
+  if (!isLoopbackHostname(request.headers.get("host"))) return false;
   const origin = request.headers.get("origin");
   if (origin) {
     try {
@@ -245,6 +254,7 @@ function isPublicApi(pathname) {
 export { isAuthenticated };
 
 export const __test__ = {
+  PUBLIC_PREFIXES,
   isLocalRequest,
   isLocalOnlyPath,
   isPublicLlmApi,

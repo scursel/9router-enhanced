@@ -9,6 +9,7 @@ import {
   validateSamlResponse,
 } from "@/lib/auth/saml.js";
 import { setDashboardAuthCookie } from "@/lib/auth/dashboardSession";
+import { isSsoEmailAllowed, SSO_EMAIL_NOT_ALLOWED } from "@/lib/auth/ssoAllowlist";
 import { checkLock, recordFail, recordSuccess, getClientIp } from "@/lib/auth/loginLimiter";
 
 export async function POST(request) {
@@ -50,6 +51,16 @@ export async function POST(request) {
 
     const samlEmail = pickSamlEmail(profile, settings) || null;
     const samlName = pickSamlDisplayName(profile, settings) || "SAML user";
+
+    if (
+      !isSsoEmailAllowed({
+        email: samlEmail,
+        allowedEmails: settings.ssoAllowedEmails,
+        allowedDomains: settings.ssoAllowedEmailDomains,
+      })
+    ) {
+      throw new Error(SSO_EMAIL_NOT_ALLOWED);
+    }
 
     recordSuccess(ip);
 
