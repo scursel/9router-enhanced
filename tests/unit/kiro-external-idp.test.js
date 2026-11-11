@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mockRootUndiciFetch, unmockRootUndiciFetch } from "../helpers/undiciFetchMock.js";
 
 const originalFetch = global.fetch;
 const TEST_CLIENT_ID = "00000000-0000-4000-8000-000000000000";
@@ -21,6 +22,7 @@ describe("Kiro external_idp (CLIProxyAPI) import and refresh", () => {
     vi.doUnmock("next/server");
     vi.doUnmock("@/models");
     vi.doUnmock("../../open-sse/utils/proxyFetch.js");
+    unmockRootUndiciFetch();
     global.fetch = originalFetch;
   });
 
@@ -33,7 +35,7 @@ describe("Kiro external_idp (CLIProxyAPI) import and refresh", () => {
         expires_in: 3600,
       }),
     });
-    global.fetch = fetchMock;
+    mockRootUndiciFetch(fetchMock);
 
     const { refreshKiroToken } = await import("../../open-sse/services/tokenRefresh.js");
     const result = await refreshKiroToken("old-refresh-token", {
@@ -79,7 +81,7 @@ describe("Kiro external_idp (CLIProxyAPI) import and refresh", () => {
   it("rejects external_idp refresh endpoints outside Microsoft login", async () => {
     const { refreshKiroToken } = await import("../../open-sse/services/tokenRefresh.js");
     const fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    mockRootUndiciFetch(fetchMock);
 
     const result = await refreshKiroToken("old-refresh-token", {
       authMethod: "external_idp",

@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mockRootUndiciFetch, unmockRootUndiciFetch } from "../helpers/undiciFetchMock.js";
 
 const originalFetch = global.fetch;
 
@@ -17,13 +18,13 @@ function mockFetchOnce(payload, { ok = true, status = 200 } = {}) {
     json: () => Promise.resolve(payload),
     text: () => Promise.resolve(JSON.stringify(payload)),
   });
-  global.fetch = fn;
+  mockRootUndiciFetch(fn);
   return fn;
 }
 
 describe("refreshAccessToken — config-driven profiles", () => {
   beforeEach(() => { vi.clearAllMocks(); vi.resetModules(); global.fetch = originalFetch; });
-  afterEach(() => { global.fetch = originalFetch; });
+  afterEach(() => { global.fetch = originalFetch; unmockRootUndiciFetch(); });
 
   it("iflow: Basic Auth header from clientId:clientSecret, form body keeps client_secret", async () => {
     const fm = mockFetchOnce({ access_token: "if-acc", refresh_token: "if-rot", expires_in: 3600 });
@@ -104,7 +105,7 @@ describe("refreshAccessToken — config-driven profiles", () => {
 });
 describe("Cline refresh", () => {
   beforeEach(() => { vi.clearAllMocks(); vi.resetModules(); global.fetch = originalFetch; });
-  afterEach(() => { global.fetch = originalFetch; });
+  afterEach(() => { global.fetch = originalFetch; unmockRootUndiciFetch(); });
 
   it("uses the extension JSON refresh contract", async () => {
     const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();

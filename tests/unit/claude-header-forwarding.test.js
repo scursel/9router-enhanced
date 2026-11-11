@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mockRootUndiciFetch, unmockRootUndiciFetch } from "../helpers/undiciFetchMock.js";
 
 // ─── DefaultExecutor.buildHeaders() ──────────────────────────────────────────
 
@@ -285,6 +286,7 @@ describe("proxyAwareFetch — native transport & Claude request forwarding", () 
   afterEach(() => {
     process.env = originalEnv;
     globalThis.fetch = originalFetch;
+    unmockRootUndiciFetch();
     vi.restoreAllMocks();
   });
 
@@ -296,8 +298,8 @@ describe("proxyAwareFetch — native transport & Claude request forwarding", () 
     });
     const mockFetch = vi.fn().mockResolvedValue(mockStreamResponse);
 
-    // Global fetch MUST be stubbed before proxyFetch module is imported
-    globalThis.fetch = mockFetch;
+    // proxyFetch fetches through the root undici package, so intercept that.
+    mockRootUndiciFetch(mockFetch);
     vi.resetModules();
 
     const { proxyAwareFetch } = await import("open-sse/utils/proxyFetch.js");
@@ -319,11 +321,11 @@ describe("proxyAwareFetch — native transport & Claude request forwarding", () 
     });
 
     expect(mockFetch).toHaveBeenCalledOnce();
-    expect(mockFetch).toHaveBeenCalledWith(targetUrl, {
+    expect(mockFetch).toHaveBeenCalledWith(targetUrl, expect.objectContaining({
       method: "POST",
       headers,
       body,
-    });
+    }));
     expect(res.ok).toBe(true);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("text/event-stream");
@@ -334,7 +336,7 @@ describe("proxyAwareFetch — native transport & Claude request forwarding", () 
   it("propagates fetch rejections cleanly without got-scraping fallback", async () => {
     const mockFetch = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
 
-    globalThis.fetch = mockFetch;
+    mockRootUndiciFetch(mockFetch);
     vi.resetModules();
 
     const { proxyAwareFetch } = await import("open-sse/utils/proxyFetch.js");

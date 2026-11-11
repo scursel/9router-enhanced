@@ -66,7 +66,7 @@ describe("Command Code credential health probe", () => {
       Authorization: "Bearer user_xxxxxxxx", "Content-Type": "application/json" });
     expect(options.headers["x-session-id"]).toMatch(/^[0-9a-f-]{36}$/);
     const payload = JSON.parse(options.body);
-    expect(payload).toMatchObject({ threadId: expect.any(String), memory: "", config: expect.any(Object),
+    expect(payload).toMatchObject({ threadId: expect.any(String), memory: null, config: expect.any(Object),
       params: { model: getDefaultModel("commandcode"), max_tokens: 1, stream: true,
         messages: [{ role: ROLE.USER, content: [{ type: OPENAI_BLOCK.TEXT, text: "ping" }] }] } });
     expect(options.signal).toBeInstanceOf(AbortSignal);

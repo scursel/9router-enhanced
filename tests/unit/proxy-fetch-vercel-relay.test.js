@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mockRootUndiciFetch, unmockRootUndiciFetch } from "../helpers/undiciFetchMock.js";
 
 describe("proxyAwareFetch — Vercel relay", () => {
   let originalEnv;
@@ -20,6 +21,7 @@ describe("proxyAwareFetch — Vercel relay", () => {
   afterEach(() => {
     process.env = originalEnv;
     globalThis.fetch = originalFetch;
+    unmockRootUndiciFetch();
     vi.restoreAllMocks();
     vi.resetModules();
   });
@@ -27,8 +29,8 @@ describe("proxyAwareFetch — Vercel relay", () => {
   it("preserves Headers instance values and relay metadata without CF Access env", async () => {
     const relayFetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
 
-    // proxyFetch captures the native fetch at import time.
-    globalThis.fetch = relayFetch;
+    // proxyFetch fetches through the root undici package, so intercept that.
+    mockRootUndiciFetch(relayFetch);
     vi.resetModules();
     const { proxyAwareFetch } = await import("open-sse/utils/proxyFetch.js");
 
@@ -64,7 +66,7 @@ describe("proxyAwareFetch — Vercel relay", () => {
     process.env.CF_ACCESS_CLIENT_SECRET = "cf-secret-456";
 
     const relayFetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
-    globalThis.fetch = relayFetch;
+    mockRootUndiciFetch(relayFetch);
     vi.resetModules();
     const { proxyAwareFetch } = await import("open-sse/utils/proxyFetch.js");
 
@@ -97,7 +99,7 @@ describe("proxyAwareFetch — Vercel relay", () => {
     process.env.CF_ACCESS_CLIENT_SECRET = "cf-secret-456";
 
     const relayFetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
-    globalThis.fetch = relayFetch;
+    mockRootUndiciFetch(relayFetch);
     vi.resetModules();
     const { proxyAwareFetch } = await import("open-sse/utils/proxyFetch.js");
 
@@ -131,7 +133,7 @@ describe("proxyAwareFetch — Vercel relay", () => {
     process.env.CF_ACCESS_RELAY_HOSTS = ".custom-relay.example.com";
 
     const relayFetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
-    globalThis.fetch = relayFetch;
+    mockRootUndiciFetch(relayFetch);
     vi.resetModules();
     const { proxyAwareFetch } = await import("open-sse/utils/proxyFetch.js");
 
@@ -158,7 +160,7 @@ describe("proxyAwareFetch — Vercel relay", () => {
       body: { cancel: vi.fn() },
     };
     const relayFetch = vi.fn().mockResolvedValue(fakeLoginResponse);
-    globalThis.fetch = relayFetch;
+    mockRootUndiciFetch(relayFetch);
     vi.resetModules();
     const { proxyAwareFetch } = await import("open-sse/utils/proxyFetch.js");
 
