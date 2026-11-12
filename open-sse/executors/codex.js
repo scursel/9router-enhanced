@@ -503,14 +503,18 @@ export class CodexExecutor extends BaseExecutor {
     const responsesLite = isCodexResponsesLiteModel(upstreamModel)
       && !body.tools?.some?.(tool => tool?.type === "web_search");
 
-    // Non-Lite models take tools/instructions as top-level fields: unpack a Lite-style
-    // additional_tools prefix into body.tools and fold the leading instruction messages.
-    // CODEX_SYSTEM_PROMPT_LAYOUT=input skips this block entirely (upstream behaviour).
-    if (getCodexSystemPromptLayout() === "instructions"
-      && !isCodexResponsesLiteModel(upstreamModel) && Array.isArray(body.input)) {
+    // Non-Lite models take tools as a top-level field: a Lite-style additional_tools
+    // prefix (a Lite client routed to a non-Lite model) is always unpacked into body.tools.
+    // Where the system prompt goes is a separate choice: by default it stays in input as
+    // upstream does (see convertSystemToDeveloperRole below); the fork's earlier layout,
+    // folding the leading instruction messages into body.instructions, is opt-in through
+    // CODEX_SYSTEM_PROMPT_LAYOUT=instructions.
+    if (!isCodexResponsesLiteModel(upstreamModel) && Array.isArray(body.input)) {
       const hadLitePrefix = body.input.some(item => item?.type === "additional_tools")
         && moveAdditionalToolsToBody(body);
-      foldLeadingInstructionMessages(body, { useDefaultInstructions: !hadLitePrefix });
+      if (getCodexSystemPromptLayout() === "instructions") {
+        foldLeadingInstructionMessages(body, { useDefaultInstructions: !hadLitePrefix });
+      }
     }
 
     // Ensure input is present and non-empty (Codex API rejects empty input)

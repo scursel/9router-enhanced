@@ -88,13 +88,16 @@ export function isFreshSocketReplayEnabled() {
   return !(raw === "off" || raw === "0" || raw === "false" || raw === "no");
 }
 
-// Where Codex system/developer prompts go. "instructions" (default, fork layout) folds the leading
-// text-only ones into body.instructions; "input" keeps them in body.input as role=developer, exactly
-// like upstream. Read per call so it can be flipped in tests; unknown values use the default.
+// Where Codex system/developer prompts go. "input" (default) keeps them in body.input as
+// role=developer, exactly like upstream, which does so to keep them in the cacheable prefix.
+// "instructions" is the fork's earlier layout: fold the leading text-only ones into
+// body.instructions. It was never measured against upstream's, so upstream's is the default;
+// scripts/codex-cache-compare.mjs compares the two on a real account.
+// Read per call so it can be flipped in tests; unknown values use the default.
 // Env: CODEX_SYSTEM_PROMPT_LAYOUT.
 export function getCodexSystemPromptLayout() {
   const raw = String(process.env.CODEX_SYSTEM_PROMPT_LAYOUT ?? "").trim().toLowerCase();
-  return raw === "input" ? "input" : "instructions";
+  return raw === "instructions" ? "instructions" : "input";
 }
 
 // Dead keep-alive sockets surface as these codes/substrings; DNS, connect-refused and TLS

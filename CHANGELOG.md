@@ -1,3 +1,7 @@
+# v0.5.119-enhanced.6 (2026-11-12)
+
+- Codex: o prompt de sistema volta a ir no campo `input`, como no oficial. O formato do fork (texto de sistema no campo `instructions`) nunca foi medido contra o do oficial, então o padrão passa a ser o do oficial; ele continua disponível com `CODEX_SYSTEM_PROMPT_LAYOUT=instructions`. O desempacotamento de `additional_tools` para modelos não-Lite continua valendo nos dois formatos.
+
 # v0.5.119-enhanced.5 (2026-11-12)
 
 Ajustes nas diferenças entre o fork e o oficial apontadas pela auditoria.

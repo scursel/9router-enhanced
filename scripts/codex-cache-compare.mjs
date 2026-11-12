@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Measures Codex prompt-cache hits for the layout the gateway is currently running with.
 // Procedure:
-//  1. Start the gateway normally (default CODEX_SYSTEM_PROMPT_LAYOUT=instructions) and run this script; note the average.
-//  2. Restart the gateway with CODEX_SYSTEM_PROMPT_LAYOUT=input.
+//  1. Start the gateway normally (default CODEX_SYSTEM_PROMPT_LAYOUT=input, the upstream layout) and run this script; note the average.
+//  2. Restart the gateway with CODEX_SYSTEM_PROMPT_LAYOUT=instructions (the fork's earlier layout).
 //  3. Run the script again with a different --seed (or wait a few minutes) so it cannot hit the first run's cache.
 //  4. Compare the two averages. Higher is better: cached input tokens are billed at a lower
 //     rate and count less against plan limits.

@@ -22,11 +22,30 @@ const makeBody = () => ({
 const run = () => new CodexExecutor().transformRequest("gpt-5.5", makeBody(), true, credentials);
 
 describe("CODEX_SYSTEM_PROMPT_LAYOUT", () => {
-  it("default folds leading system text into instructions", () => {
+  it("default keeps developer items in input, like upstream", () => {
     delete process.env[ENV];
+    const body = run();
+    expect(body.instructions).toBe(CODEX_DEFAULT_INSTRUCTIONS);
+    expect(body.input.map(i => i.role)).toEqual(["developer", "user"]);
+  });
+
+  it("instructions (opt-in) folds leading system text into instructions", () => {
+    process.env[ENV] = "instructions";
     const body = run();
     expect(body.instructions).toContain("SYSTEM-PROMPT-ALPHA");
     expect(body.input.map(i => i.role)).toEqual(["user"]);
+  });
+
+  // Unpacking is not part of the layout choice: a non-Lite model rejects
+  // additional_tools input items whichever layout is active.
+  it.each([undefined, "input", "instructions"])("unpacks a Lite additional_tools prefix for a non-Lite model (layout %s)", (layout) => {
+    if (layout === undefined) delete process.env[ENV];
+    else process.env[ENV] = layout;
+    const b = makeBody();
+    b.input.unshift({ type: "additional_tools", tools: [{ type: "function", name: "tool_a" }] });
+    const body = new CodexExecutor().transformRequest("gpt-5.5", b, true, credentials);
+    expect(body.input.some(i => i.type === "additional_tools")).toBe(false);
+    expect(body.tools.map(t => t.name)).toContain("tool_a");
   });
 
   it("input keeps developer items in input and does not copy them into instructions", () => {
@@ -49,7 +68,7 @@ describe("CODEX_SYSTEM_PROMPT_LAYOUT", () => {
   it("unknown value behaves like the default", () => {
     process.env[ENV] = "bogus";
     const body = run();
-    expect(body.instructions).toContain("SYSTEM-PROMPT-ALPHA");
-    expect(body.input.map(i => i.role)).toEqual(["user"]);
+    expect(body.instructions).not.toContain("SYSTEM-PROMPT-ALPHA");
+    expect(body.input.map(i => i.role)).toEqual(["developer", "user"]);
   });
 });

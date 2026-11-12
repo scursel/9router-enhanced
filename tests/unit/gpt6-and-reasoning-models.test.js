@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { stripUnsupportedParams } from "../../open-sse/translator/concerns/paramSupport.js";
 import { applyThinking } from "../../open-sse/translator/concerns/thinkingUnified.js";
@@ -254,6 +254,15 @@ describe("Phase 3: Extended context variants, capabilities, and pricing", () => 
 });
 
 describe("Phase 4: Tool unpacking and reasoning streaming", () => {
+  // These cases pin the fork's opt-in layout (system text folded into
+  // instructions). The default is upstream's; see codex-system-prompt-layout.test.js.
+  const savedLayout = process.env.CODEX_SYSTEM_PROMPT_LAYOUT;
+  beforeEach(() => { process.env.CODEX_SYSTEM_PROMPT_LAYOUT = "instructions"; });
+  afterEach(() => {
+    if (savedLayout === undefined) delete process.env.CODEX_SYSTEM_PROMPT_LAYOUT;
+    else process.env.CODEX_SYSTEM_PROMPT_LAYOUT = savedLayout;
+  });
+
   it("merges additional_tools in convertResponsesApiFormat", () => {
     const body = {
       model: "gpt-6.1-sol",
