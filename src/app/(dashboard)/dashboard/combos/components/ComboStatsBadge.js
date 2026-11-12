@@ -24,7 +24,12 @@ import {
   sortMembersByFailure,
   memberRowView,
   subComboNoticeLines,
+  MEMBER_VERDICT,
+  countVerdicts,
 } from "./comboStats.js";
+
+// Worst first, matching the row order below.
+const VERDICT_ORDER = ["paused", "not-working", "unstable", "working", "unused"];
 
 // `member.lastErrorStatus` is stored as "error:<code>" (see comboStats.js/
 // memberRowView) — not a bare HTTP status, so it is normalized here rather
@@ -64,6 +69,7 @@ export default function ComboStatsBadge({ entry = null, coverage = null, range =
   }
   if (partial) chipTitle += ` · ${translate("partial")}`;
   const rawMembers = sortMembersByFailure(entry ? entry.members : []);
+  const verdictCounts = countVerdicts(rawMembers);
   const members = rawMembers.map((m) => {
     const view = memberRowView(m);
     return {
@@ -72,7 +78,10 @@ export default function ComboStatsBadge({ entry = null, coverage = null, range =
         "less than a minute ago",
         translate("less than a minute ago"),
       ),
-      breakerLabel: translate(view.breakerLabel),
+      // The countdown is a number, so only the sentence around it is translated.
+      breakerLabel: m?.breaker?.state === "OPEN" && m.breaker.retryAfterMs > 0
+        ? `${translate("Paused after repeated errors, retrying in")} ${Math.ceil(m.breaker.retryAfterMs / 1000)}s`
+        : translate(view.breakerLabel),
     };
   });
   // CB5/NIT-2: sub-combo names flagged by the aggregate — rendered as text
@@ -125,6 +134,16 @@ export default function ComboStatsBadge({ entry = null, coverage = null, range =
             </span>
             <span className="text-[11px] text-text-muted">{translate("problematic first")}</span>
           </div>
+          {members.length > 0 && (
+            <p className="mb-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px]">
+              {VERDICT_ORDER.filter((key) => verdictCounts[key] > 0).map((key) => (
+                <span key={key} className={`inline-flex items-center gap-1 font-medium ${MEMBER_VERDICT[key].tone}`}>
+                  <span className="material-symbols-outlined text-[13px]" aria-hidden="true">{MEMBER_VERDICT[key].icon}</span>
+                  {translate(MEMBER_VERDICT[key].label)}: {verdictCounts[key]}
+                </span>
+              ))}
+            </p>
+          )}
           {members.length === 0 ? (
             <p className="py-1 text-[11px] text-text-muted">
               {entry ? translate("No attributed attempts recorded in this window.") : translate("No data.")}
@@ -132,25 +151,28 @@ export default function ComboStatsBadge({ entry = null, coverage = null, range =
           ) : (
             <ul className="flex flex-col gap-1.5">
               {members.map((m, i) => (
-                <li key={`${m.member || "member"}-${m.model || i}`} className="flex items-start justify-between gap-2 text-[11px]">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <span
-                      className="size-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: m.breakerColor }}
-                      title={m.breakerLabel}
-                    >
-                      <span className="sr-only">{m.breakerLabel}</span>
+                <li key={`${m.member || "member"}-${m.model || i}`} className="text-[11px]">
+                  <span className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:gap-1.5">
+                    <span className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-px font-medium ${MEMBER_VERDICT[m.verdict].chip}`}>
+                      <span className="material-symbols-outlined text-[13px]" aria-hidden="true">{MEMBER_VERDICT[m.verdict].icon}</span>
+                      {translate(MEMBER_VERDICT[m.verdict].label)}
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate font-mono text-text-main">{m.label}</span>
-                      <span className="block truncate font-mono text-[11px] text-text-muted">{m.errorText}</span>
+                      <span className="block truncate font-mono text-text-main" title={m.label}>{m.label}</span>
+                      {m.verdict === "paused" && (
+                        <span className="block text-[11px] text-text-muted">{m.breakerLabel}</span>
+                      )}
+                      <span className="block text-[11px] text-text-muted">
+                        {m.attempts > 0
+                          ? <>{m.successes}/{m.attempts} {translate("requests worked")}</>
+                          : translate("No requests yet")}
+                      </span>
+                      {m.errorText !== "—" && (
+                        <span className="block truncate text-[11px] text-text-muted">
+                          {translate("Last error:")} <span className="font-mono">{m.errorText}</span>
+                        </span>
+                      )}
                     </span>
-                  </span>
-                  <span className="shrink-0 text-right text-text-muted">
-                    <span className="block font-medium text-text-main">
-                      {m.failPct} <span className="text-text-muted">({m.failRatio} {translate("fail")})</span>
-                    </span>
-                    <span className="block text-[11px]">{m.attempts ?? "—"} {translate("attempts")}</span>
                   </span>
                 </li>
               ))}

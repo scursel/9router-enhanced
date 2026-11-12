@@ -162,6 +162,43 @@ export function breakerDotLabel(breaker) {
 }
 
 /**
+ * One plain verdict per member: is it working or not? The fail-rate numbers and
+ * the breaker dot answer that only to someone who already knows how to read
+ * them, so the row leads with a word and an icon instead.
+ *
+ *  - paused       the breaker is open: the gateway is skipping this member now
+ *  - not-working  every attempt in the window failed
+ *  - unstable     some attempts failed, or the breaker is watching it
+ *  - working      attempts were made and none failed
+ *  - unused       no attempts in the window, so there is nothing to judge
+ */
+export const MEMBER_VERDICT = {
+  working: { label: "Working", icon: "check_circle", tone: "text-success", chip: "bg-success/10 text-success" },
+  unstable: { label: "Failing sometimes", icon: "warning", tone: "text-warning", chip: "bg-warning/10 text-warning" },
+  "not-working": { label: "Not working", icon: "cancel", tone: "text-danger", chip: "bg-danger/10 text-danger" },
+  paused: { label: "Paused", icon: "pause_circle", tone: "text-danger", chip: "bg-danger/10 text-danger" },
+  unused: { label: "Not used yet", icon: "help", tone: "text-text-muted", chip: "bg-black/5 text-text-muted dark:bg-white/5" },
+};
+
+export function memberVerdictKey(member) {
+  const state = member?.breaker?.state;
+  if (state === "OPEN") return "paused";
+  const attempts = Number.isFinite(member?.attempts) ? member.attempts : 0;
+  if (attempts <= 0) return "unused";
+  const failures = Number.isFinite(member?.failures) ? member.failures : 0;
+  if (failures >= attempts) return "not-working";
+  if (failures > 0 || state === "HALF_OPEN" || state === "DEGRADED") return "unstable";
+  return "working";
+}
+
+/** Verdict counts for the summary line ("2 working · 1 not working"). */
+export function countVerdicts(members) {
+  const counts = { working: 0, unstable: 0, "not-working": 0, paused: 0, unused: 0 };
+  for (const m of Array.isArray(members) ? members : []) counts[memberVerdictKey(m)] += 1;
+  return counts;
+}
+
+/**
  * Everything one expanded member row shows, resolved from the source numbers.
  * Kept as a pure view-model so the badge maps over it without arithmetic and a
  * test can assert the exact strings ("5/8", "62.5%", "error:503 · 3h ago").
@@ -177,6 +214,8 @@ export function memberRowView(member, now = Date.now()) {
     model: member?.model ?? null,
     label: member?.member || member?.model || member?.provider || "—",
     attempts,
+    verdict: memberVerdictKey(member),
+    successes: attempts === null ? null : Math.max(0, attempts - (failures ?? 0)),
     failRatio: attempts === null ? "—" : `${failures ?? 0}/${attempts}`,
     failPct: formatPct(member?.failureRate),
     errorText: hasError ? `${member.lastErrorStatus}${when ? ` · ${when}` : ""}` : "—",

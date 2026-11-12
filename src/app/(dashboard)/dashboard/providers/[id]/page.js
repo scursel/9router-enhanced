@@ -694,7 +694,7 @@ export default function ProviderDetailPage() {
         await fetchAliases();
       } else {
         const data = await res.json();
-        alert(data.error || "Failed to set alias");
+        notify.error(data.error || translate("Failed to set alias"));
       }
     } catch (error) {
       console.log("Error setting alias:", error);
@@ -728,7 +728,7 @@ export default function ProviderDetailPage() {
         if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("customModelChanged"));
       } else {
         const data = await res.json();
-        alert(data.error || "Failed to add custom model");
+        notify.error(data.error || translate("Failed to add custom model"));
       }
     } catch (error) {
       console.log("Error adding custom model:", error);
@@ -1013,7 +1013,7 @@ export default function ProviderDetailPage() {
         }
         setConnections(prev => prev.filter(c => !idsToDelete.includes(c.id)));
         setSelectedConnectionIds([]);
-        if (failed > 0) alert(`Deleted ${idsToDelete.length - failed} connection(s), ${failed} failed.`);
+        if (failed > 0) notify.error(`Deleted ${idsToDelete.length - failed} connection(s), ${failed} failed.`);
       }
     });
   };
@@ -1182,7 +1182,7 @@ export default function ProviderDetailPage() {
           failed += 1;
         }
       }
-      if (failed > 0) alert(`Updated with ${failed} failed request(s).`);
+      if (failed > 0) notify.error(`Updated with ${failed} failed request(s).`);
       await fetchConnections();
       setShowBulkProxyModal(false);
     } finally {
@@ -1198,7 +1198,7 @@ export default function ProviderDetailPage() {
   const handleApplyOneToOne = () => {
     const activePools = proxyPools.filter((p) => p.isActive === true);
     if (activePools.length === 0) {
-      alert("No active proxy pools available.");
+      notify.error(translate("No active proxy pools available."));
       return;
     }
     const targets = connections.map((c, i) => ({

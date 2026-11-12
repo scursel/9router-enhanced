@@ -1401,5 +1401,19 @@
   "Test All": "Testar todos",
   "Custom Providers (OpenAI/Anthropic Compatible)": "Provedores personalizados (compatíveis com OpenAI/Anthropic)",
   "No custom providers — use buttons above to add OpenAI/Anthropic compatible endpoints": "Nenhum provedor personalizado — use os botões acima para adicionar endpoints compatíveis com OpenAI/Anthropic",
-  "Expired": "Expirado"
+  "Expired": "Expirado",
+  "Working": "Funcionando",
+  "Failing sometimes": "Falhando às vezes",
+  "Not working": "Não funciona",
+  "Not used yet": "Ainda não usado",
+  "not working": "não funcionam",
+  "failing sometimes": "falhando às vezes",
+  "working": "funcionando",
+  "not used yet": "ainda não usados",
+  "Last error:": "Último erro:",
+  "requests worked": "requisições deram certo",
+  "No requests yet": "Nenhuma requisição ainda",
+  "Failed to set alias": "Falha ao definir o alias",
+  "Failed to add custom model": "Falha ao adicionar modelo personalizado",
+  "Failed to fetch models": "Falha ao buscar modelos"
 }

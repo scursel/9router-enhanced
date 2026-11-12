@@ -28,19 +28,21 @@ export default function ComboImpactModal({
       isOpen={isOpen}
       onClose={onCancel}
       title={isDelete ? translate("Delete model used by combos") : translate("Disable model used by combos")}
-      size="sm"
+      size="lg"
       footer={
-        <>
-          <Button variant="ghost" onClick={onCancel}>{translate("Cancel")}</Button>
+        // Three actions with long labels: let them wrap onto a second line
+        // instead of squeezing the text out of the buttons.
+        <div className="flex w-full flex-wrap justify-end gap-2">
+          <Button variant="ghost" className="whitespace-nowrap" onClick={onCancel}>{translate("Cancel")}</Button>
           {!isDelete && (
-            <Button variant="secondary" onClick={onKeepAndProceed}>
+            <Button variant="secondary" className="whitespace-nowrap" onClick={onKeepAndProceed}>
               {translate("Disable, keep in combos")}
             </Button>
           )}
-          <Button variant="danger" onClick={onRemoveAndProceed}>
+          <Button variant="danger" className="whitespace-nowrap" onClick={onRemoveAndProceed}>
             {isDelete ? translate("Remove and delete") : translate("Remove and disable")}
           </Button>
-        </>
+        </div>
       }
     >
       <div className="space-y-3 text-sm">

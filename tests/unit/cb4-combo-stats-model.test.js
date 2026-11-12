@@ -284,3 +284,26 @@ describe("loadComboStats — FAIL-OPEN, never throws on a dead endpoint", () => 
     expect(chipLabel(pickComboEntry(dead.data, "my-combo"))).toBe("—");
   });
 });
+
+describe("memberVerdictKey — one plain answer per member: working or not", () => {
+  it("says working only when attempts were made and none failed", async () => {
+    const { memberVerdictKey } = await import("../../src/app/(dashboard)/dashboard/combos/components/comboStats.js");
+    expect(memberVerdictKey({ attempts: 4, failures: 0 })).toBe("working");
+    expect(memberVerdictKey({ attempts: 4, failures: 1 })).toBe("unstable");
+    expect(memberVerdictKey({ attempts: 4, failures: 4 })).toBe("not-working");
+  });
+
+  it("never judges a member that received no requests", async () => {
+    const { memberVerdictKey } = await import("../../src/app/(dashboard)/dashboard/combos/components/comboStats.js");
+    expect(memberVerdictKey({ attempts: 0, failures: 0 })).toBe("unused");
+    expect(memberVerdictKey(null)).toBe("unused");
+  });
+
+  it("lets an open breaker win: the gateway is skipping the member right now", async () => {
+    const { memberVerdictKey, countVerdicts } = await import("../../src/app/(dashboard)/dashboard/combos/components/comboStats.js");
+    expect(memberVerdictKey({ attempts: 9, failures: 0, breaker: { state: "OPEN" } })).toBe("paused");
+    expect(memberVerdictKey({ attempts: 9, failures: 0, breaker: { state: "DEGRADED" } })).toBe("unstable");
+    expect(countVerdicts([{ attempts: 2, failures: 0 }, { attempts: 2, failures: 2 }, { attempts: 0 }]))
+      .toEqual({ working: 1, unstable: 0, "not-working": 1, paused: 0, unused: 1 });
+  });
+});

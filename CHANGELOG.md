@@ -1,3 +1,11 @@
+# v0.5.119-enhanced.3 (2026-11-12)
+
+- Combos: a lista por modelo diz em palavras qual está funcionando. Cada modelo aparece como "Funcionando", "Falhando às vezes", "Não funciona" ou "Pausado", com "7/9 requisições deram certo" e o último erro. Antes havia só um ponto colorido de 6 px e uma taxa de falha. Os chips de modelo no cartão do combo ganharam o mesmo ícone, e o topo da lista resume quantos estão em cada estado.
+- Configurações: o erro de hidratação que aparecia no console para qualquer idioma que não o inglês foi corrigido. A página lia o cookie de idioma já na primeira renderização, e o servidor não tem como vê-lo. O mesmo erro existe no oficial.
+- Diálogo "modelo usado por combos": os três botões estouravam a largura e cortavam o texto. Agora quebram em linhas.
+- Página do provedor: os cinco `alert()` que restavam (alias, modelo personalizado, exclusão em lote, proxy em lote) viraram notificações.
+- Idiomas: os textos novos desta versão e da anterior foram traduzidos para os outros 32 idiomas do dashboard (tradução automática, revisada só em formato e por amostragem).
+
 # v0.5.119-enhanced.2 (2026-11-12)
 
 Auditoria do fork contra o oficial: segurança, testes e interface.

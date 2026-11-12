@@ -13,7 +13,7 @@ import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { useComboStats } from "./components/useComboStats.js";
 import ComboStatsBadge from "./components/ComboStatsBadge.js";
-import { pickComboEntry } from "./components/comboStats.js";
+import { pickComboEntry, MEMBER_VERDICT, memberVerdictKey } from "./components/comboStats.js";
 import { aggregateComboCapabilities } from "open-sse/providers/capabilities.js";
 import { makeComboMemberResolver } from "@/shared/utils/comboMemberResolver";
 import { resolveProviderId, AI_PROVIDERS } from "@/shared/constants/providers";
@@ -677,6 +677,23 @@ function getRouterModelStatus(routerModel, activeProviders) {
   return { ready: false, label: "Not configured", providerId };
 }
 
+// Tells at a glance which combo members are answering. Shown only for members
+// that received requests in the stats window; a member with no traffic gets no
+// icon rather than a guess.
+function MemberVerdictIcon({ entry, model }) {
+  const member = (entry?.members || []).find((m) => m && (m.member === model || `${m.provider}/${m.model}` === model));
+  if (!member) return null;
+  const key = memberVerdictKey(member);
+  if (key === "unused") return null;
+  const verdict = MEMBER_VERDICT[key];
+  const label = translate(verdict.label);
+  return (
+    <span className={`material-symbols-outlined text-[13px] ${verdict.tone}`} role="img" aria-label={label} title={label}>
+      {verdict.icon}
+    </span>
+  );
+}
+
 function ComboCard({ combo, getCaps, comboByName = {}, resolveMember, activeProviders = [], copied, onCopy, onEdit, onDelete, strategy = {}, onSetStrategy, comboStats = null, comboStatsError = false, selected = false, onToggleSelect }) {
   const [showJudgeSelect, setShowJudgeSelect] = useState(false);
   const [showRouterSelect, setShowRouterSelect] = useState(false);
@@ -723,6 +740,7 @@ function ComboCard({ combo, getCaps, comboByName = {}, resolveMember, activeProv
               ) : (
                 combo.models.slice(0, 3).map((model, index) => (
                   <code key={index} className="inline-flex items-center gap-1 rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs text-text-muted dark:bg-white/5">
+                    <MemberVerdictIcon entry={statsEntry} model={model} />
                     <span>{model}</span>
                     <CapacityBadges caps={
                       comboByName[model]
