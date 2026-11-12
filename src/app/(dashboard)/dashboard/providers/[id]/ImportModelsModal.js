@@ -5,6 +5,7 @@ import PropTypes from "prop-types";
 import Link from "next/link";
 import { Button, Modal, Badge, Toggle, Select, Input, ErrorReason } from "@/shared/components";
 import { translate } from "@/i18n/runtime";
+import { useNotificationStore } from "@/store/notificationStore";
 import { cn } from "@/shared/utils/cn";
 import {
   applyImportFilters,
@@ -53,16 +54,17 @@ function FilterChip({ active, onClick, children }) {
 // sequence (testing -> tested -> imported|failed) down to the three states
 // the brief calls for: testing / ok+imported / failed.
 function StatusIcon({ status }) {
-  if (status === "testing") {
-    return <span className="material-symbols-outlined animate-spin text-[18px] text-blue-500">progress_activity</span>;
-  }
-  if (status === "imported") {
-    return <span className="material-symbols-outlined text-[18px] text-green-500">check_circle</span>;
-  }
-  if (status === "failed") {
-    return <span className="material-symbols-outlined text-[18px] text-red-500">cancel</span>;
-  }
-  return <span className="material-symbols-outlined text-[18px] text-text-muted">radio_button_unchecked</span>;
+  // Color alone is not enough: each state also carries a screen-reader label.
+  const icon = (name, color, label, extra = "") => (
+    <>
+      <span className={`material-symbols-outlined ${extra} text-[18px] ${color}`} aria-hidden="true">{name}</span>
+      <span className="sr-only">{label}</span>
+    </>
+  );
+  if (status === "testing") return icon("progress_activity", "text-info", translate("Testing"), "animate-spin");
+  if (status === "imported") return icon("check_circle", "text-success", translate("Imported"));
+  if (status === "failed") return icon("cancel", "text-danger", translate("Failed"));
+  return icon("radio_button_unchecked", "text-text-muted", translate("Waiting"));
 }
 
 export default function ImportModelsModal({ isOpen, onClose, providerId, onImported }) {
@@ -91,6 +93,7 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
   const [runError, setRunError] = useState(null);
 
   const abortControllerRef = useRef(null);
+  const notify = useNotificationStore();
 
   // Fetch candidates + saved rule. State starts fresh because the parent mounts
   // this component only while the dialog is open ({open && <ImportModelsModal/>}),
@@ -215,20 +218,25 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
     if (modelsToImport.length === 0) return;
 
     // Persist or clear the daily auto-import rule alongside the import
-    // itself. Best-effort: a failure here should not block the import.
+    // itself. A failure here does not block the import, but the user is told
+    // because the daily auto-import would otherwise silently keep old filters.
     (async () => {
       try {
         if (saveRule) {
-          await fetch(`/api/models/import/${providerId}/rule`, {
+          const res = await fetch(`/api/models/import/${providerId}/rule`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ filters, testFirst }),
           });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          notify.success(translate("Daily auto-import filters saved."));
         } else if (rule) {
-          await fetch(`/api/models/import/${providerId}/rule`, { method: "DELETE" });
+          const res = await fetch(`/api/models/import/${providerId}/rule`, { method: "DELETE" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          notify.success(translate("Daily auto-import turned off."));
         }
-      } catch (err) {
-        console.warn("Failed to update auto-import rule:", err);
+      } catch {
+        notify.error(translate("Could not update the daily auto-import settings. The import itself continues."));
       }
     })();
 
@@ -325,8 +333,7 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
             />
             {saveRule && additionalRuleMatches > 0 && (
               <p className="text-[11px] text-text-muted pl-8">
-                {translate("Daily run will also import")} {additionalRuleMatches}{" "}
-                {translate("more matching models you didn't select")}
+                {translate("The daily run will also import matching models you did not select:")} {additionalRuleMatches}
               </p>
             )}
             <Link href="/dashboard/profile" className="text-xs text-brand-500 hover:underline">
@@ -360,7 +367,7 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
       <div className="flex w-full items-center justify-between gap-3">
         <span className="text-xs text-text-muted">
           {summary
-            ? `${summary.imported} ${translate("imported")}, ${summary.failed} ${translate("failed")}`
+            ? `${translate("Imported")}: ${summary.imported} · ${translate("Failed")}: ${summary.failed}`
             : translate("Import finished")}
         </span>
         <Button onClick={onClose}>{translate("Close")}</Button>
@@ -425,7 +432,7 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
 
             <div className="flex flex-wrap items-center gap-3">
               <Toggle size="sm" checked={filters.onlyNew} onChange={(v) => setFilter("onlyNew", v)} label={translate("Only new")} />
-              <div className="min-w-[170px]">
+              <div className="w-full min-w-0 sm:w-auto sm:min-w-[170px]">
                 <Select
                   selectClassName="py-1.5"
                   value={String(filters.minContext)}
@@ -476,7 +483,7 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
               </Button>
             </div>
             <span className="text-text-muted">
-              {selected.size} {translate("selected of")} {filteredCandidates.length} {translate("visible")}
+              {translate("Selected")}: {selected.size} / {filteredCandidates.length} {translate("visible")}
             </span>
           </div>
 
@@ -525,7 +532,7 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
                     {translate(kindLabel(c.kind))}
                   </Badge>
                   {contextLabel && (
-                    <span className={`${MODEL_CHIP_CLASS} border-border bg-black/[0.03] font-mono tabular-nums text-text-muted dark:bg-white/[0.04]`} title={`${translate("Context window")}: ${Number(c.contextLength).toLocaleString()} tokens`}>
+                    <span className={`${MODEL_CHIP_CLASS} border-border bg-black/[0.03] font-mono tabular-nums text-text-muted dark:bg-white/[0.04]`} title={`${translate("Context window")}: ${Number(c.contextLength).toLocaleString()} ${translate("tokens")}`}>
                       <span className="material-symbols-outlined text-[12px]">memory</span>
                       {contextLabel}
                     </span>
@@ -551,12 +558,19 @@ export default function ImportModelsModal({ isOpen, onClose, providerId, onImpor
 
       {(phase === "running" || phase === "done") && (
         <div className="flex flex-col gap-3">
-          <div className="h-1.5 w-full rounded-full bg-surface-2 overflow-hidden">
+          <div
+            className="h-1.5 w-full rounded-full bg-surface-2 overflow-hidden"
+            role="progressbar"
+            aria-label={translate("Import progress")}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
+          >
             <div className="h-full bg-brand-500 transition-all" style={{ width: `${percent}%` }} />
           </div>
 
           {runError && (
-            <div className="flex items-start gap-2 text-sm text-red-500">
+            <div className="flex items-start gap-2 text-sm text-danger">
               <span className="material-symbols-outlined text-base shrink-0">error</span>
               <span className="break-words">{runError}</span>
             </div>

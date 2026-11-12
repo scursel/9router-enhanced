@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { translate } from "@/i18n/runtime";
 import { readModelTestResult } from "@/shared/utils/modelTestResult";
 import PropTypes from "prop-types";
 import { Button, CapacityBadges } from "@/shared/components";
@@ -29,8 +30,8 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
           type="checkbox"
           checked={selected}
           onChange={onToggleSelect}
-          aria-label={`Select ${modelId}`}
-          className="h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-primary focus:ring-primary"
+          aria-label={`${translate("Select")} ${modelId}`}
+          className="h-3.5 w-3.5 shrink-0 rounded border-border text-primary focus:ring-primary"
         />
       )}
       <span
@@ -45,7 +46,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
           <p className="min-w-0 break-all text-sm font-medium sm:truncate sm:break-normal">{modelId}</p>
         </div>
         {comboNames.length > 0 && (
-          <span className={`${MODEL_CHIP_CLASS} mt-0.5 max-w-full border-primary/25 bg-primary/10 text-primary`} title={`Used in: ${comboNames.join(", ")}`}>
+          <span className={`${MODEL_CHIP_CLASS} mt-0.5 max-w-full border-primary/25 bg-primary/10 text-primary`} title={`${translate("Used in:")} ${comboNames.join(", ")}`}>
             <span className="material-symbols-outlined text-[12px]">layers</span>
             <span className="truncate">{comboNames.slice(0, 2).join(", ")}{comboNames.length > 2 ? ` +${comboNames.length - 2}` : ""}</span>
           </span>
@@ -61,6 +62,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
           <div className="relative group/btn">
             <button
               onClick={() => onCopy(fullModel, `model-${modelId}`)}
+              aria-label={translate("Copy")}
               className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary"
             >
               <span className="material-symbols-outlined text-[17px]">
@@ -76,6 +78,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
               <button
                 onClick={onTest}
                 disabled={isTesting}
+                aria-label={translate("Test")}
                 className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary transition-colors"
               >
                 <span className="material-symbols-outlined text-[17px]" style={isTesting ? { animation: "spin 1s linear infinite" } : undefined}>
@@ -99,7 +102,8 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
       <button
         onClick={onDeleteAlias}
         className="p-1 hover:bg-red-50 rounded text-red-500"
-        title="Remove model"
+        title={translate("Remove model")}
+        aria-label={translate("Remove model")}
       >
         <span className="material-symbols-outlined text-[17px]">delete</span>
       </button>
@@ -203,14 +207,13 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
         </Button>
         <Button
           size="sm"
-          variant="ghost"
+          variant="outline"
           icon="download"
           onClick={onImportModels}
           disabled={!canImport}
-          title={canImport ? undefined : "Add a connection first"}
-          className="border border-blue-500/40 text-blue-600 dark:text-blue-400 hover:bg-blue-500/5"
+          title={canImport ? undefined : translate("Add a connection first")}
         >
-          Import models
+          {translate("Import models")}
         </Button>
         {allModels.length > 0 && (
           <Button

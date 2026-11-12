@@ -1,3 +1,17 @@
+# v0.5.119-enhanced.2 (2026-11-12)
+
+Auditoria do fork contra o oficial: segurança, testes e interface.
+
+- Segurança: o `Access-Control-Allow-Origin: *` deixou de ser enviado nas rotas `/api/*` do dashboard. Com `requireLogin` desligado, qualquer site aberto no navegador conseguia ler `/api/providers` e `/api/keys` do gateway local. O CORS continua nas rotas do gateway (`/v1`, `/api/v1`, `/api/v1beta`).
+- Segurança: `/api/settings/proxy-test` e a validação de nós compatíveis em `/api/providers/validate` recusam endereços internos para chamadas remotas. Chamadas feitas da própria máquina continuam podendo testar proxy e nó locais.
+- Testes: nove testes só passavam na máquina do autor (caminho fixo de scratch, versão do Node e do app gravadas em snapshot, dependência `@testing-library/dom` não declarada, `HTTPS_PROXY` herdado do shell, comparação de `Response` com `toEqual`, leitura da porta depois do socket fechado). A suíte está verde em qualquer máquina: 6719 passam, 0 falham.
+- CI: novo workflow `tests.yml` roda a suíte, o gate de regressão e os baselines em todo push e PR. O gate passa a contar arquivo de teste que falha ao carregar.
+- Interface (página do provedor): cada conexão mostra o estado uma vez só. Antes o mesmo motivo de falha aparecia até três vezes na linha. "Mostrar lista de modelos (0)" virou "Nenhum modelo carregado ainda", e o status sem teste aparece como "Ainda não testado".
+- Interface (saúde dos provedores): o painel mostra o nome inteiro do provedor (antes cortava em duas letras), troca jargão por frases ("Pausado após erros repetidos, nova tentativa em 12s"), fecha com Esc, cabe em tela de celular e tem botão de tentar de novo quando a leitura falha.
+- Interface (combos e uso): os textos em português fixos no código passaram a ser traduzíveis, o selo de estatísticas mostra "Ainda sem tráfego" em vez de traços, e a página de combos importava `Link` sem declarar (quebrava a tela com Smart Router sem provedor; o mesmo erro existe no oficial).
+- Interface (geral): falhas que só iam para o console ou para `alert()` agora aparecem como notificação; botões só de ícone ganharam nome acessível, área de toque maior e ficam visíveis com foco de teclado; textos de 9 e 10 px subiram para 11 px; 175 textos novos traduzidos para pt-BR.
+- Docs: o README (inglês e pt-BR) passa a dizer que este é um fork, o que ele muda e como rodá-lo. Saíram do repositório notas de trabalho que nenhum código cita (`EXECUTION.md`, `docs/superpowers/` e quatro relatórios avulsos).
+
 # v0.5.119-enhanced.1 (2026-11-12 — upstream v0.5.119 sync)
 
 Merge do oficial decolua/9router v0.5.117–v0.5.119 (33 commits).

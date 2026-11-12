@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { FREE_PROVIDERS, AI_PROVIDERS } from "@/shared/constants/providers";
+import { translate } from "@/i18n/runtime";
 import { buildComboUsageMap } from "@/shared/utils/usageFilters";
 // CB4 — combo success stats come from ONE endpoint (GET /api/usage/combo-stats),
 // never re-derived from usage/stats on the client. Same read + display model
@@ -58,7 +59,7 @@ function RecentRequests({ requests = [] }) {
       {!requests.length ? (
         <div className="flex-1 flex items-center justify-center text-text-muted text-sm">No requests yet.</div>
       ) : (
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-auto">
           <table className="w-full min-w-[300px] border-collapse text-xs">
             <thead className="sticky top-0 bg-bg z-10">
               <tr className="border-b border-border">
@@ -421,7 +422,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
             className={`px-6 py-3 text-right font-medium whitespace-nowrap ${
               rate === null || rate === undefined ? "text-text-muted" : "text-text-main"
             }`}
-            title={isSummary ? `Combo success rate · last ${comboStatsRange} · from /api/usage/combo-stats` : "Combo-level rate (see group row)"}
+            title={isSummary ? `${translate("Combo success rate")} · ${comboStatsRange}` : translate("Success rate is shown on the combo row")}
           >
             {formatPct(rate)}
           </td>
@@ -611,7 +612,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
             onChange={(e) => setTableView(e.target.value)}
             className="w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium text-text-main focus:outline-none focus:ring-2 focus:ring-primary/50 sm:w-auto"
             style={{ colorScheme: "auto" }}
-            aria-label="Usage table grouping"
+            aria-label={translate("Usage table grouping")}
           >
             {TABLE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>

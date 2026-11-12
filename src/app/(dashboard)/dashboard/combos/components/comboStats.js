@@ -2,7 +2,7 @@
  * CB4 — pure display model for combo success stats.
  *
  * React-free on purpose: every decision the UI makes (which number, which
- * order, "—" vs a real rate, "parcial", fetch fail-open) lives here so it is
+ * order, "—" vs a real rate, "partial", fetch fail-open) lives here so it is
  * unit-testable in the node environment (same precedent as f24d-badge, which
  * tests the pure helpers of useCircuitBreakers rather than rendered JSX).
  * The React components under this folder are thin passthroughs over these
@@ -59,9 +59,9 @@ export function chipTone(rate) {
   if (rate === null || rate === undefined || !Number.isFinite(rate)) {
     return "border-border bg-surface text-text-muted";
   }
-  if (rate >= 0.9) return "border-emerald-500/20 bg-emerald-500/10 text-emerald-500";
-  if (rate >= 0.7) return "border-amber-500/20 bg-amber-500/10 text-amber-500";
-  return "border-red-500/20 bg-red-500/10 text-red-500";
+  if (rate >= 0.9) return "border-success/20 bg-success/10 text-success";
+  if (rate >= 0.7) return "border-warning/20 bg-warning/10 text-warning";
+  return "border-danger/20 bg-danger/10 text-danger";
 }
 
 /**
@@ -70,10 +70,10 @@ export function chipTone(rate) {
  * epoch (the first record in the DB carrying a meta.combo) — genuine
  * pre-attribution history, not today's legitimate direct traffic. The rate
  * then covers attributed traffic only and may be understated. We surface
- * "parcial" per combo card in that case — never a silently-dropped caveat.
+ * "partial" per combo card in that case — never a silently-dropped caveat.
  */
 export function coverageBadgeLabel(payload) {
-  if (payload && payload.coverage === "partial") return "parcial";
+  if (payload && payload.coverage === "partial") return "partial";
   return null;
 }
 
@@ -82,7 +82,7 @@ export function coverageBadgeLabel(payload) {
  * through it is attributed to the inner combo (CB2 nesting rule), so the
  * outer card's counts are a strict floor, not the whole truth. The aggregate
  * flags the sub-combo NAMES on the entry (sources.nestedCombos); we render
- * them as one plain pt-BR line inside the expansion — text only, zero new
+ * them as one plain English line (translated by the component at render time) inside the expansion — text only, zero new
  * numbers, and no invented figure for the shadowed traffic.
  * (Cards whose outer combo has NO attributed entry at all cannot show this
  * yet: the badge only receives `entry`/`coverage` — surfacing the notice on
@@ -92,7 +92,7 @@ export function subComboNoticeLines(entry) {
   const subs = Array.isArray(entry?.nestedSubCombos) ? entry.nestedSubCombos : [];
   return subs
     .filter((name) => typeof name === "string" && name.trim())
-    .map((name) => `inclui sub-combo: ${name} — contagem aparece no cartão de ${name}`);
+    .map((name) => `includes sub-combo ${name} — its requests are counted on ${name}'s card`);
 }
 
 /** Match a combo card to its entry in a fetched payload (by declared name). */
@@ -119,7 +119,7 @@ export function sortMembersByFailure(members) {
 }
 
 /**
- * Relative "há X" from an ISO timestamp, pt-BR style (3h, 45min, 2d). Returns
+ * Relative age from an ISO timestamp ("3h ago", "45min ago", "2d ago"). Returns
  * null when there is no timestamp — the badge then omits the error line rather
  * than printing a bogus age. `now` is injectable for tests.
  */
@@ -128,10 +128,10 @@ export function relativeErrorText(lastErrorAt, now = Date.now()) {
   const t = new Date(lastErrorAt).getTime();
   if (!Number.isFinite(t)) return null;
   const diff = Math.max(0, Math.floor((now - t) / 1000));
-  if (diff < 60) return "há <1min";
-  if (diff < 3600) return `há ${Math.floor(diff / 60)}min`;
-  if (diff < 86400) return `há ${Math.floor(diff / 3600)}h`;
-  return `há ${Math.floor(diff / 86400)}d`;
+  if (diff < 60) return "less than a minute ago";
+  if (diff < 3600) return `${Math.floor(diff / 60)}min ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 }
 
 /** Live circuit-breaker dot palette (reuses the health-badge status colors). */
@@ -148,15 +148,23 @@ export function breakerDotColor(breaker) {
 }
 
 export function breakerDotLabel(breaker) {
-  if (!breaker || !breaker.state) return "no live breaker";
-  const secs = breaker.retryAfterMs > 0 ? ` (${Math.ceil(breaker.retryAfterMs / 1000)}s)` : "";
-  return `breaker ${breaker.state}${secs}`;
+  if (!breaker || !breaker.state) return "Status unknown";
+  switch (breaker.state) {
+    case "OPEN":
+      return breaker.retryAfterMs > 0
+        ? `Paused, retrying in ${Math.ceil(breaker.retryAfterMs / 1000)}s`
+        : "Paused after repeated errors";
+    case "HALF_OPEN": return "Testing recovery";
+    case "DEGRADED": return "Unstable";
+    case "CLOSED": return "Healthy";
+    default: return "Status unknown";
+  }
 }
 
 /**
  * Everything one expanded member row shows, resolved from the source numbers.
  * Kept as a pure view-model so the badge maps over it without arithmetic and a
- * test can assert the exact strings ("5/8", "62.5%", "error:503 · há 3 h").
+ * test can assert the exact strings ("5/8", "62.5%", "error:503 · 3h ago").
  */
 export function memberRowView(member, now = Date.now()) {
   const attempts = Number.isFinite(member?.attempts) ? member.attempts : null;

@@ -20,10 +20,12 @@ export default function ErrorReason({ error, status, compact = false, className 
   const raw = info.detail && info.detail !== info.raw ? `${info.detail}\n\n${info.raw}` : info.raw;
 
   return (
-    <div className={cn("min-w-0 text-red-600 dark:text-red-400", className)}>
+    <div className={cn("min-w-0 text-danger", className)}>
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        aria-expanded={open}
+        aria-label={open ? translate("Hide details") : translate("Show the provider's original error")}
         title={open ? translate("Hide details") : translate("Show the provider's original error")}
         className="flex max-w-full items-start gap-1 text-left"
       >

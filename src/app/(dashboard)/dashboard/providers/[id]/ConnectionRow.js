@@ -10,6 +10,17 @@ import { translate } from "@/i18n/runtime";
 import CooldownTimer from "./CooldownTimer";
 import CircuitBreakerBadge from "../components/CircuitBreakerBadge";
 
+// Readable labels for the raw test status. The raw words must not be used as
+// translation keys: "error" is also a Material Symbols icon name, and translating
+// it would replace the icon glyph wherever it is used.
+const STATUS_LABELS = {
+  active: "Connected",
+  success: "Connected",
+  error: "Error",
+  expired: "Expired",
+  unavailable: "Unavailable",
+};
+
 export default function ConnectionRow({ connection, affectedCombos = [], proxyPools, isOAuth, isFirst, isLast, onMoveUp, onMoveDown, onToggleActive, onUpdateProxy, onEdit, onDelete, oneByOneStatus = null, autoPing = null, circuitBreaker = null, onResetCircuit = null, onCatalogSynced = null, canSyncCatalog = false }) {
   const [showProxyDropdown, setShowProxyDropdown] = useState(false);
   const [updatingProxy, setUpdatingProxy] = useState(false);
@@ -204,6 +215,15 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
     : !catalog.lastSuccessAt ? "never-synced"
     : "ok";
   const catalogErrorReason = catalog?.lastError ? describeProviderError(catalog.lastError) : null;
+  // The connection test and the model sync usually fail for the same cause
+  // (provider unreachable, bad key). When the row already shows that reason next
+  // to the status pill, repeating it under the model list is only noise.
+  const connectionErrorReason = connection.lastError && connection.isActive !== false
+    ? describeProviderError(connection.lastError)
+    : null;
+  const syncErrorAlreadyShown = Boolean(
+    catalogErrorReason?.title && connectionErrorReason?.title && catalogErrorReason.title === connectionErrorReason.title
+  );
   const catalogErrorTitle = catalogErrorReason?.title ? translate(catalogErrorReason.title) : null;
   const stale = (() => {
     const ts = Date.parse(catalog?.lastSuccessAt || "");
@@ -214,6 +234,9 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
     if (!iso) return "—";
     try { return new Date(iso).toLocaleString(); } catch { return iso; }
   };
+  const catalogPillDetail = status === "error"
+    ? `${translate("Last sync failed")}: ${catalogErrorTitle || catalog?.lastError || translate("unknown error")}`
+    : `${translate("Last sync")}: ${formatSyncDate(catalog?.lastSuccessAt)}`;
   const [showCatalogDetails, setShowCatalogDetails] = useState(false);
   const [tierFilter, setTierFilter] = useState("all");
   const filteredForDetails = (() => {
@@ -227,15 +250,15 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
     try {
       const response = await fetch(`/api/providers/${connection.id}/model-catalog`, { method: "POST" });
       const data = await response.json().catch(() => ({}));
-      if (data.skipped) setCatalogMessage("This provider does not publish a model list.");
+      if (data.skipped) setCatalogMessage(translate("This provider does not publish a model list."));
       else if (data.error) setCatalogMessage(data.error);
       else {
         const available = data.available ?? data.counts?.available ?? 0;
-        setCatalogMessage(`Catalog updated — ${available} model${available === 1 ? "" : "s"} discovered. Use Import models to add them to Available Models.`);
+        setCatalogMessage(`${translate("Model list updated.")} ${available} ${available === 1 ? translate("model found.") : translate("models found.")} ${translate("Use Import models to add them to Available Models.")}`);
         if (typeof onCatalogSynced === "function") await onCatalogSynced(data.catalog || null);
       }
     } catch {
-      setCatalogMessage("Could not update the model catalog.");
+      setCatalogMessage(translate("Could not update the model catalog."));
     } finally {
       setSyncingModels(false);
     }
@@ -249,6 +272,7 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
           <button
             onClick={onMoveUp}
             disabled={isFirst}
+            aria-label={translate("Move up")}
             className={`p-0.5 rounded ${isFirst ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}
           >
             <span className="material-symbols-outlined text-sm pointer-coarse:text-[20px]">keyboard_arrow_up</span>
@@ -256,6 +280,7 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
           <button
             onClick={onMoveDown}
             disabled={isLast}
+            aria-label={translate("Move down")}
             className={`p-0.5 rounded ${isLast ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}
           >
             <span className="material-symbols-outlined text-sm pointer-coarse:text-[20px]">keyboard_arrow_down</span>
@@ -271,7 +296,7 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
           )}
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
             <Badge variant={getStatusVariant()} size="sm" dot>
-              {connection.isActive === false ? "disabled" : (effectiveStatus || "Unknown")}
+              {connection.isActive === false ? translate("disabled") : translate(STATUS_LABELS[effectiveStatus] || "Not tested yet")}
             </Badge>
             <CircuitBreakerBadge status={circuitBreaker} onReset={onResetCircuit} />
             <Badge variant="default" size="sm">
@@ -302,16 +327,16 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
             )}
             {catalog && (
               <>
-                <Badge
-                  variant={status === "error" || status === "stale" ? "error" : status === "ok" ? "success" : "default"}
-                  size="sm"
-                  title={status === "error" ? `Sync failed: ${catalogErrorTitle || catalog.lastError || "unknown error"}` : `Last sync: ${formatSyncDate(catalog.lastSuccessAt)}`}
-                >
-                  {status === "never-synced" ? "Not yet synced" : status === "error" ? "Sync failed" : status === "stale" ? "Stale" : `${availableCount} models`}
-                </Badge>
-                {catalog.lastSuccessAt && <span className="text-[11px] text-text-muted">Updated {formatSyncDate(catalog.lastSuccessAt)}</span>}
-                {stale && status === "ok" && <span className="text-[11px] text-amber-600 dark:text-amber-400">Catalog outdated — update now</span>}
-                {curatedHasWarning && <span className="text-[11px] text-amber-600 dark:text-amber-400" title="Some models rely on curated rules and pricing may change">Curated rule</span>}
+                {/* Badge ignores title, so the explanation lives on a wrapper and in sr-only text. */}
+                <span title={catalogPillDetail}>
+                  <Badge variant={status === "error" || status === "stale" ? "error" : status === "ok" ? "success" : "default"} size="sm">
+                    {status === "never-synced" ? translate("Not yet synced") : status === "error" ? translate("Sync failed") : status === "stale" ? translate("Stale") : `${availableCount} ${translate("models")}`}
+                  </Badge>
+                  <span className="sr-only">{catalogPillDetail}</span>
+                </span>
+                {catalog.lastSuccessAt && <span className="text-[11px] text-text-muted">{translate("Updated")} {formatSyncDate(catalog.lastSuccessAt)}</span>}
+                {stale && status === "ok" && <span className="text-[11px] text-amber-600 dark:text-amber-400">{translate("Catalog outdated — update now")}</span>}
+                {curatedHasWarning && <span className="text-[11px] text-amber-600 dark:text-amber-400" title={translate("Some models rely on curated rules and pricing may change")}>{translate("Curated rule")}</span>}
               </>
             )}
           </div>
@@ -321,7 +346,7 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
                 {proxyDisplayText}
               </span>
               {maskedProxyUrl && (
-                <code className="max-w-full truncate rounded bg-black/5 px-1 py-0.5 font-mono text-[10px] text-text-muted dark:bg-white/5 sm:max-w-[260px]">
+                <code className="max-w-full truncate rounded bg-black/5 px-1 py-0.5 font-mono text-[11px] text-text-muted dark:bg-white/5 sm:max-w-[260px]">
                   {maskedProxyUrl}
                 </code>
               )}
@@ -335,27 +360,31 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
           {catalog && status !== "never-synced" && status !== "error" && (freeCount + creditsCount + paidCount + unknownCount) > 0 && (
             <div
               className="mt-1 flex flex-wrap items-center gap-1"
-              title="Pricing tier of each discovered model — not your account balance"
-              aria-label={`Model pricing tiers: ${freeCount} free, ${creditsCount} per-request, ${paidCount} paid, ${unknownCount} unknown`}
+              role="group"
+              title={translate("Pricing tier of each discovered model — not your account balance")}
+              aria-label={`${translate("Model pricing tiers")}: ${freeCount} ${translate("free")}, ${creditsCount} ${translate("per request")}, ${paidCount} ${translate("paid")}, ${unknownCount} ${translate("unknown price")}`}
             >
-              {freeCount > 0 && <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-300">{freeCount} free</span>}
-              {creditsCount > 0 && <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-700 dark:text-amber-300" title="Models billed per request (e.g. image), not token-priced">{creditsCount} per-req</span>}
-              {paidCount > 0 && <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[11px] text-sky-700 dark:text-sky-300">{paidCount} paid</span>}
-              {unknownCount > 0 && <span className="rounded bg-zinc-500/10 px-1.5 py-0.5 text-[11px] text-text-muted">{unknownCount} unknown price</span>}
+              {freeCount > 0 && <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-300"aria-label={`${freeCount} ${translate("free")}`} title={translate("Models with no usage charge")}>{freeCount} {translate("free")}</span>}
+              {creditsCount > 0 && <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-700 dark:text-amber-300" aria-label={`${creditsCount} ${translate("per request")}`} title={translate("Models billed per request (e.g. image), not token-priced")}>{creditsCount} {translate("per request")}</span>}
+              {paidCount > 0 && <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[11px] text-sky-700 dark:text-sky-300"aria-label={`${paidCount} ${translate("paid")}`} title={translate("Models billed by usage")}>{paidCount} {translate("paid")}</span>}
+              {unknownCount > 0 && <span className="rounded bg-zinc-500/10 px-1.5 py-0.5 text-[11px] text-text-muted"aria-label={`${unknownCount} ${translate("unknown price")}`} title={translate("Models whose price could not be determined")}>{unknownCount} {translate("unknown price")}</span>}
             </div>
           )}
           {catalog && unavailableModels.length > 0 && (
             <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-              {unavailableModels.length} saved model{unavailableModels.length === 1 ? " is" : "s are"} unavailable and will be skipped by combos. Stored combos are unchanged — remove or replace members only when you confirm it below.
-              {(affectedCombos || []).length > 0 && ` Affected combos: ${(affectedCombos || []).join(", ")}.`}
+              {unavailableModels.length} {unavailableModels.length === 1 ? translate("saved model is unavailable and will be skipped by combos. Your combos are unchanged until you confirm a change below.") : translate("saved models are unavailable and will be skipped by combos. Your combos are unchanged until you confirm a change below.")}
+              {(affectedCombos || []).length > 0 && ` ${translate("Affected combos:")} ${(affectedCombos || []).join(", ")}.`}
             </p>
           )}
           {catalog && pendingModels.length > 0 && (
             <p className="mt-1 text-xs text-text-muted">
-              {pendingModels.length} model{pendingModels.length === 1 ? "" : "s"} temporarily absent — still listed, hidden after one more confirmed sync without {pendingModels.length === 1 ? "it" : "them"}.
+              {pendingModels.length} {pendingModels.length === 1 ? translate("model is missing from the latest sync. It stays listed and will be hidden if the next sync does not find it either.") : translate("models are missing from the latest sync. They stay listed and will be hidden if the next sync does not find them either.")}
             </p>
           )}
-          {catalog && status !== "never-synced" && (
+          {catalog && status !== "never-synced" && availableCount === 0 && (
+            <p className="mt-1 text-xs text-text-muted">{translate("No models loaded yet")}</p>
+          )}
+          {catalog && status !== "never-synced" && availableCount > 0 && (
             <div className="mt-1">
               <button
                 type="button"
@@ -363,12 +392,12 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
                 aria-expanded={showCatalogDetails}
                 className="text-xs text-text-muted underline underline-offset-2 hover:text-primary"
               >
-                {showCatalogDetails ? "Hide model list" : `Show model list (${availableCount})`}
+                {showCatalogDetails ? translate("Hide model list") : `${translate("Show model list")} (${availableCount})`}
               </button>
               {showCatalogDetails && (
                 <div className="mt-1 rounded-lg border border-border p-2">
-                  <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filter models by pricing tier">
-                    {[["all", "All"], ["free", "Free"], ["credits", "Per-request"], ["paid", "Paid"], ["unknown", "Unknown"]].map(([value, label]) => (
+                  <div className="flex flex-wrap items-center gap-1" role="group" aria-label={translate("Filter models by pricing tier")}>
+                    {[["all", translate("All")], ["free", translate("Free")], ["credits", translate("Per-request")], ["paid", translate("Paid")], ["unknown", translate("Unknown")]].map(([value, label]) => (
                       <button
                         key={value}
                         type="button"
@@ -382,7 +411,7 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
                   </div>
                   {curatedHasWarning && (
                     <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                      Some models rely on curated rules and pricing may change.
+                      {translate("Some models rely on curated rules and pricing may change.")}
                     </p>
                   )}
                   <ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto text-xs">
@@ -391,21 +420,21 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
                         <span className="min-w-0 truncate" title={m.name || m.id}>{m.name || m.id}</span>
                         <span className="flex shrink-0 items-center gap-1 text-[11px] text-text-muted">
                           {m.pricing && (m.pricing.prompt !== null || m.pricing.completion !== null) && (
-                            <span title={`prompt ${m.pricing.prompt ?? "?"} / completion ${m.pricing.completion ?? "?"}`}>
+                            <span title={`${translate("Input")} ${m.pricing.prompt ?? "?"} / ${translate("Output")} ${m.pricing.completion ?? "?"}`}>
                               {m.pricing.prompt ?? "?"} / {m.pricing.completion ?? "?"}
                             </span>
                           )}
                           <span className={`rounded px-1 py-px ${m.tier === "free" ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : m.tier === "credits" ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : m.tier === "paid" ? "bg-sky-500/10 text-sky-700 dark:text-sky-300" : "bg-zinc-500/10"}`}>
-                            {m.tier === "credits" ? "per-req" : (m.tier || "unknown")}
+                            {m.tier === "credits" ? translate("per request") : translate(m.tier || "unknown")}
                           </span>
                         </span>
                       </li>
                     ))}
-                    {filteredForDetails.length === 0 && <li className="text-text-muted">No models in this tier.</li>}
+                    {filteredForDetails.length === 0 && <li className="text-text-muted">{translate("No models in this tier.")}</li>}
                   </ul>
                   {unavailableModels.length > 0 && (
                     <div className="mt-1 border-t border-border pt-1">
-                      <p className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Unavailable — kept in saved combos, skipped at runtime:</p>
+                      <p className="text-[11px] font-medium text-amber-600 dark:text-amber-400">{translate("Unavailable — kept in saved combos, skipped at runtime:")}</p>
                       <ul className="mt-0.5 space-y-0.5 text-[11px] text-text-muted">
                         {unavailableModels.map((m) => (
                           <li key={m.id} className="truncate" title={m.name || m.id}>{m.name || m.id}</li>
@@ -417,11 +446,12 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
               )}
             </div>
           )}
-          {catalog && status === "error" && (
-            <div className="mt-1 flex flex-wrap items-start gap-1 text-xs text-red-500">
-              <span>Last sync failed{syncingModels ? " — retrying…" : ":"}</span>
-              {!syncingModels && <ErrorReason error={catalog.lastError} compact className="text-xs" />}
-              <span>Previous model list kept.</span>
+          {catalog && status === "error" && (syncingModels || !syncErrorAlreadyShown || availableCount > 0) && (
+            <div className="mt-1 flex flex-wrap items-start gap-1 text-xs text-text-muted">
+              {syncingModels
+                ? <span>{translate("Retrying…")}</span>
+                : !syncErrorAlreadyShown && <ErrorReason error={catalog.lastError} compact className="text-xs" />}
+              {!syncingModels && availableCount > 0 && <span>{translate("Your previous model list is kept.")}</span>}
             </div>
           )}
           {catalogMessage && <p className="mt-1 text-xs text-text-muted" role="status" aria-live="polite">{catalogMessage}</p>}
@@ -440,7 +470,7 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
                 <span className="material-symbols-outlined text-[18px]">
                   {updatingProxy ? "progress_activity" : "lan"}
                 </span>
-                <span className="text-[10px] leading-tight">Proxy</span>
+                <span className="text-[11px] leading-tight">{translate("Proxy")}</span>
               </button>
               {showProxyDropdown && createPortal(
                 <div
@@ -452,7 +482,7 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
                     onClick={() => handleSelectProxy("__none__")}
                     className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${!boundProxyPoolId ? "text-primary font-medium" : "text-text-main"}`}
                   >
-                    None
+                    {translate("None")}
                   </button>
                   {(proxyPools || []).map((pool) => (
                     <button
@@ -475,7 +505,7 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
                 className={`flex w-full flex-col items-center rounded px-2 py-1 transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${autoPing.isActive ? "text-primary" : "text-text-muted hover:text-primary"}`}
               >
                 <span className="material-symbols-outlined text-[18px]">bolt</span>
-                <span className="text-[10px] leading-tight">Auto-ping</span>
+                <span className="text-[11px] leading-tight">{translate("Auto-ping")}</span>
               </button>
             </Tooltip>
           )}
@@ -485,26 +515,26 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
               onClick={syncModels}
               disabled={syncingModels}
               className="flex w-full flex-col items-center rounded px-2 py-1 text-text-muted transition-colors hover:bg-black/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5"
-              title="Refresh this account's discovered catalog. Does not add models to Available Models — use Import models there."
+              title={translate("Refresh this account's model list. Does not add models to Available Models — use Import models there.")}
             >
               <span className={`material-symbols-outlined text-[18px]${syncingModels ? " animate-spin" : ""}`}>{syncingModels ? "progress_activity" : "sync"}</span>
-              <span className="text-[10px] leading-tight">Sync</span>
+              <span className="text-[11px] leading-tight">{translate("Sync")}</span>
             </button>
           )}
           <button onClick={onEdit} className="flex flex-col items-center rounded px-2 py-1 text-text-muted hover:bg-black/5 hover:text-primary dark:hover:bg-white/5">
             <span className="material-symbols-outlined text-[18px]">edit</span>
-            <span className="text-[10px] leading-tight">Edit</span>
+            <span className="text-[11px] leading-tight">{translate("Edit")}</span>
           </button>
           <button onClick={onDelete} className="flex flex-col items-center rounded px-2 py-1 text-red-500 hover:bg-red-500/10">
             <span className="material-symbols-outlined text-[18px]">delete</span>
-            <span className="text-[10px] leading-tight">Delete</span>
+            <span className="text-[11px] leading-tight">{translate("Delete")}</span>
           </button>
         </div>
         <Toggle
           size="sm"
           checked={connection.isActive ?? true}
           onChange={onToggleActive}
-          title={(connection.isActive ?? true) ? "Disable connection" : "Enable connection"}
+          title={(connection.isActive ?? true) ? translate("Disable connection") : translate("Enable connection")}
         />
       </div>
     </div>

@@ -735,7 +735,7 @@ export default function ProvidersPage() {
 
 function pausedLabel(count) {
   if (!count) return null;
-  return count === 1 ? "1 account paused" : `${count} paused`;
+  return count === 1 ? translate("1 account paused") : `${count} ${translate("paused")}`;
 }
 
 function ProviderCard({ providerId, provider, stats, authType, onToggle, pausedCount = 0 }) {

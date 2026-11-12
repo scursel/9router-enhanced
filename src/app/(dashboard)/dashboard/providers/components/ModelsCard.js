@@ -9,6 +9,8 @@ import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
 import { getProviderAlias } from "@/shared/constants/providers";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { readModelTestResult } from "@/shared/utils/modelTestResult";
+import { useNotificationStore } from "@/store/notificationStore";
+import { translate } from "@/i18n/runtime";
 
 // ── Lifecycle chip (T-D) ───────────────────────────────────────
 // models.dev `status`, surfaced by /v1/models as `lifecycle` metadata.
@@ -16,10 +18,10 @@ import { readModelTestResult } from "@/shared/utils/modelTestResult";
 // appear here while an account still lists them. Any failure to read the list
 // just means no chips.
 const LIFECYCLE_CHIP = {
-  retired: { label: "EOL", cls: "text-red-500 bg-red-500/10", tip: "Retired upstream (models.dev) — listed only because a connected account still offers it" },
-  deprecated: { label: "DEPRECATED", cls: "text-amber-500 bg-amber-500/10", tip: "Deprecated upstream (models.dev)" },
-  alpha: { label: "ALPHA", cls: "text-sky-500 bg-sky-500/10", tip: "Alpha/pre-release upstream (models.dev)" },
-  beta: { label: "BETA", cls: "text-sky-500 bg-sky-500/10", tip: "Beta/preview upstream (models.dev)" },
+  retired: { label: "Retired", cls: "text-danger bg-danger/10", tip: "No longer offered by the provider. Listed only because a connected account still offers it." },
+  deprecated: { label: "Being retired", cls: "text-warning bg-warning/10", tip: "The provider plans to retire this model. It still works for now." },
+  alpha: { label: "ALPHA", cls: "text-sky-500 bg-sky-500/10", tip: "Early test version from the provider. It may change or be removed." },
+  beta: { label: "BETA", cls: "text-sky-500 bg-sky-500/10", tip: "Preview version from the provider. It may change before the final release." },
 };
 
 // The dashboard card's kindFilter → the /v1/models/{kind} slug that lists it.
@@ -37,6 +39,9 @@ const LIFECYCLE_LIST_URL = {
 export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCustom, isFree, lifecycle, onDeleteAlias, onTest, isTesting }) {
   const borderColor = testStatus === "ok" ? "border-green-500/40" : testStatus === "error" ? "border-red-500/40" : "border-border";
   const iconColor = testStatus === "ok" ? "#22c55e" : testStatus === "error" ? "#ef4444" : undefined;
+  const lifecycleChip = lifecycle ? LIFECYCLE_CHIP[lifecycle] : null;
+  // Hover-revealed buttons must also appear on keyboard focus.
+  const revealClass = "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100";
 
   return (
     <div className={`group px-3 py-2 rounded-lg border ${borderColor} hover:bg-sidebar/50`}>
@@ -46,40 +51,40 @@ export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCusto
         </span>
         <div className="flex flex-col gap-1">
           <code className="text-xs text-text-muted font-mono bg-sidebar px-1.5 py-0.5 rounded">{fullModel}</code>
-          {model.name && <span className="text-[9px] text-text-muted/70 italic pl-1">{model.name}</span>}
+          {model.name && <span className="text-[11px] text-text-muted/70 italic pl-1">{model.name}</span>}
         </div>
         {onTest && (
           <div className="relative group/btn">
-            <button onClick={onTest} disabled={isTesting} className={`p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary transition-opacity ${isTesting ? "opacity-100" : "opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"}`}>
-              <span className="material-symbols-outlined text-sm" style={isTesting ? { animation: "spin 1s linear infinite" } : undefined}>
+            <button onClick={onTest} disabled={isTesting} aria-label={isTesting ? translate("Testing...") : translate("Test")} className={`p-1.5 -m-1 hover:bg-sidebar rounded text-text-muted hover:text-primary transition-opacity ${isTesting ? "opacity-100" : revealClass}`}>
+              <span className="material-symbols-outlined text-base" aria-hidden="true" style={isTesting ? { animation: "spin 1s linear infinite" } : undefined}>
                 {isTesting ? "progress_activity" : "science"}
               </span>
             </button>
-            <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity">
-              {isTesting ? "Testing..." : "Test"}
+            <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 text-[11px] text-text-muted whitespace-nowrap opacity-0 group-hover/btn:opacity-100 group-focus-within/btn:opacity-100 transition-opacity">
+              {isTesting ? translate("Testing...") : translate("Test")}
             </span>
           </div>
         )}
         <div className="relative group/btn">
-          <button onClick={() => onCopy(fullModel, `model-${model.id}`)} className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary">
-            <span className="material-symbols-outlined text-sm">{copied === `model-${model.id}` ? "check" : "content_copy"}</span>
+          <button onClick={() => onCopy(fullModel, `model-${model.id}`)} aria-label={translate("Copy")} className="p-1.5 -m-1 hover:bg-sidebar rounded text-text-muted hover:text-primary">
+            <span className="material-symbols-outlined text-base" aria-hidden="true">{copied === `model-${model.id}` ? "check" : "content_copy"}</span>
           </button>
-          <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity">
-            {copied === `model-${model.id}` ? "Copied!" : "Copy"}
+          <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 text-[11px] text-text-muted whitespace-nowrap opacity-0 group-hover/btn:opacity-100 group-focus-within/btn:opacity-100 transition-opacity">
+            {copied === `model-${model.id}` ? translate("Copied!") : translate("Copy")}
           </span>
         </div>
-        {isFree && <span className="text-[10px] font-bold text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded">FREE</span>}
+        {isFree && <span className="text-[11px] font-bold text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded">FREE</span>}
         {lifecycle && (
           <span
-            title={LIFECYCLE_CHIP[lifecycle]?.tip || `Upstream lifecycle: ${lifecycle}`}
-            className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${LIFECYCLE_CHIP[lifecycle]?.cls || "text-text-muted bg-sidebar"}`}
+            title={lifecycleChip ? translate(lifecycleChip.tip) : `${translate("Upstream lifecycle:")} ${lifecycle}`}
+            className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${lifecycleChip?.cls || "text-text-muted bg-sidebar"}`}
           >
-            {LIFECYCLE_CHIP[lifecycle]?.label || lifecycle.toUpperCase()}
+            {lifecycleChip ? translate(lifecycleChip.label) : lifecycle.toUpperCase()}
           </span>
         )}
         {isCustom && (
-          <button onClick={onDeleteAlias} className="p-0.5 hover:bg-red-500/10 rounded text-text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity ml-auto" title="Remove custom model">
-            <span className="material-symbols-outlined text-sm">close</span>
+          <button onClick={onDeleteAlias} aria-label={translate("Remove custom model")} className={`p-1.5 -m-1 hover:bg-red-500/10 rounded text-text-muted hover:text-red-500 ${revealClass} transition-opacity ml-auto`} title={translate("Remove custom model")}>
+            <span className="material-symbols-outlined text-base" aria-hidden="true">close</span>
           </button>
         )}
       </div>
@@ -153,6 +158,7 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
   const [testError, setTestError] = useState("");
   const [testNote, setTestNote] = useState("");
   const [showAddCustomModel, setShowAddCustomModel] = useState(false);
+  const notify = useNotificationStore();
 
   const providerAlias = providerAliasOverride || getProviderAlias(providerId);
   const effectiveType = kindFilter || "llm";
@@ -201,8 +207,11 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
   const refresh = useCallback(async () => {
     try {
       applySnapshot(await fetchSnapshot());
-    } catch (e) { console.log("ModelsCard fetch error:", e); }
-  }, [fetchSnapshot, applySnapshot]);
+    } catch (e) {
+      console.error("ModelsCard fetch error:", e);
+      notify.error(translate("Could not refresh the model list."));
+    }
+  }, [fetchSnapshot, applySnapshot, notify]);
 
   useEffect(() => {
     // Initial data load: the setState lands in the promise callback, never the
@@ -223,14 +232,22 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
         body: JSON.stringify({ model: fullModel, alias }),
       });
       if (res.ok) await refresh();
-    } catch (e) { console.log("set alias error:", e); }
+      else notify.error(translate("Could not save the alias."));
+    } catch (e) {
+      console.error("set alias error:", e);
+      notify.error(translate("Could not save the alias."));
+    }
   };
 
   const handleDeleteAlias = async (alias) => {
     try {
       const res = await fetch(`/api/models/alias?alias=${encodeURIComponent(alias)}`, { method: "DELETE" });
       if (res.ok) await refresh();
-    } catch (e) { console.log("delete alias error:", e); }
+      else notify.error(translate("Could not remove the alias."));
+    } catch (e) {
+      console.error("delete alias error:", e);
+      notify.error(translate("Could not remove the alias."));
+    }
   };
 
   const handleAddCustomModel = async (modelId) => {
@@ -243,8 +260,13 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
       if (res.ok) {
         await refresh();
         window.dispatchEvent(new CustomEvent("customModelChanged"));
+      } else {
+        notify.error(translate("Could not add the model."));
       }
-    } catch (e) { console.log("add custom model error:", e); }
+    } catch (e) {
+      console.error("add custom model error:", e);
+      notify.error(translate("Could not add the model."));
+    }
   };
 
   const handleDeleteCustomModel = async (modelId) => {
@@ -254,8 +276,13 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
       if (res.ok) {
         await refresh();
         window.dispatchEvent(new CustomEvent("customModelChanged"));
+      } else {
+        notify.error(translate("Could not remove the model."));
       }
-    } catch (e) { console.log("delete custom model error:", e); }
+    } catch (e) {
+      console.error("delete custom model error:", e);
+      notify.error(translate("Could not remove the model."));
+    }
   };
 
   const handleTestModel = async (modelId) => {
@@ -274,7 +301,7 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
       setTestNote(status === "ok" ? message : "");
     } catch {
       setModelTestResults((prev) => ({ ...prev, [modelId]: "error" }));
-      setTestError("Network error");
+      setTestError(translate("Network error"));
       setTestNote("");
     } finally { setTestingModelId(null); }
   };

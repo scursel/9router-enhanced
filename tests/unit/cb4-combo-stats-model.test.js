@@ -11,7 +11,7 @@
  *  • 62.5% renders as "62.5%", not "63%" (no rounding away a real half).
  *  • Missing data renders "—", never a fabricated 0%/100%.
  *  • Members sort worst-first by failureRate (the failing one on top).
- *  • "parcial" surfaces exactly when coverage is partial.
+ *  • "partial" surfaces exactly when coverage is partial.
  *  • A fetch failure resolves (never throws) and degrades the chip to "—".
  */
 import { describe, it, expect } from "vitest";
@@ -137,9 +137,9 @@ describe("chipTone — real rates colored, absence neutral (no false red)", () =
     expect(chipTone(null)).toContain("text-text-muted");
   });
   it("is emerald at high success and red at low", () => {
-    expect(chipTone(0.95)).toContain("emerald");
-    expect(chipTone(0.4)).toContain("red");
-    expect(chipTone(0.75)).toContain("amber");
+    expect(chipTone(0.95)).toContain("success");
+    expect(chipTone(0.4)).toContain("danger");
+    expect(chipTone(0.75)).toContain("warning");
   });
 });
 
@@ -155,8 +155,8 @@ describe("mapPeriodToRange — clamp UsageStats periods to real windows", () => 
 });
 
 describe("coverageBadgeLabel — communicate partial history honestly", () => {
-  it("says parcial when coverage is partial", () => {
-    expect(coverageBadgeLabel({ coverage: "partial" })).toBe("parcial");
+  it("says partial when coverage is partial", () => {
+    expect(coverageBadgeLabel({ coverage: "partial" })).toBe("partial");
   });
   it("stays silent when full or unknown", () => {
     expect(coverageBadgeLabel({ coverage: "full" })).toBeNull();
@@ -167,7 +167,7 @@ describe("coverageBadgeLabel — communicate partial history honestly", () => {
 describe("subComboNoticeLines — nested member is visible as TEXT, never a new number", () => {
   it("renders one pt-BR line per sub-combo the server flagged on the entry", () => {
     expect(subComboNoticeLines({ nestedSubCombos: ["alpha"] })).toEqual([
-      "inclui sub-combo: alpha — contagem aparece no cartão de alpha",
+      "includes sub-combo alpha — its requests are counted on alpha's card",
     ]);
     expect(subComboNoticeLines({ nestedSubCombos: ["a", "b"] })).toHaveLength(2);
   });
@@ -208,14 +208,14 @@ describe("sortMembersByFailure — problematic member on top", () => {
   });
 });
 
-describe("relativeErrorText — pt-BR age, null-safe", () => {
+describe("relativeErrorText — English age, null-safe", () => {
   const NOW = Date.parse("2026-01-02T00:00:00.000Z");
   it("renders hours ago", () => {
-    expect(relativeErrorText(new Date(NOW - 3 * 3600_000).toISOString(), NOW)).toBe("há 3h");
+    expect(relativeErrorText(new Date(NOW - 3 * 3600_000).toISOString(), NOW)).toBe("3h ago");
   });
   it("renders minutes and days", () => {
-    expect(relativeErrorText(new Date(NOW - 45 * 60_000).toISOString(), NOW)).toBe("há 45min");
-    expect(relativeErrorText(new Date(NOW - 2 * 86400_000).toISOString(), NOW)).toBe("há 2d");
+    expect(relativeErrorText(new Date(NOW - 45 * 60_000).toISOString(), NOW)).toBe("45min ago");
+    expect(relativeErrorText(new Date(NOW - 2 * 86400_000).toISOString(), NOW)).toBe("2d ago");
   });
   it("returns null when there is no timestamp (no bogus age)", () => {
     expect(relativeErrorText(null, NOW)).toBeNull();
@@ -239,7 +239,7 @@ describe("memberRowView — the expanded row's exact strings", () => {
     const view = memberRowView({ ...a, lastErrorAt: new Date(NOW - 3 * 3600_000).toISOString() }, NOW);
     expect(view.failRatio).toBe("5/8");
     expect(view.failPct).toBe("62.5%");
-    expect(view.errorText).toBe("error:503 · há 3h");
+    expect(view.errorText).toBe("error:503 · 3h ago");
     expect(view.breakerColor).toBe("#ef4444");
     expect(view.attempts).toBe(8);
   });

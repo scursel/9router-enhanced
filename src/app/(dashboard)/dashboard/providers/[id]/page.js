@@ -13,6 +13,7 @@ import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useModelCaps, refreshModelCaps } from "@/shared/hooks/useModelCaps";
 import { useCircuitBreakers } from "@/shared/hooks/useCircuitBreakers";
 import { translate } from "@/i18n/runtime";
+import { useNotificationStore } from "@/store/notificationStore";
 import { fetchSuggestedModels } from "@/shared/utils/providerModelsFetcher";
 import { applyQoderModelNames, getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
 import { connectionCanSyncCatalog, LIVE_CATALOG_PROVIDERS } from "@/shared/utils/importProviderModels";
@@ -61,6 +62,7 @@ export default function ProviderDetailPage() {
   const params = useParams();
   const router = useRouter();
   const providerId = params.id;
+  const notify = useNotificationStore();
   const { getCaps } = useModelCaps();
   const { getCircuitBreakerForConnection, resetCircuitBreaker } = useCircuitBreakers();
   const [connections, setConnections] = useState([]);
@@ -278,7 +280,7 @@ export default function ProviderDetailPage() {
       onRemoveAndProceed: async () => {
         setComboImpact(null);
         if (!(await pruneCombos(candidates))) {
-          alert("Failed to update combos. The model was not changed.");
+          notify.error(translate("Failed to update combos. The model was not changed."));
           return;
         }
         await disableModelIds([modelId]);
@@ -314,13 +316,13 @@ export default function ProviderDetailPage() {
       return;
     }
     setComboImpact({
-      subject: `${ids.length} models`,
+      subject: `${ids.length} ${translate("models")}`,
       mode: "disable",
       combos: affected,
       onRemoveAndProceed: async () => {
         setComboImpact(null);
         if (!(await pruneCombos(candidates))) {
-          alert("Failed to update combos. The models were not changed.");
+          notify.error(translate("Failed to update combos. The models were not changed."));
           return;
         }
         await disableModelIds(ids);
@@ -347,7 +349,9 @@ export default function ProviderDetailPage() {
       const res = await fetch("/api/combos", { cache: "no-store" });
       const data = await res.json();
       if (res.ok) setCombos(data.combos || []);
-    } catch {}
+    } catch {
+      // Background refresh of the combo badges; the page works without it, so stay silent.
+    }
   }, []);
   const comboIndex = buildComboIndex(combos);
   const comboNamesFor = (candidates) => comboNamesForCandidates(comboIndex, candidates);
@@ -767,7 +771,7 @@ export default function ProviderDetailPage() {
       onRemoveAndProceed: async () => {
         setComboImpact(null);
         if (!(await pruneCombos(candidates))) {
-          alert("Failed to update combos. The model was not changed.");
+          notify.error(translate("Failed to update combos. The model was not changed."));
           return;
         }
         await deleteCustomModelNow(modelId, type, providerAliasOverride);
@@ -792,13 +796,13 @@ export default function ProviderDetailPage() {
       await runActions();
     } else {
       setComboImpact({
-        subject: `${ids.length} models`,
+        subject: `${ids.length} ${translate("models")}`,
         mode: "delete",
         combos: affected,
         onRemoveAndProceed: async () => {
           setComboImpact(null);
           if (!(await pruneCombos(candidates))) {
-            alert("Failed to update combos. The models were not changed.");
+            notify.error(translate("Failed to update combos. The models were not changed."));
             return;
           }
           await runActions();
@@ -856,13 +860,13 @@ export default function ProviderDetailPage() {
     } else {
       const mode = actions.some((action) => action.mode === "delete") ? "delete" : "disable";
       setComboImpact({
-        subject: `${ids.length} models`,
+        subject: `${ids.length} ${translate("models")}`,
         mode,
         combos: affected,
         onRemoveAndProceed: async () => {
           setComboImpact(null);
           if (!(await pruneCombos(candidates))) {
-            alert("Failed to update combos. The models were not changed.");
+            notify.error(translate("Failed to update combos. The models were not changed."));
             return;
           }
           await runActions();
@@ -1493,12 +1497,11 @@ export default function ProviderDetailPage() {
 
         <Button
           size="sm"
-          variant="ghost"
           icon="download"
           onClick={() => setShowImportModels(true)}
           disabled={!canImportModels}
           title={!canImportModels ? translate("Add a connection first") : undefined}
-          className="border border-blue-500/40 text-blue-600 dark:text-blue-400 hover:bg-blue-500/5"
+          variant="outline"
         >
           {translate("Import models")}
         </Button>

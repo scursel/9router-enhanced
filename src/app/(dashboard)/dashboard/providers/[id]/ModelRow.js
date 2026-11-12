@@ -1,4 +1,5 @@
 import PropTypes from "prop-types";
+import { translate } from "@/i18n/runtime";
 import { CapacityBadges } from "@/shared/components";
 import ModelMetaChips, { MODEL_CHIP_CLASS } from "./ModelMetaChips";
 import AddToComboButton from "./AddToComboButton";
@@ -27,8 +28,8 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
             type="checkbox"
             checked={selected}
             onChange={onToggleSelect}
-            aria-label={`Select ${model.id}`}
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-primary focus:ring-primary sm:mt-0"
+            aria-label={`${translate("Select")} ${model.id}`}
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-border text-primary focus:ring-primary sm:mt-0"
           />
         )}
         <span
@@ -44,21 +45,21 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
               combos={combos}
               comboNames={comboNames}
               onChanged={onComboChanged}
-              buttonClassName="rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-primary/10 hover:text-primary pointer-fine:opacity-40 pointer-fine:group-hover:opacity-100"
+              buttonClassName="rounded p-1 text-text-muted opacity-100 transition-opacity hover:bg-primary/10 hover:text-primary pointer-fine:opacity-40 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100 pointer-fine:group-focus-within:opacity-100"
             />
             <code className="min-w-0 break-all rounded bg-sidebar px-1.5 py-0.5 font-mono text-xs text-text-muted sm:max-w-[360px] sm:truncate" title={displayModel}>{displayModel}</code>
           </div>
           <span className="flex min-w-0 flex-wrap items-center gap-1 pl-1">
             {model.name && <span className="max-w-full break-all sm:truncate text-[11px] text-text-muted">{model.name}</span>}
             {comboNames.length > 0 && (
-              <span className={`${MODEL_CHIP_CLASS} max-w-full border-primary/25 bg-primary/10 text-primary`} title={`Used in: ${comboNames.join(", ")}`}>
+              <span className={`${MODEL_CHIP_CLASS} max-w-full border-primary/25 bg-primary/10 text-primary`} title={`${translate("Used in:")} ${comboNames.join(", ")}`}>
                 <span className="material-symbols-outlined text-[12px]">layers</span>
                 <span className="truncate">{comboNames.slice(0, 2).join(", ")}{comboNames.length > 2 ? ` +${comboNames.length - 2}` : ""}</span>
               </span>
             )}
             {disabledInUse && (
               <span className={`${MODEL_CHIP_CLASS} border-border bg-black/5 text-text-muted dark:bg-white/10`}>
-                disabled
+                {translate("disabled")}
               </span>
             )}
             <ModelMetaChips caps={caps} />
@@ -71,7 +72,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
           <DetectMetaButton
             providerId={providerId}
             modelId={model.id}
-            buttonClassName="rounded p-0.5 text-text-muted transition-opacity opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 hover:bg-sidebar hover:text-primary"
+            buttonClassName="rounded p-1.5 text-text-muted transition-opacity opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100 pointer-fine:group-focus-within:opacity-100 hover:bg-sidebar hover:text-primary"
           />
         )}
         {onTest && (
@@ -79,43 +80,47 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
             <button
               onClick={onTest}
               disabled={isTesting}
-              className={`rounded p-0.5 text-text-muted transition-opacity hover:bg-sidebar hover:text-primary ${isTesting ? "opacity-100" : "opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"}`}
+              aria-label={translate("Test")}
+              className={`rounded p-1.5 text-text-muted transition-opacity hover:bg-sidebar hover:text-primary ${isTesting ? "opacity-100" : "opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100 pointer-fine:group-focus-within:opacity-100"}`}
             >
               <span className="material-symbols-outlined text-[17px]" style={isTesting ? { animation: "spin 1s linear infinite" } : undefined}>
                 {isTesting ? "progress_activity" : "science"}
               </span>
             </button>
             <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity">
-              {isTesting ? "Testing..." : "Test"}
+              {isTesting ? translate("Testing...") : translate("Test")}
             </span>
           </div>
         )}
         <div className="relative shrink-0 group/btn">
           <button
             onClick={() => onCopy(displayModel, `model-${model.id}`)}
-            className="rounded p-0.5 text-text-muted hover:bg-sidebar hover:text-primary"
+            aria-label={translate("Copy")}
+            className="rounded p-1.5 text-text-muted hover:bg-sidebar hover:text-primary"
           >
             <span className="material-symbols-outlined text-[17px]">
               {copied === `model-${model.id}` ? "check" : "content_copy"}
             </span>
           </button>
           <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity">
-            {copied === `model-${model.id}` ? "Copied!" : "Copy"}
+            {copied === `model-${model.id}` ? translate("Copied!") : translate("Copy")}
           </span>
         </div>
         {isCustom ? (
           <button
             onClick={onDeleteAlias}
-            className="ml-auto rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"
-            title="Remove custom model"
+            className="ml-auto rounded p-1.5 text-text-muted opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100 pointer-fine:group-focus-within:opacity-100"
+            title={translate("Remove custom model")}
+            aria-label={translate("Remove custom model")}
           >
             <span className="material-symbols-outlined text-[17px]">close</span>
           </button>
         ) : onDisable ? (
           <button
             onClick={onDisable}
-            className="ml-auto rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"
-            title="Disable this model"
+            className="ml-auto rounded p-1.5 text-text-muted opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100 pointer-fine:group-focus-within:opacity-100"
+            title={translate("Disable this model")}
+            aria-label={translate("Disable this model")}
           >
             <span className="material-symbols-outlined text-[17px]">close</span>
           </button>

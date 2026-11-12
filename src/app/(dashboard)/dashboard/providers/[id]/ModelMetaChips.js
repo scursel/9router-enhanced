@@ -24,7 +24,7 @@ function sourceLabel(source) {
 // elsewhere on the same row (see CapacityBadges usage in ModelRow).
 // One shape for every chip on a model row (context, reasoning, combos) so
 // they line up.
-export const MODEL_CHIP_CLASS = "inline-flex h-[18px] items-center gap-1 rounded-md border px-1.5 text-[10px] font-medium leading-none";
+export const MODEL_CHIP_CLASS = "inline-flex h-[18px] items-center gap-1 rounded-md border px-1.5 text-[11px] font-medium leading-none";
 
 // Small pills next to a model's name: its measured context window and whether
 // it reasons on this provider, each with a tooltip naming the source. Caller
@@ -40,11 +40,17 @@ export default function ModelMetaChips({ caps, className = "" }) {
 
   if (!contextLabel && !showReasoning) return null;
 
+  // Same text for the hover tooltip and the aria-label so keyboard and screen-reader users get the source too.
+  const contextInfo = `${translate("Context window")}: ${Number(caps.contextWindow).toLocaleString()} ${translate("tokens")} · ${sourceLabel(contextSource)}`;
+  const reasoningInfo = `${translate("Reasoning")} · ${sourceLabel(reasoningSource)}`;
+
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>
       {contextLabel && (
-        <Tooltip text={`${translate("Context window")}: ${Number(caps.contextWindow).toLocaleString()} tokens · ${sourceLabel(contextSource)}`}>
+        <Tooltip text={contextInfo}>
           <span
+            tabIndex={0}
+            aria-label={contextInfo}
             className={`${MODEL_CHIP_CLASS} cursor-help font-mono tabular-nums ${
               estimated
                 ? "border-dashed border-border text-text-muted/60"
@@ -57,8 +63,8 @@ export default function ModelMetaChips({ caps, className = "" }) {
         </Tooltip>
       )}
       {showReasoning && (
-        <Tooltip text={`${translate("Reasoning")} · ${sourceLabel(reasoningSource)}`}>
-          <span className={`${MODEL_CHIP_CLASS} cursor-help border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300`}>
+        <Tooltip text={reasoningInfo}>
+          <span tabIndex={0} aria-label={reasoningInfo} className={`${MODEL_CHIP_CLASS} cursor-help border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300`}>
             <span className="material-symbols-outlined text-[12px]">neurology</span>
             {translate("Reasoning")}
           </span>

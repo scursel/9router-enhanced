@@ -49,7 +49,7 @@ export default function DetectMetaButton({ providerId, modelId, buttonClassName 
       const data = await res.json().catch(() => null);
       if (!res.ok || !data || data.error) {
         setStatus("error");
-        setError({ message: data?.error || `HTTP ${res.status}`, status: res.status });
+        setError({ message: data?.error || `${translate("The provider answered with an error")} (HTTP ${res.status})`, status: res.status });
         return;
       }
       await refreshModelCaps();
@@ -62,7 +62,7 @@ export default function DetectMetaButton({ providerId, modelId, buttonClassName 
       }
     } catch (err) {
       setStatus("error");
-      setError({ message: err?.message || "Network error", status: null });
+      setError({ message: translate("Could not reach the provider"), status: null });
     }
   };
 
@@ -83,6 +83,9 @@ export default function DetectMetaButton({ providerId, modelId, buttonClassName 
           type="button"
           onClick={handleDetect}
           disabled={status === "running"}
+          aria-label={translate("Detect context and reasoning")}
+          aria-expanded={status === "done" || status === "error"}
+          aria-haspopup="dialog"
           className={buttonClassName}
         >
           <span
@@ -92,7 +95,7 @@ export default function DetectMetaButton({ providerId, modelId, buttonClassName 
             {status === "running" ? "progress_activity" : "troubleshoot"}
           </span>
         </button>
-        <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 z-10 whitespace-nowrap text-[10px] text-text-muted opacity-0 transition-opacity group-hover/btn:opacity-100">
+        <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 z-10 whitespace-nowrap text-[11px] text-text-muted opacity-0 transition-opacity group-hover/btn:opacity-100">
           {status === "running" ? translate("Detecting...") : translate("Detect context and reasoning")}
         </span>
       </div>

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useNotificationStore } from "@/store/notificationStore";
+import { translate } from "@/i18n/runtime";
 
 const POLL_MS = 5000;
 
@@ -171,6 +173,8 @@ export function useCircuitBreakers() {
       return true;
     } catch (error) {
       console.error("Failed to reset circuit breaker:", error);
+      // The caller may ignore the boolean; surface the failure here so it is never silent.
+      useNotificationStore.getState().error(translate("Could not resume this account. Please try again."));
       return false;
     }
   }, [fetchStatuses]);

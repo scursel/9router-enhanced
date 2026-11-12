@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
 import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, ConfirmModal, CapacityBadges, Select, Toggle, Badge, SmartPolicyModal } from "@/shared/components";
+import { translate } from "@/i18n/runtime";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
@@ -91,7 +93,7 @@ export default function CombosPage() {
   const { copied, copy } = useCopyToClipboard();
   // CB4 — one read of combo success stats for every card on the page (24h
   // window). Fail-open: a gap leaves each chip "—", it never blocks the cards.
-  const { data: comboStats } = useComboStats("24h");
+  const { data: comboStats, error: comboStatsError } = useComboStats("24h");
 
   useEffect(() => {
     fetchData();
@@ -591,6 +593,7 @@ export default function CombosPage() {
                   selected={selectedIds.includes(combo.id)}
                   onToggleSelect={() => toggleSelect(combo.id)}
                   comboStats={comboStats}
+                  comboStatsError={comboStatsError}
                 />
               ));
             })()}
@@ -674,7 +677,7 @@ function getRouterModelStatus(routerModel, activeProviders) {
   return { ready: false, label: "Not configured", providerId };
 }
 
-function ComboCard({ combo, getCaps, comboByName = {}, resolveMember, activeProviders = [], copied, onCopy, onEdit, onDelete, strategy = {}, onSetStrategy, comboStats = null, selected = false, onToggleSelect }) {
+function ComboCard({ combo, getCaps, comboByName = {}, resolveMember, activeProviders = [], copied, onCopy, onEdit, onDelete, strategy = {}, onSetStrategy, comboStats = null, comboStatsError = false, selected = false, onToggleSelect }) {
   const [showJudgeSelect, setShowJudgeSelect] = useState(false);
   const [showRouterSelect, setShowRouterSelect] = useState(false);
   const [showPolicyModal, setShowPolicyModal] = useState(false);
@@ -712,10 +715,10 @@ function ComboCard({ combo, getCaps, comboByName = {}, resolveMember, activeProv
             <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1">
               {combo.models.length === 0 ? (
                 <span
-                  className="inline-flex items-center rounded bg-amber-500/10 px-1.5 py-px text-[10px] text-amber-600 dark:text-amber-400"
-                  title="This combo has no models and cannot route until you add one"
+                  className="inline-flex items-center rounded bg-warning/10 px-1.5 py-px text-[11px] text-warning"
+                  title={translate("This combo has no models and cannot route until you add one")}
                 >
-                  No models — cannot route
+                  {translate("No models — cannot route")}
                 </span>
               ) : (
                 combo.models.slice(0, 3).map((model, index) => (
@@ -737,7 +740,7 @@ function ComboCard({ combo, getCaps, comboByName = {}, resolveMember, activeProv
                 per-member breakdown (no new page). "—" / "parcial" are honest
                 states, never fabricated numbers. */}
             <div className="mt-1.5">
-              <ComboStatsBadge entry={statsEntry} coverage={coverage} />
+              <ComboStatsBadge entry={statsEntry} coverage={coverage} error={comboStatsError} pending={!comboStats && !comboStatsError} />
             </div>
             {comboCaps && (
               <div className="mt-1 flex items-center gap-2 text-[10px] text-text-muted">

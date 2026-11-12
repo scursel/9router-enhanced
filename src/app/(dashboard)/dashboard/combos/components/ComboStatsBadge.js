@@ -10,10 +10,10 @@
  * N cards share a single endpoint read. Clicking toggles an IN-LINE expansion
  * (a conditional div, not a route) so no new page is created.
  *
- * Discretion + fail-open: a null rate is "—" in neutral grey; a fetch gap hands
- * in `entry = null`, which renders "—" quietly — no toast, no red error.
+ * Discretion + fail-open: a null rate renders a muted "No traffic yet"; a fetch
+ * gap renders a muted "Stats unavailable" — no toast, no red error.
  */
-import { useState } from "react";
+import { useId, useState } from "react";
 import PropTypes from "prop-types";
 import { translate } from "@/i18n/runtime";
 import { describeProviderError } from "@/shared/utils/errorReason";
@@ -41,65 +41,93 @@ function errorDisplayText(rawMember, viewErrorText) {
   return viewErrorText.replace(String(status), `${title} (${match[1]})`);
 }
 
-export default function ComboStatsBadge({ entry = null, coverage = null, range = "24h" }) {
+export default function ComboStatsBadge({ entry = null, coverage = null, range = "24h", error = false, pending = false }) {
   const [expanded, setExpanded] = useState(false);
+  const panelId = useId();
 
-  const partial = coverageBadgeLabel({ coverage }) === "parcial";
+  const partial = coverageBadgeLabel({ coverage }) === "partial";
   const tone = chipTone(entry ? entry.successRate : null);
-  const label = chipLabel(entry);
+  const rateLabel = chipLabel(entry);
+  // "—" alone reads as a bug: say why there is no number. A failed poll is a
+  // quiet state (no toast) because this refreshes in the background.
+  const hasRate = rateLabel !== "—";
+  let label = rateLabel;
+  let chipTitle = `${translate("Combo success rate")} · ${range}`;
+  if (!hasRate && !pending) {
+    if (error && !entry) {
+      label = translate("Stats unavailable");
+      chipTitle = translate("Could not load success stats. They refresh automatically, so try again in a moment.");
+    } else {
+      label = translate("No traffic yet");
+      chipTitle = translate("No requests were routed through this combo in this time window.");
+    }
+  }
+  if (partial) chipTitle += ` · ${translate("partial")}`;
   const rawMembers = sortMembersByFailure(entry ? entry.members : []);
   const members = rawMembers.map((m) => {
     const view = memberRowView(m);
-    return { ...view, errorText: errorDisplayText(m, view.errorText) };
+    return {
+      ...view,
+      errorText: errorDisplayText(m, view.errorText).replace(
+        "less than a minute ago",
+        translate("less than a minute ago"),
+      ),
+      breakerLabel: translate(view.breakerLabel),
+    };
   });
   // CB5/NIT-2: sub-combo names flagged by the aggregate — rendered as text
   // lines, never as numbers (see subComboNoticeLines for the entry-less gap).
-  const subComboNotices = subComboNoticeLines(entry);
+  const subComboNotices = subComboNoticeLines(entry).map((line) => translate(line));
 
   return (
-    <div className="min-w-0">
+    <div
+      className="min-w-0"
+      onKeyDown={(e) => { if (e.key === "Escape" && expanded) { e.stopPropagation(); setExpanded(false); } }}
+    >
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
-          title={`Combo success rate · last ${range}${partial ? " · parcial (winners predate the first attributed request)" : ""}`}
+          aria-controls={panelId}
+          aria-label={`${translate("Combo success rate")}: ${label}`}
+          title={chipTitle}
           className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors ${tone}`}
         >
-          <span className="material-symbols-outlined text-[13px]">percent</span>
+          <span className="material-symbols-outlined text-[13px]" aria-hidden="true">percent</span>
           <span>{label}</span>
-          <span className={`material-symbols-outlined text-[12px] transition-transform ${expanded ? "rotate-180" : ""}`}>
+          <span aria-hidden="true" className={`material-symbols-outlined text-[12px] transition-transform ${expanded ? "rotate-180" : ""}`}>
             expand_more
           </span>
         </button>
         {partial && (
           <span
-            className="inline-flex items-center rounded bg-amber-500/10 px-1.5 py-px text-[10px] text-amber-600 dark:text-amber-400"
-            title="Some winning requests in this window predate the FIRST combo-attributed request recorded on this install — the rate covers attributed traffic only and may be understated. Recent direct (non-combo) traffic does NOT trigger this."
+            className="inline-flex items-center rounded bg-warning/10 px-1.5 py-px text-[11px] text-warning"
+            title={translate("Some requests in this window were made before combo tracking started, so this rate may be understated.")}
           >
-            parcial
+            {translate("partial")}
           </span>
         )}
       </div>
 
       {expanded && (
-        <div className="mt-2 rounded-lg border border-border bg-bg-subtle/40 px-3 py-2">
+        <div id={panelId} className="mt-2 rounded-lg border border-border bg-bg-subtle/40 px-3 py-2">
           {subComboNotices.length > 0 && (
             <div className="mb-1.5 flex flex-col gap-0.5">
               {subComboNotices.map((line) => (
-                <p key={line} className="text-[10px] leading-snug text-text-muted">{line}</p>
+                <p key={line} className="text-[11px] leading-snug text-text-muted">{line}</p>
               ))}
             </div>
           )}
           <div className="mb-1 flex items-center justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-              By member · last {range}
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+              {translate("By member")} · {range}
             </span>
-            <span className="text-[10px] text-text-muted">problematic first</span>
+            <span className="text-[11px] text-text-muted">{translate("problematic first")}</span>
           </div>
           {members.length === 0 ? (
             <p className="py-1 text-[11px] text-text-muted">
-              {entry ? "No attributed attempts recorded in this window." : "No data."}
+              {entry ? translate("No attributed attempts recorded in this window.") : translate("No data.")}
             </p>
           ) : (
             <ul className="flex flex-col gap-1.5">
@@ -110,17 +138,19 @@ export default function ComboStatsBadge({ entry = null, coverage = null, range =
                       className="size-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
                       style={{ backgroundColor: m.breakerColor }}
                       title={m.breakerLabel}
-                    />
+                    >
+                      <span className="sr-only">{m.breakerLabel}</span>
+                    </span>
                     <span className="min-w-0">
                       <span className="block truncate font-mono text-text-main">{m.label}</span>
-                      <span className="block truncate font-mono text-[10px] text-text-muted">{m.errorText}</span>
+                      <span className="block truncate font-mono text-[11px] text-text-muted">{m.errorText}</span>
                     </span>
                   </span>
                   <span className="shrink-0 text-right text-text-muted">
                     <span className="block font-medium text-text-main">
-                      {m.failPct} <span className="text-text-muted">({m.failRatio} fail)</span>
+                      {m.failPct} <span className="text-text-muted">({m.failRatio} {translate("fail")})</span>
                     </span>
-                    <span className="block text-[10px]">{m.attempts ?? "—"} attempts</span>
+                    <span className="block text-[11px]">{m.attempts ?? "—"} {translate("attempts")}</span>
                   </span>
                 </li>
               ))}
@@ -136,4 +166,6 @@ ComboStatsBadge.propTypes = {
   entry: PropTypes.object,
   coverage: PropTypes.oneOf(["full", "partial", null]),
   range: PropTypes.string,
+  error: PropTypes.bool,
+  pending: PropTypes.bool,
 };

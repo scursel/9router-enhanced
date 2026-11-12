@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { translate } from "@/i18n/runtime";
+import { useNotificationStore } from "@/store/notificationStore";
 
 const DEFAULT_BUTTON_CLASS = "rounded p-0.5 text-text-muted hover:bg-sidebar hover:text-primary transition-colors";
 
@@ -23,6 +24,7 @@ export default function AddToComboButton({ fullModel, combos, comboNames = [], o
   const [justAddedId, setJustAddedId] = useState(null);
   const [formError, setFormError] = useState("");
   const rootRef = useRef(null);
+  const notify = useNotificationStore();
 
   useEffect(() => {
     if (!open) return undefined;
@@ -68,6 +70,7 @@ export default function AddToComboButton({ fullModel, combos, comboNames = [], o
         setFormError(data?.error || translate("Failed to update the combo"));
         return;
       }
+      notify.success(translate("Model added to the combo."));
       setJustAddedId(combo.id);
       onChanged?.();
       setTimeout(() => setJustAddedId((id) => (id === combo.id ? null : id)), 1500);
@@ -94,6 +97,7 @@ export default function AddToComboButton({ fullModel, combos, comboNames = [], o
         setFormError(data?.error || translate("Failed to create the combo"));
         return;
       }
+      notify.success(translate("Combo created with this model."));
       onChanged?.();
       closeAndReset();
     } catch {
@@ -110,6 +114,9 @@ export default function AddToComboButton({ fullModel, combos, comboNames = [], o
         onClick={() => setOpen((v) => !v)}
         className={buttonClassName}
         title={translate("Add to a combo")}
+        aria-label={translate("Add to a combo")}
+        aria-expanded={open}
+        aria-haspopup="dialog"
       >
         <span className="material-symbols-outlined text-[17px]">add</span>
       </button>
@@ -122,6 +129,7 @@ export default function AddToComboButton({ fullModel, combos, comboNames = [], o
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={translate("Search combos…")}
+            aria-label={translate("Search combos…")}
             autoFocus
             className="mb-1.5 w-full rounded-md border border-border bg-bg px-2 py-1.5 text-xs focus:border-primary focus:outline-none"
           />
@@ -147,15 +155,15 @@ export default function AddToComboButton({ fullModel, combos, comboNames = [], o
                     <span className="material-symbols-outlined shrink-0 text-[14px] text-text-muted">layers</span>
                     <span className="truncate">{combo.name}</span>
                     {Array.isArray(combo.models) && (
-                      <span className="shrink-0 text-[10px] text-text-muted/70">{combo.models.length}</span>
+                      <span className="shrink-0 text-[11px] text-text-muted/70">{combo.models.length}</span>
                     )}
                   </span>
                   {isJustAdded ? (
-                    <span className="material-symbols-outlined shrink-0 text-[15px] text-green-500">check</span>
+                    <span className="material-symbols-outlined shrink-0 text-[15px] text-success">check</span>
                   ) : isBusy ? (
                     <span className="material-symbols-outlined shrink-0 text-[15px]" style={{ animation: "spin 1s linear infinite" }}>progress_activity</span>
                   ) : isIn ? (
-                    <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] text-green-600/80 dark:text-green-400/80" title={translate("Already in this combo")}>
+                    <span className="inline-flex shrink-0 items-center gap-0.5 text-[11px] text-success" title={translate("Already in this combo")}>
                       <span className="material-symbols-outlined text-[13px]">check_circle</span>
                       {translate("Added")}
                     </span>
@@ -177,6 +185,7 @@ export default function AddToComboButton({ fullModel, combos, comboNames = [], o
                     if (e.key === "Escape") setCreating(false);
                   }}
                   placeholder={translate("Combo name")}
+                  aria-label={translate("Combo name")}
                   autoFocus
                   className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1.5 text-xs focus:border-primary focus:outline-none"
                 />
@@ -184,6 +193,7 @@ export default function AddToComboButton({ fullModel, combos, comboNames = [], o
                   type="button"
                   onClick={handleCreate}
                   disabled={!newName.trim() || busyId === "__new__"}
+                  aria-label={translate("Create combo")}
                   className="shrink-0 rounded p-1 text-primary hover:bg-primary/10 disabled:opacity-40"
                 >
                   <span className="material-symbols-outlined text-[17px]">check</span>
@@ -201,7 +211,7 @@ export default function AddToComboButton({ fullModel, combos, comboNames = [], o
             )}
           </div>
 
-          {formError && <p className="mt-1 text-[10px] text-red-500">{formError}</p>}
+          {formError && <p className="mt-1 text-[11px] text-danger">{formError}</p>}
         </div>
       )}
     </span>

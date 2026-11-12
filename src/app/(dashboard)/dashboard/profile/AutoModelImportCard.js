@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Card, Button, Toggle, Select, ErrorReason } from "@/shared/components";
 import { translate } from "@/i18n/runtime";
+import { useNotificationStore } from "@/store/notificationStore";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 
 export default function AutoModelImportCard() {
@@ -18,6 +19,7 @@ export default function AutoModelImportCard() {
   const [saving, setSaving] = useState(false);
   const [runLoading, setRunLoading] = useState(false);
   const [error, setError] = useState("");
+  const notify = useNotificationStore();
   // Custom (OpenAI-compatible) nodes are stored under generated ids; show
   // their names instead of "openai-compatible-chat-8bfc…".
   const [nodeNames, setNodeNames] = useState(null);
@@ -31,10 +33,10 @@ export default function AutoModelImportCard() {
         setAutoImportSettings(data.settings);
         setImportRules(data.rules || {});
       } else {
-        setError("Failed to load auto-import settings");
+        setError(translate("Failed to load auto-import settings"));
       }
     } catch (err) {
-      setError("An error occurred while loading settings");
+      setError(translate("An error occurred while loading settings"));
       console.error(err);
     } finally {
       setLoading(false);
@@ -70,18 +72,18 @@ export default function AutoModelImportCard() {
     setError("");
     try {
       const currentRes = await fetch("/api/models/import/auto");
-      if (!currentRes.ok) throw new Error("Failed to load auto-import settings");
+      if (!currentRes.ok) throw new Error(translate("Failed to load auto-import settings"));
       const current = (await currentRes.json()).settings || {};
       const res = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ autoModelImport: { ...current, ...patch } }),
       });
-      if (!res.ok) throw new Error("Failed to update auto-import settings");
+      if (!res.ok) throw new Error(translate("Failed to update auto-import settings"));
       const data = await res.json();
       setAutoImportSettings(data.autoModelImport || { ...current, ...patch });
     } catch (err) {
-      setError(err?.message || "An error occurred");
+      setError(err?.message || translate("An error occurred"));
     } finally {
       setSaving(false);
     }
@@ -99,6 +101,12 @@ export default function AutoModelImportCard() {
 
       if (res.ok) {
         const data = await res.json();
+        const imported = (data.providers || []).reduce((n, p) => n + (p.imported || 0), 0);
+        notify.success(
+          imported > 0
+            ? `${translate("Auto-import finished. Models imported:")} ${imported}`
+            : translate("Auto-import finished. No new models found."),
+        );
         // Update the last run info
         setAutoImportSettings((prev) => ({
           ...prev,
@@ -106,15 +114,17 @@ export default function AutoModelImportCard() {
           lastResult: { at: data.at, providers: data.providers },
         }));
       } else {
-        const data = await res.json();
-        if (res.status === 409) {
-          setError(data.error || "Auto-import is already running");
-        } else {
-          setError(data.error || "Failed to run auto-import");
-        }
+        const data = await res.json().catch(() => ({}));
+        const message = data.error || (res.status === 409
+          ? translate("Auto-import is already running")
+          : translate("Failed to run auto-import"));
+        setError(message);
+        notify.error(message);
       }
     } catch (err) {
-      setError("An error occurred while running auto-import");
+      const message = translate("An error occurred while running auto-import");
+      setError(message);
+      notify.error(message);
       console.error(err);
     } finally {
       setRunLoading(false);
@@ -165,7 +175,7 @@ export default function AutoModelImportCard() {
 
       <div className="flex flex-col gap-4">
         {/* Enable toggle */}
-        <div className="flex items-start sm:items-center justify-between gap-4">
+        <label className="flex items-start sm:items-center justify-between gap-4">
           <div className="flex-1 min-w-0">
             <p className="font-medium text-sm sm:text-base">
               Enable daily auto-import
@@ -179,13 +189,14 @@ export default function AutoModelImportCard() {
             onChange={handleToggle}
             disabled={saving}
           />
-        </div>
+        </label>
 
         {/* Hour selector and run button */}
         <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
           <div className="flex-1 min-w-0">
             <Select
-              label="Run time (server local time)"
+              label={translate("Run time (server local time)")}
+              aria-label={translate("Run time (server local time)")}
               options={hourOptions}
               value={String(autoImportSettings.hour ?? 4)}
               onChange={handleHourChange}
@@ -195,6 +206,7 @@ export default function AutoModelImportCard() {
           <Button
             onClick={handleRunNow}
             loading={runLoading}
+            disabled={saving}
             className="w-full sm:w-auto"
           >
             Run now
@@ -203,8 +215,8 @@ export default function AutoModelImportCard() {
 
         {/* Error message */}
         {error && (
-          <div className="p-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          <div className="p-3 rounded-lg bg-danger/10 border border-danger/20" role="alert">
+            <p className="text-sm text-danger">{error}</p>
           </div>
         )}
 
@@ -297,8 +309,7 @@ export default function AutoModelImportCard() {
         {/* Info note */}
         <div className="p-3 rounded-lg bg-bg border border-border">
           <p className="text-xs text-text-muted leading-relaxed">
-            Rules are saved from each provider&apos;s Import models dialog.
-            Auto-import only adds new models; it never removes any.
+            {translate("Rules are saved from each provider's Import models dialog. Auto-import only adds new models; it never removes any.")}
           </p>
         </div>
       </div>
