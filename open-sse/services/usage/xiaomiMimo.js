@@ -1,5 +1,5 @@
 import { proxyAwareFetch } from "../../utils/proxyFetch.js";
-import { balance, quotaError, num } from "./quotaShared.js";
+import { balance, quotaError, num, QUOTA_REQUEST_TIMEOUT_MS } from "./quotaShared.js";
 
 export function parseMimo(body) {
   const data = body?.data || body?.result || body;
@@ -34,6 +34,7 @@ export async function cookieGet(url, cookie, proxyOptions) {
           Referer: "https://platform.xiaomimimo.com/#/console/balance",
           "User-Agent": "Mozilla/5.0",
         },
+        signal: AbortSignal.timeout(QUOTA_REQUEST_TIMEOUT_MS),
       },
       proxyOptions,
     );
@@ -43,7 +44,7 @@ export async function cookieGet(url, cookie, proxyOptions) {
     return {
       ok: false,
       status: 0,
-      error: err?.name === "AbortError" ? "timeout" : "request failed",
+      error: err?.name === "AbortError" || err?.name === "TimeoutError" ? "timeout" : "request failed",
     };
   }
 }

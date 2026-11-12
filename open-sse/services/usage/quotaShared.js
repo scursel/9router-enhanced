@@ -68,6 +68,8 @@ export function localQuota(used, limit) {
   };
 }
 
+export const QUOTA_REQUEST_TIMEOUT_MS = 10000;
+
 export async function getJson(url, token, proxyOptions, extraHeaders = null) {
   try {
     const headers = {
@@ -77,14 +79,20 @@ export async function getJson(url, token, proxyOptions, extraHeaders = null) {
     if (token) {
       headers.Authorization = `Bearer ${token}`;
     }
-    const response = await proxyAwareFetch(url, { method: "GET", headers }, proxyOptions);
+    // A hung quota endpoint must not hang the usage request (undici's own
+    // headers timeout is minutes); same 10s budget as shared.js fetchWithTimeout.
+    const response = await proxyAwareFetch(
+      url,
+      { method: "GET", headers, signal: AbortSignal.timeout(QUOTA_REQUEST_TIMEOUT_MS) },
+      proxyOptions,
+    );
     const body = await response.json().catch(() => null);
     return { ok: response.ok, status: response.status, body };
   } catch (err) {
     return {
       ok: false,
       status: 0,
-      error: err?.name === "AbortError" ? "timeout" : "request failed",
+      error: err?.name === "AbortError" || err?.name === "TimeoutError" ? "timeout" : "request failed",
     };
   }
 }
