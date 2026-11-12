@@ -14,6 +14,8 @@ import {
   isNousApiKeyAccepted,
 } from "open-sse/services/nous.js";
 import { normalizeProviderId } from "@/lib/providerNormalization";
+import { assertPublicUrl } from "@/shared/utils/ssrfGuard.js";
+import { isLocalRequest } from "@/dashboardGuard";
 
 // Probe a webSearch/webFetch provider using its searchConfig/fetchConfig.
 // Returns true if API key is accepted (status !== 401 && !== 403).
@@ -90,6 +92,19 @@ async function probeMediaProvider(provider, apiKey) {
 }
 
 // POST /api/providers/validate - Validate API key with provider
+// SSRF guard for remote callers (same rule as provider-nodes/validate): a node's
+// baseUrl is user-supplied, and a request from the host itself may still point
+// at a self-hosted endpoint.
+function blockedNodeUrlResponse(request, baseUrl) {
+  if (isLocalRequest(request)) return null;
+  try {
+    assertPublicUrl(String(baseUrl || "").trim());
+    return null;
+  } catch {
+    return NextResponse.json({ error: "URL not allowed" }, { status: 400 });
+  }
+}
+
 export async function POST(request) {
   try {
     const body = await request.json();
@@ -115,6 +130,8 @@ export async function POST(request) {
         if (!node) {
           return NextResponse.json({ error: "OpenAI Compatible node not found" }, { status: 404 });
         }
+        const blocked = blockedNodeUrlResponse(request, node.baseUrl);
+        if (blocked) return blocked;
         const modelsUrl = `${node.baseUrl?.replace(/\/$/, "")}/models`;
         const res = await fetch(modelsUrl, {
           headers: { "Authorization": `Bearer ${apiKey}` },
@@ -133,6 +150,8 @@ export async function POST(request) {
         if (!node) {
           return NextResponse.json({ error: "Custom Embedding node not found" }, { status: 404 });
         }
+        const blocked = blockedNodeUrlResponse(request, node.baseUrl);
+        if (blocked) return blocked;
         const baseUrl = node.baseUrl?.replace(/\/$/, "");
         const modelsRes = await fetch(`${baseUrl}/models`, {
           headers: { "Authorization": `Bearer ${apiKey}` },
@@ -165,6 +184,8 @@ export async function POST(request) {
         if (!node) {
           return NextResponse.json({ error: "Anthropic Compatible node not found" }, { status: 404 });
         }
+        const blocked = blockedNodeUrlResponse(request, node.baseUrl);
+        if (blocked) return blocked;
 
         let normalizedBase = node.baseUrl?.trim().replace(/\/$/, "") || "";
         if (normalizedBase.endsWith("/messages")) {

@@ -23,6 +23,10 @@ vi.mock("next/server", () => ({
 const models = vi.hoisted(() => ({ getProviderNodeById: vi.fn() }));
 vi.mock("@/models", () => ({ getProviderNodeById: models.getProviderNodeById }));
 
+// These probes aim at a LAN sinkhole, which only a request from the host itself
+// may reach (remote callers are stopped earlier by the SSRF guard).
+vi.mock("@/dashboardGuard", () => ({ isLocalRequest: () => true }));
+
 const { POST } = await import("@/app/api/providers/validate/route.js");
 
 const SINKHOLE = "http://10.255.255.1:9"; // non-routable, RFC-scratchpad-ish dead port

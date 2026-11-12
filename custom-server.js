@@ -51,6 +51,29 @@ const CORS_HEADERS = {
   "Access-Control-Max-Age": "86400",
 };
 
+// The dashboard's own API (/api/*) must stay same-origin: with `requireLogin`
+// off, a wildcard origin would let any website the user has open read
+// /api/providers or /api/keys from the local gateway. Only the gateway
+// surface under /api (the /v1 and /v1beta rewrites) is meant for other origins;
+// routes such as /api/health set their own CORS headers.
+const CROSS_ORIGIN_API_PREFIXES = ["/api/v1/", "/api/v1beta/"];
+
+function isDashboardApiPath(rawUrl) {
+  let pathname;
+  try {
+    // Not `new URL(rawUrl, base)`: a target such as `//api/providers` would be
+    // read as a host instead of a path.
+    pathname = decodeURIComponent(String(rawUrl || "/").split(/[?#]/)[0]);
+    if (!pathname.startsWith("/")) return true;
+    pathname = new URL(`http://localhost${pathname.replace(/\/{2,}/g, "/")}`).pathname.toLowerCase();
+  } catch {
+    // Unparseable target: treat it as private so it never gets a wildcard origin.
+    return true;
+  }
+  if (pathname !== "/api" && !pathname.startsWith("/api/")) return false;
+  return !CROSS_ORIGIN_API_PREFIXES.some((prefix) => `${pathname}/`.startsWith(prefix));
+}
+
 
 // Wrap Next standalone HTTP server: derive client IP from the TCP socket
 // (unspoofable) and strip client-supplied forwarding headers so downstream
@@ -107,7 +130,8 @@ http.createServer = (...args) => {
     // Browsers send OPTIONS *before* the real request, and never include
     // Authorization on preflight. Respond 204 immediately so the actual
     // POST/DELETE/etc. can proceed with the API key.
-    if (req.method === "OPTIONS") {
+    const allowCrossOrigin = !isDashboardApiPath(req.url);
+    if (allowCrossOrigin && req.method === "OPTIONS") {
       res.writeHead(204, CORS_HEADERS);
       res.end();
       return;
@@ -119,6 +143,7 @@ http.createServer = (...args) => {
     // genuine auth failure as an opaque network error.
     const origWriteHead = res.writeHead.bind(res);
     res.writeHead = (statusCode, ...restArgs) => {
+      if (!allowCrossOrigin) return origWriteHead(statusCode, ...restArgs);
       let headers;
       if (restArgs.length && typeof restArgs[restArgs.length - 1] === "object" && !Array.isArray(restArgs[restArgs.length - 1])) {
         headers = restArgs[restArgs.length - 1];
@@ -227,6 +252,7 @@ http.createServer = (...args) => {
 
 module.exports = {
   CORS_HEADERS,
+  isDashboardApiPath,
 };
 
 if (require.main === module) {

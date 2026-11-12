@@ -116,4 +116,32 @@ describe("CORS Preflight and Header Injection (Source)", () => {
       expect(res.headers["access-control-allow-origin"]).toBe("*");
     }
   });
+
+  // The dashboard API is same-origin only: a wildcard origin there would let any
+  // website read provider credentials when requireLogin is off.
+  it("4. does not send CORS headers on dashboard API routes", async () => {
+    for (const apiPath of [
+      "/api/providers",
+      "/api/keys",
+      "/api/settings/database",
+      "//api/providers",
+      "/%61pi/providers",
+      "/API/providers",
+      "/api/v1x/secret",
+    ]) {
+      const res = await makeRequest({ method: "GET", path: apiPath });
+      expect(res.headers["access-control-allow-origin"], apiPath).toBeUndefined();
+
+      const preflight = await makeRequest({ method: "OPTIONS", path: apiPath });
+      expect(preflight.statusCode, apiPath).not.toBe(204);
+      expect(preflight.headers["access-control-allow-origin"], apiPath).toBeUndefined();
+    }
+  });
+
+  it("5. keeps CORS on the gateway surface under /api", async () => {
+    for (const apiPath of ["/api/v1/chat/completions", "/api/v1beta/models", "/api/v1", "/v1beta/models", "/responses"]) {
+      const res = await makeRequest({ method: "GET", path: apiPath });
+      expect(res.headers["access-control-allow-origin"], apiPath).toBe("*");
+    }
+  });
 });
