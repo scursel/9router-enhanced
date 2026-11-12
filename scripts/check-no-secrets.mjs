@@ -77,7 +77,12 @@ const CONTENT_PATTERNS = [
     // Placeholders ("change-me-…") and comments don't match the charset length.
     re: /(?:JWT_SECRET|API_KEY_SECRET|MACHINE_ID_SALT)\s*[=:]\s*["']?[A-Za-z0-9+/=]{32,}/,
     label: "hardcoded value for a security-sensitive env var",
-    allow: (line) => /change-me|placeholder|example/i.test(line),
+    // Waive only when the VALUE itself is a placeholder — never because the word
+    // "example" appears elsewhere on the line (a comment must not mask a real secret).
+    allow: (line) => {
+      const m = line.match(/(?:JWT_SECRET|API_KEY_SECRET|MACHINE_ID_SALT)\s*[=:]\s*["']?([A-Za-z0-9+/=]{32,})/);
+      return !m || /change-me|placeholder|example/i.test(m[1]);
+    },
   },
 ];
 

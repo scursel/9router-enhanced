@@ -6,6 +6,16 @@
 import { getSettings, updateSettings } from "@/lib/db/index.js";
 import { normalizeImportFilters } from "@/shared/utils/importProviderModels.js";
 
+// Serialise read-modify-write cycles: two concurrent saves for different providers
+// would otherwise both read the same snapshot and the later write would drop the
+// earlier provider's rule.
+let writeChain = Promise.resolve();
+function withRulesLock(fn) {
+  const run = writeChain.then(fn, fn);
+  writeChain = run.catch(() => {});
+  return run;
+}
+
 export async function getImportRule(providerId) {
   const settings = await getSettings();
   const rules = settings.autoModelImportRules || {};
@@ -17,7 +27,11 @@ export async function listImportRules() {
   return settings.autoModelImportRules || {};
 }
 
-export async function saveImportRule(providerId, { filters, testFirst } = {}) {
+export function saveImportRule(providerId, opts = {}) {
+  return withRulesLock(() => saveImportRuleUnlocked(providerId, opts));
+}
+
+async function saveImportRuleUnlocked(providerId, { filters, testFirst } = {}) {
   const settings = await getSettings();
   const rules = { ...(settings.autoModelImportRules || {}) };
 
@@ -32,7 +46,11 @@ export async function saveImportRule(providerId, { filters, testFirst } = {}) {
   return rule;
 }
 
-export async function deleteImportRule(providerId) {
+export function deleteImportRule(providerId) {
+  return withRulesLock(() => deleteImportRuleUnlocked(providerId));
+}
+
+async function deleteImportRuleUnlocked(providerId) {
   const settings = await getSettings();
   const rules = { ...(settings.autoModelImportRules || {}) };
   delete rules[providerId];

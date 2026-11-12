@@ -24,6 +24,17 @@ export function normalizeProviderId(provider) {
   return providerByName?.id || trimmed;
 }
 
+// Alibaba MaaS per-account endpoints: https + an Alibaba Cloud domain only, so the
+// account bearer key can never be sent to an arbitrary or internal host.
+export function isAlibabaCloudHttpsUrl(raw) {
+  try {
+    const u = new URL(String(raw));
+    if (u.protocol !== "https:" || u.username || u.password) return false;
+    const h = u.hostname.toLowerCase();
+    return ["aliyuncs.com", "alibabacloud.com", "aliyun.com"].some((d) => h === d || h.endsWith("." + d));
+  } catch { return false; }
+}
+
 export function normalizeProviderSpecificData(provider, body = {}, providerSpecificData = null) {
   const next = providerSpecificData && typeof providerSpecificData === "object"
     ? { ...providerSpecificData }
@@ -43,7 +54,7 @@ export function normalizeProviderSpecificData(provider, body = {}, providerSpeci
     // SEC-SSRF-002 narrowing: Alibaba MaaS hosts are public cloud — block
     // non-https to avoid plaintext Bearer forwarding. Local nodes (ollama-local)
     // keep permissiveness via the allowlist branch.
-    if (baseUrl && ALIBABA_SE_HOSTS.has(provider) && !baseUrl.toLowerCase().startsWith("https://")) {
+    if (baseUrl && ALIBABA_SE_HOSTS.has(provider) && !isAlibabaCloudHttpsUrl(baseUrl)) {
       baseUrl = "";
     }
 

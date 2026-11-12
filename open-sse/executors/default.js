@@ -178,8 +178,17 @@ export class DefaultExecutor extends BaseExecutor {
     const ALIBABA_BASEURL_PROVIDERS = new Set(["alicode", "alicode-intl", "alims-intl", "alitp-intl"]);
     if (ALIBABA_BASEURL_PROVIDERS.has(this.provider)) {
       const override = credentials?.providerSpecificData?.baseUrl?.trim();
-      if (override && !override.toLowerCase().startsWith("https://")) return this.config.baseUrl;
-      if (override) return override.replace(/\/$/, "");
+      if (override) {
+        let ok = false;
+        try {
+          const u = new URL(override);
+          const h = u.hostname.toLowerCase();
+          ok = u.protocol === "https:" && !u.username && !u.password &&
+            ["aliyuncs.com", "alibabacloud.com", "aliyun.com"].some((d) => h === d || h.endsWith("." + d));
+        } catch { ok = false; }
+        if (!ok) return this.config.baseUrl;
+        return override.replace(/\/$/, "");
+      }
     }
     if (this.provider?.startsWith?.("openai-compatible-")) {
       const baseUrl = credentials?.providerSpecificData?.baseUrl || OPENAI_COMPAT_BASE;

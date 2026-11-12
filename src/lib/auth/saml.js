@@ -45,6 +45,21 @@ const pendingRequestIds = (() => {
   };
 })();
 
+// AuthnRequest ids already presented to the ACS (success or failure). The saml_state
+// cookie is unsigned and client-controlled, so seeding the cache from it must never be
+// able to revive an id that was already used: otherwise a captured assertion could be
+// replayed by setting the cookie to its InResponseTo.
+const consumedRequestIds = new Map();
+function consumeRequestId(id) {
+  const now = Date.now();
+  for (const [key, exp] of consumedRequestIds) {
+    if (now >= exp) consumedRequestIds.delete(key);
+  }
+  if (consumedRequestIds.has(id)) return false;
+  consumedRequestIds.set(id, now + REQUEST_ID_TTL_MS);
+  return true;
+}
+
 /**
  * Formats a raw Base64 string or unformatted X.509 certificate into standard PEM format.
  * @param {string} certStr
@@ -245,6 +260,9 @@ export async function validateSamlResponse(request, body, expectedRequestId, set
   // Seed the shared request-id cache so node-saml's validateInResponseTo:"always"
   // passes for the legitimate state even across process restarts (the cookie is the
   // authoritative store; start already seeded this id in-process in the common case).
+  if (!consumeRequestId(expectedRequestId)) {
+    throw new Error("SAML AuthnRequest id already used (replay rejected)");
+  }
   await pendingRequestIds.saveAsync(expectedRequestId, new Date().toISOString());
 
   const result = await samlInstance.validatePostResponseAsync({ SAMLResponse: rawSamlResponse });

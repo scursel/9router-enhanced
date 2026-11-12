@@ -1,3 +1,18 @@
+# v0.5.119-enhanced.4 (2026-11-12)
+
+Auditoria completa das mudanças do fork contra o oficial (324 arquivos). Nenhuma mudança do fork ficou redundante com o oficial; 17 defeitos confirmados foram corrigidos, cada um com teste quando havia como testar.
+
+- Segurança: o log de conflito de uso imprimia a chave de API do gateway em texto puro. Agora registra só se havia chave.
+- Segurança (SAML): uma resposta SAML capturada podia ser reapresentada, porque a lista de pedidos pendentes era preenchida a partir de um cookie sem assinatura. Cada identificador agora só é aceito uma vez (memória do processo, 10 minutos).
+- Segurança (Alibaba): o endereço por conta dos provedores Alibaba aceitava qualquer host `https`, então a chave da conta podia ser enviada a um servidor qualquer. Agora só domínios da Alibaba Cloud (`aliyuncs.com`, `alibabacloud.com`, `aliyun.com`).
+- Segurança (Azure): a validação de chave Azure buscava o endpoint informado no pedido sem a proteção contra endereços internos.
+- Atualização e CLI: ao parar ou atualizar, um terminal ou editor aberto dentro da pasta do app podia ser encerrado junto. A regra de pasta de trabalho agora vale só para processos do próprio servidor.
+- Build: uma chave duplicada no `next.config.mjs` descartava a inclusão do `undici` no pacote standalone.
+- Importação automática: salvar regras de dois provedores ao mesmo tempo podia perder uma delas.
+- Quotas: consultas de quota sem tempo limite podiam travar a tela por minutos; agora desistem em 10 s.
+- Dashboard: cartões de quota que só tinham uma mensagem (login expirado, falha de autenticação) ficavam escondidos; o selo "N pausadas" contava chaves de modelo em vez de contas; o rótulo de modelo descontinuado de um provedor aparecia em modelo de outro; modelos ao vivo do Qoder apareciam em um seletor e não no outro; o botão de detecção mostrava o resultado anterior depois de uma falha.
+- Guarda de segredos: a palavra "example" em qualquer ponto da linha dispensava a verificação. Agora só vale para o próprio valor encontrado.
+
 # v0.5.119-enhanced.3 (2026-11-12)
 
 - Combos: a lista por modelo diz em palavras qual está funcionando. Cada modelo aparece como "Funcionando", "Falhando às vezes", "Não funciona" ou "Pausado", com "7/9 requisições deram certo" e o último erro. Antes havia só um ponto colorido de 6 px e uma taxa de falha. Os chips de modelo no cartão do combo ganharam o mesmo ícone, e o topo da lista resume quantos estão em cada estado.

@@ -39,6 +39,15 @@ function trimPathSep(p) {
   return String(p).replace(/[\\/]+$/, "");
 }
 
+// The cwd rule must only ever claim server-like processes (node/bun/title-rewritten
+// next-server/cloudflared/the tray) — never the user's shell or editor that merely sits
+// in the install directory.
+function looksLikeServerProcess(cmd) {
+  const exe = String(cmd || "").trim().split(/\s+/)[0] || "";
+  const base = exe.replace(/^.*[\\/]/, "").replace(/\.exe$/i, "").toLowerCase();
+  return /^(node|nodejs|bun|next-server|9router|cloudflared|tray_[\w-]+)/.test(base);
+}
+
 // entry: { pid, cmd, cwd? } — opts: { selfPid, ownedPaths, ownedDirs,
 // caseInsensitive, resolveCwd? }
 export function isOwnAppProcess(entry, opts = {}) {
@@ -56,7 +65,7 @@ export function isOwnAppProcess(entry, opts = {}) {
     if (cmdContainsExactPath(cmd, dir, { caseInsensitive }) ||
         cmdContainsExactPath(cmd, dir + "/", { caseInsensitive }) ||
         cmdContainsExactPath(cmd, dir + "\\", { caseInsensitive })) return true;
-    if (resolveCwd) {
+    if (resolveCwd && looksLikeServerProcess(cmd)) {
       let cwd = entry.cwd;
       if (cwd === undefined) {
         try { cwd = resolveCwd(entry.pid); } catch { cwd = null; }

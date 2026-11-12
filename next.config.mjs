@@ -36,15 +36,12 @@ const nextConfig = {
   outputFileTracingIncludes: {
     // serverExternalPackages keeps undici external; dynamic import("undici")
     // alone doesn't pull it into the trace, so force-ship the real package.
-    "*": ["./node_modules/undici/**/*"]
+    // The deepseek-web PoW worker is spawned by a cwd-relative path, so tracing
+    // copies it as a bare asset without following its imports — list them here.
+    "*": ["./node_modules/undici/**/*", "./open-sse/lib/deepseek-pow-hash.js"]
   },
   outputFileTracingExcludes: {
     "*": ["./gitbook/**/*"]
-  },
-  // The deepseek-web PoW worker is spawned by a cwd-relative path, so tracing
-  // copies it as a bare asset without following its imports — list them here.
-  outputFileTracingIncludes: {
-    "*": ["./open-sse/lib/deepseek-pow-hash.js"]
   },
   images: {
     unoptimized: true

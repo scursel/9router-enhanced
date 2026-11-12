@@ -151,7 +151,7 @@ if (!has("write")) {
 
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const backup = join(homedir(), ".9router", `alitp-connection-${stamp}.json`);
-writeFileSync(backup, row.data);
+writeFileSync(backup, row.data, { mode: 0o600 }); // holds the connection row (incl. credentials): owner-only
 db.prepare(
   `UPDATE providerConnections SET data = json_set(data,
      '$.providerSpecificData.alitpResetAt', ?,

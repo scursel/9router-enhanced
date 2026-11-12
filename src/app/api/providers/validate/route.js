@@ -250,6 +250,9 @@ export async function POST(request) {
         const apiVersion = providerSpecificData?.apiVersion || "2024-10-01-preview";
         const organization = providerSpecificData?.organization;
 
+        const blockedAzure = blockedNodeUrlResponse(request, endpoint);
+        if (blockedAzure) return blockedAzure;
+
         const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
         const headers = {
           "api-key": apiKey,

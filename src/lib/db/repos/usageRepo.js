@@ -444,7 +444,7 @@ async function persistUsageEvent(entry) {
 
           if (isConflict) {
             console.warn(
-              `[DB][usageRepo] usageEventId ${eventId} payload conflict: existing (provider=${storedProvider}, model=${storedModel}, connId=${storedConnId}, apiKey=${storedApiKey}, prompt=${storedPrompt}, completion=${storedCompletion}, cached=${storedCachedTokens}, cacheCreation=${storedCacheCreationTokens}, reasoning=${storedReasoningTokens}, status=${storedStatus}) vs new (provider=${newProvider}, model=${newModel}, connId=${newConnId}, apiKey=${newApiKey}, prompt=${newPrompt}, completion=${newCompletion}, cached=${newCachedTokens}, cacheCreation=${newCacheCreationTokens}, reasoning=${newReasoningTokens}, status=${newStatus})`
+              `[DB][usageRepo] usageEventId ${eventId} payload conflict: existing (provider=${storedProvider}, model=${storedModel}, connId=${storedConnId}, apiKey=${storedApiKey ? "<set>" : "none"}, prompt=${storedPrompt}, completion=${storedCompletion}, cached=${storedCachedTokens}, cacheCreation=${storedCacheCreationTokens}, reasoning=${storedReasoningTokens}, status=${storedStatus}) vs new (provider=${newProvider}, model=${newModel}, connId=${newConnId}, apiKey=${newApiKey ? "<set>" : "none"}, prompt=${newPrompt}, completion=${newCompletion}, cached=${newCachedTokens}, cacheCreation=${newCacheCreationTokens}, reasoning=${newReasoningTokens}, status=${newStatus})`
             );
             return;
           }
