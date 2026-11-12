@@ -148,8 +148,9 @@ import p147 from "./veoaifree-web.js";
 import p151 from "./uc-web.js";
 import p152 from "./runcrate.js";
 import p153 from "./nace.js";
-// Fork-only providers start after upstream's last slot (p153 = upstream nace).
-import p154 from "./orcarouter.js";
+import p154 from "./sensenova-intl.js";
+// Fork-only providers start after upstream's last slot (p154 = upstream sensenova-intl).
+import p155 from "./orcarouter.js";
 export default [
   p0,
   p1,
@@ -298,4 +299,5 @@ export default [
   p152,
   p153,
   p154,
+  p155,
 ];

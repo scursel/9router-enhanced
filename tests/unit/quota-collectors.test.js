@@ -9,7 +9,6 @@ import { getUsageForProvider } from "../../open-sse/services/usage.js";
 import { getOpenRouterUsage, parseOpenRouter } from "../../open-sse/services/usage/openrouter.js";
 import { getCommandCodeUsage, parseCommandCode, commandCodeMonthlyTotal } from "../../open-sse/services/usage/commandcode.js";
 import { getXiaomiMimoUsage, parseMimo } from "../../open-sse/services/usage/xiaomiMimo.js";
-import { getClinePassUsage, parseCline } from "../../open-sse/services/usage/clinepass.js";
 import { USAGE_SUPPORTED_PROVIDERS, USAGE_APIKEY_PROVIDERS } from "../../src/shared/constants/providers.js";
 
 function jsonResponse(body, status = 200) {
@@ -261,94 +260,6 @@ describe("Quota Collectors - Unit Tests", () => {
     });
   });
 
-  describe("ClinePass Usage Collector", () => {
-    it("returns error when credential is missing", async () => {
-      const res = await getClinePassUsage(null);
-      expect(res).toEqual({
-        message: "ClinePass credential not available.",
-        quotas: {},
-      });
-    });
-
-    it("aggregates items within 5h, 7d, 30d windows scaled by 1e8 and derives resetAt", async () => {
-      const now = 1700000000000;
-      const h5 = 5 * 3600 * 1000;
-      const d7 = 7 * 86400 * 1000;
-      const d30 = 30 * 86400 * 1000;
-
-      const item5h = { createdAt: new Date(now - 2 * 3600 * 1000).toISOString(), costUsd: 100000000 }; // $1
-      const item7d = { createdAt: new Date(now - 2 * 86400 * 1000).toISOString(), costUsd: 200000000 }; // $2
-      const item30d = { createdAt: new Date(now - 10 * 86400 * 1000).toISOString(), costUsd: 300000000 }; // $3
-
-      const planBody = {
-        data: {
-          plan: {
-            name: "ClinePass Pro",
-            entitlements: {
-              cline_pass: {
-                enabled: true,
-                inferenceCapThreshold: {
-                  last5HoursUsageCostUSDPerUser: 500000000, // $5
-                  last7daysUsageCostUSDPerUser: 2000000000, // $20
-                  last30daysUsageCostUSDPerUser: 5000000000, // $50
-                },
-              },
-            },
-          },
-          currentPeriodEnd: "2026-09-30T00:00:00Z",
-        },
-      };
-
-      proxyAwareFetch.mockImplementation(async (url) => {
-        if (url.includes("/users/me/plan")) return jsonResponse(planBody);
-        if (url.includes("/users/me")) return jsonResponse({ data: { id: "user-1" } });
-        if (url.includes("/usages")) {
-          return jsonResponse({
-            data: {
-              items: [item5h, item7d, item30d],
-              nextToken: "",
-            },
-          });
-        }
-        return jsonResponse({}, 404);
-      });
-
-      const parsed = parseCline(planBody, [item5h, item7d, item30d], now);
-
-      expect(parsed.plan).toBe("ClinePass Pro - renews 30/09/2026");
-
-      // 5h window: only item5h ($1). Limit = $5. Earliest item in 5h = item5h -> resetAt = item5h.createdAt + 5h
-      const expectedReset5h = new Date(new Date(item5h.createdAt).getTime() + h5).toISOString();
-      expect(parsed.quotas["5 hour window (USD)"]).toEqual({
-        used: 1,
-        total: 5,
-        remainingPercentage: 80,
-        resetAt: expectedReset5h,
-        unlimited: false,
-      });
-
-      // 7d window: item5h ($1) + item7d ($2) = $3. Limit = $20. Earliest = item7d -> resetAt = item7d.createdAt + 7d
-      const expectedReset7d = new Date(new Date(item7d.createdAt).getTime() + d7).toISOString();
-      expect(parsed.quotas["7 day window (USD)"]).toEqual({
-        used: 3,
-        total: 20,
-        remainingPercentage: 85,
-        resetAt: expectedReset7d,
-        unlimited: false,
-      });
-
-      // 30d window: item5h ($1) + item7d ($2) + item30d ($3) = $6. Limit = $50. Earliest = item30d -> resetAt = item30d.createdAt + 30d
-      const expectedReset30d = new Date(new Date(item30d.createdAt).getTime() + d30).toISOString();
-      expect(parsed.quotas["30 day window (USD)"]).toEqual({
-        used: 6,
-        total: 50,
-        remainingPercentage: 88,
-        resetAt: expectedReset30d,
-        unlimited: false,
-      });
-    });
-  });
-
   // OpenCode Go usage collector: replaced by official open-sse/services/usage/opencode-go.js
   // (covered by tests/unit/opencode-go-usage.test.js).
 
@@ -396,32 +307,17 @@ describe("Quota Collectors - Unit Tests", () => {
     });
 
     it("routes clinepass via getUsageForProvider", async () => {
-      proxyAwareFetch.mockImplementation(async (url) => {
-        if (url.includes("/users/me/plan")) {
-          return jsonResponse({
-            data: {
-              plan: {
-                name: "ClinePass",
-                entitlements: {
-                  cline_pass: {
-                    enabled: true,
-                    inferenceCapThreshold: { last5HoursUsageCostUSDPerUser: 100000000 },
-                  },
-                },
-              },
-            },
-          });
-        }
-        if (url.includes("/users/me")) return jsonResponse({ data: { id: "u1" } });
-        return jsonResponse({ data: { items: [] } });
-      });
+      // Official collector (upstream v0.5.119): one usage-limits call, percent windows.
+      proxyAwareFetch.mockResolvedValueOnce(
+        jsonResponse({ success: true, data: { limits: [{ type: "five_hour", percentUsed: 25, resetsAt: null }] } }),
+      );
 
       const res = await getUsageForProvider({
         provider: "clinepass",
         apiKey: "cline-key",
       });
 
-      expect(res.quotas["5 hour window (USD)"].total).toBe(1);
+      expect(res.quotas["Session (5h)"].used).toBe(25);
     });
 
     it("routes opencode-go via getUsageForProvider", async () => {

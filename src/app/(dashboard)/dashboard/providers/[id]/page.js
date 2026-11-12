@@ -14,7 +14,7 @@ import { useModelCaps, refreshModelCaps } from "@/shared/hooks/useModelCaps";
 import { useCircuitBreakers } from "@/shared/hooks/useCircuitBreakers";
 import { translate } from "@/i18n/runtime";
 import { fetchSuggestedModels } from "@/shared/utils/providerModelsFetcher";
-import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
+import { applyQoderModelNames, getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
 import { connectionCanSyncCatalog, LIVE_CATALOG_PROVIDERS } from "@/shared/utils/importProviderModels";
 import { readModelTestResult } from "@/shared/utils/modelTestResult";
 import ModelRow from "./ModelRow";
@@ -42,6 +42,11 @@ import { getScheduleSlotLabels } from "@/shared/services/quotaPingSchedule";
 const ONE_BY_ONE_DELAY_MS = 1000;
 
 const MCODE_LEASE_PROVIDERS = new Set(["minimax-code", "minimax-code-global"]);
+
+// Providers whose registry list is only an offline fallback: the dashboard
+// renders the live per-connection catalog from GET /api/providers/[id]/models
+// when one resolves, and falls back to the static rows otherwise.
+const LIVE_MODEL_CATALOG_PROVIDERS = new Set(["cursor", "zed", "claude", "commandcode"]);
 
 const AUTO_PING_SETTINGS_KEYS = {
   claude: "claudeAutoPing",
@@ -187,9 +192,9 @@ export default function ProviderDetailPage() {
   const supportsApiKeyAuth = !!APIKEY_PROVIDERS[providerId] || authModes.includes("apikey");
   const isFreeNoAuth = !!FREE_PROVIDERS[providerId]?.noAuth;
   const staticModels = getModelsByProviderId(providerId);
-  const models = LIVE_CATALOG_PROVIDERS.has(providerId) && liveModels.length > 0
+  const models = (LIVE_CATALOG_PROVIDERS.has(providerId) || LIVE_MODEL_CATALOG_PROVIDERS.has(providerId)) && liveModels.length > 0
     ? liveModels
-    : staticModels;
+    : applyQoderModelNames(staticModels, customModels, getProviderAlias(providerId));
   const providerAlias = getProviderAlias(providerId);
   
   const isOpenAICompatible = isOpenAICompatibleProvider(providerId);
@@ -627,7 +632,7 @@ export default function ProviderDetailPage() {
   // account catalog is empty. Fires only when the provider id or connection
   // list changes — no polling, no loop. Zed adds error surfacing.
   useEffect(() => {
-    const isLiveCatalog = LIVE_CATALOG_PROVIDERS.has(providerId);
+    const isLiveCatalog = (LIVE_CATALOG_PROVIDERS.has(providerId) || LIVE_MODEL_CATALOG_PROVIDERS.has(providerId));
     if (!isLiveCatalog) {
       setLiveModels([]);
       return;

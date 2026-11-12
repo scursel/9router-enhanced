@@ -115,6 +115,9 @@ async function getGeminiSubscriptionInfo(accessToken, proxyOptions = null) {
 }
 
 const ANTIGRAVITY_QUOTA_MODELS = new Set([
+  "gemini-4-carbon-high",
+  "gemini-4-carbon-medium",
+  "gemini-4-carbon-low",
   "gemini-4-argon-high",
   "gemini-4-argon-medium",
   "gemini-4-argon-low",

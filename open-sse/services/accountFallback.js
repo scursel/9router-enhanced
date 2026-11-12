@@ -141,7 +141,13 @@ export function checkFallbackError(status, errorText, backoffLevel = 0, provider
     const accountRule = ERROR_RULES.find(
       (r) => r.backoff && r.text && lowerError.includes(r.text) && !(r.skipOnRequestSize && requestSize)
     );
-    if (!accountRule) return { shouldFallback: false, cooldownMs: 0, requestScoped: true };
+    // A provider's own model-scoped rule (official 2275bc0d: NVIDIA NIM answers
+    // 400 "degraded" when one model's cluster is unhealthy) is upstream state,
+    // not a broken request. It falls through to the text rules below.
+    const modelRule = ERROR_RULES.find(
+      (r) => r.modelScoped && r.provider && r.provider === provider && r.text && lowerError.includes(r.text)
+    );
+    if (!accountRule && !modelRule) return { shouldFallback: false, cooldownMs: 0, requestScoped: true };
   }
 
   // Structured policy, applied before the text rules below.
@@ -209,7 +215,11 @@ export function checkFallbackError(status, errorText, backoffLevel = 0, provider
         const newLevel = Math.min(backoffLevel + 1, BACKOFF_CONFIG.maxLevel);
         return { shouldFallback: true, cooldownMs: getQuotaCooldown(newLevel), newBackoffLevel: newLevel };
       }
-      return { shouldFallback: true, cooldownMs: rule.cooldownMs };
+      return {
+        shouldFallback: true,
+        cooldownMs: rule.cooldownMs,
+        modelScoped: Boolean(rule.modelScoped),
+      };
     }
 
     // Status-based rule: match HTTP status code

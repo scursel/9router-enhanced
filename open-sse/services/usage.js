@@ -22,6 +22,7 @@ import { getZedUsage } from "./usage/zed.js";
 import { getXiaomiMimoUsage as getMimoDesktopUsage } from "./usage/xiaomi-mimo.js";
 import { getXiaomiMimoUsage as getMimoBalanceUsage } from "./usage/xiaomiMimo.js";
 import { getCursorUsage } from "./usage/cursor.js";
+import { getClinepassUsage } from "./usage/clinepass.js";
 import { resolveQoderCredentials } from "./qoderModels.js";
 import { getGlmUsage } from "./usage/glm.js";
 import { getCommandCodeUsage } from "./usage/commandcode.js";
@@ -32,7 +33,6 @@ import {
   getQoderUsage,
 } from "./usage/misc.js";
 import { getOpenRouterUsage } from "./usage/openrouter.js";
-import { getClinePassUsage } from "./usage/clinepass.js";
 import { getAlibabaTokenPlanUsage } from "./usage/alibabaTokenPlan.js";
 import { normalizeXaiUsage } from "./usage/xaiNormalize.js";
 
@@ -98,12 +98,13 @@ const USAGE_HANDLERS = {
   openrouter: (c) => getOpenRouterUsage(c.apiKey, c.proxyOptions),
   commandcode: (c) => getCommandCodeUsage(c.apiKey, c.proxyOptions),
   "xiaomi-mimo": (c) => getXiaomiMimoCombinedUsage(c),
-  clinepass: (c) => getClinePassUsage(c.apiKey || c.accessToken, c.proxyOptions),
   // Official alitp-intl ships connection and transport but no usage API, so the
   // weekly window (no more 5h quota) is metered locally from usageHistory.
   "alitp-intl": (c) => getAlibabaTokenPlanUsage(c),
   "qwen-cloud-token-plan": (c) => getAlibabaTokenPlanUsage(c),
   cursor: (c) => getCursorUsage(c.accessToken, c.providerSpecificData, c.proxyOptions),
+  // OAuth WorkOS JWT (workos: prefix) or plain ClinePass API key — same usage-limits URL.
+  clinepass: (c) => getClinepassUsage(c.accessToken, c.apiKey, c.proxyOptions),
 };
 
 // Qoder intl/CN share one usage path: PATs must be exchanged to a job token

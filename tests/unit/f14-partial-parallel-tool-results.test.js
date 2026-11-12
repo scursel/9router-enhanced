@@ -173,8 +173,8 @@ describe("F14 — partial parallel tool results against a Claude target", () => 
       {
         role: "user",
         content: [
-          { type: "tool_result", id: "call_A", content: "result A", is_error: undefined },
-          { type: "tool_result", id: "call_B", content: "result B", is_error: undefined },
+          { type: "tool_result", id: "call_A", content: "result A", is_error: false },
+          { type: "tool_result", id: "call_B", content: "result B", is_error: false },
           { type: "text", text: "and now?" },
         ],
       },
@@ -191,7 +191,7 @@ describe("F14 — partial parallel tool results against a Claude target", () => 
       {
         role: "user",
         content: [
-          { type: "tool_result", id: "call_A", content: "result A", is_error: undefined },
+          { type: "tool_result", id: "call_A", content: "result A", is_error: false },
           { type: "text", text: "and now?" },
         ],
       },

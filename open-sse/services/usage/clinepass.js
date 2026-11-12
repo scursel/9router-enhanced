@@ -1,91 +1,120 @@
-import { getJson, quotaError, quota, formatDate, num } from "./quotaShared.js";
+/**
+ * ClinePass usage — GET /api/v1/users/me/plan/usage-limits
+ *
+ * Auth:
+ * - API key: Authorization: Bearer <apiKey>
+ * - OAuth: buildClineHeaders(accessToken) → Bearer workos:<JWT>
+ *
+ * Response shape (verified against app.cline.bot dashboard):
+ *   { success: true, data: { limits: [{ type, percentUsed, resetsAt }] } }
+ *   type ∈ five_hour | weekly | monthly
+ */
 
-export function parseCline(planBody, usageItems, now = Date.now()) {
-  const current = planBody?.data || planBody || {};
-  const plan = current.plan || {};
-  const pass = plan.entitlements?.cline_pass;
-  const limits = pass?.inferenceCapThreshold;
-  if (!pass?.enabled || !limits) return null;
+import { buildClineHeaders } from "../../shared/clineAuth.js";
+import { proxyAwareFetch } from "../../utils/proxyFetch.js";
+import { U, parseResetTime, toFiniteNumber } from "./shared.js";
 
-  const nowMs = num(now, Date.now());
-  const scale = 100000000;
-  const definitions = [
-    ["5 hour window (USD)", 5 * 60 * 60 * 1000, limits.last5HoursUsageCostUSDPerUser],
-    ["7 day window (USD)", 7 * 24 * 60 * 60 * 1000, limits.last7daysUsageCostUSDPerUser],
-    ["30 day window (USD)", 30 * 24 * 60 * 60 * 1000, limits.last30daysUsageCostUSDPerUser],
-  ];
-  const items = Array.isArray(usageItems) ? usageItems : [];
-  const quotas = {};
-  for (const [name, duration, rawLimit] of definitions) {
-    const limit = num(rawLimit, 0);
-    if (limit <= 0) continue;
-    let used = 0;
-    let earliest = null;
-    const cutoff = nowMs - duration;
-    for (const item of items) {
-      const createdAt = new Date(item?.createdAt).getTime();
-      if (!Number.isFinite(createdAt) || createdAt < cutoff || createdAt > nowMs) continue;
-      used += Math.max(0, num(item?.costUsd, 0));
-      if (earliest === null || createdAt < earliest) earliest = createdAt;
-    }
-    quotas[name] = quota(
-      used / scale,
-      limit / scale,
-      earliest === null ? null : earliest + duration,
-    );
-  }
-  if (!Object.keys(quotas).length) return null;
-  const renewalDate = formatDate(current.currentPeriodEnd);
-  const displayName = String(plan.displayName || plan.name || "ClinePass").replace(/\[Internal\]/g, "").trim();
+const WINDOW_LABELS = {
+  five_hour: "Session (5h)",
+  weekly: "Weekly (7d)",
+  monthly: "Monthly",
+};
+
+const WINDOW_ORDER = ["five_hour", "weekly", "monthly"];
+
+function percentQuota(percentUsed, resetsAt) {
+  const used = Math.max(0, Math.min(100, toFiniteNumber(percentUsed, 0)));
   return {
-    plan: renewalDate ? `${displayName} - renews ${renewalDate}` : displayName,
-    quotas,
+    used,
+    total: 100,
+    remainingPercentage: Math.max(0, 100 - used),
+    resetAt: parseResetTime(resetsAt),
   };
 }
 
-export async function getClinePassUsage(credential, proxyOptions) {
-  if (!credential) {
-    return { message: "ClinePass credential not available.", quotas: {} };
+function buildAuthHeaders(accessToken, apiKey) {
+  const useApiKey = typeof apiKey === "string" && apiKey.trim().length > 0;
+  if (useApiKey) {
+    return {
+      Accept: "application/json",
+      Authorization: `Bearer ${apiKey.trim()}`,
+    };
+  }
+  if (typeof accessToken === "string" && accessToken.trim().length > 0) {
+    return buildClineHeaders(accessToken.trim(), { Accept: "application/json" });
+  }
+  return null;
+}
+
+/**
+ * @param {string|null|undefined} accessToken
+ * @param {string|null|undefined} apiKey
+ * @param {object|null} proxyOptions
+ */
+export async function getClinepassUsage(accessToken = null, apiKey = null, proxyOptions = null) {
+  const headers = buildAuthHeaders(accessToken, apiKey);
+  if (!headers) {
+    return { message: "ClinePass access token or API key not available." };
   }
 
-  const [meRes, planRes] = await Promise.all([
-    getJson("https://api.cline.bot/api/v1/users/me", credential, proxyOptions),
-    getJson("https://api.cline.bot/api/v1/users/me/plan", credential, proxyOptions),
-  ]);
-
-  if (!meRes.ok) return quotaError(meRes, "ClinePass");
-  if (!planRes.ok) return quotaError(planRes, "ClinePass plan");
-
-  const meData = meRes.body?.data || meRes.body || {};
-  const userId = meData.id || meData.uid;
-  if (!userId) {
-    return { message: "ClinePass user ID was not returned.", quotas: {} };
+  const usageUrl = U("clinepass").url;
+  if (!usageUrl) {
+    return { message: "ClinePass usage endpoint is not configured." };
   }
 
-  const items = [];
-  let cursor = "";
-  const cutoff30d = Date.now() - 2592000000;
+  try {
+    const response = await proxyAwareFetch(
+      usageUrl,
+      { method: "GET", headers },
+      proxyOptions,
+    );
 
-  for (let i = 0; i < 100; i++) {
-    const url = `https://api.cline.bot/api/v1/users/${encodeURIComponent(userId)}/usages?limit=100${
-      cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
-    }`;
-    const usageRes = await getJson(url, credential, proxyOptions);
-    if (!usageRes.ok) return quotaError(usageRes, "ClinePass usage");
-
-    const usageData = usageRes.body?.data || usageRes.body || {};
-    const pageItems = Array.isArray(usageData.items) ? usageData.items : [];
-    items.push(...pageItems);
-    cursor = String(usageData.nextToken || "");
-
-    const dates = pageItems.map((item) => new Date(item?.createdAt).getTime()).filter(Number.isFinite);
-    const minDate = dates.length ? Math.min(...dates) : null;
-
-    if (!cursor || !pageItems.length || (minDate !== null && minDate < cutoff30d)) {
-      break;
+    if (response.status === 401 || response.status === 403) {
+      return {
+        plan: "ClinePass",
+        message: "ClinePass authentication expired. Please re-authorize.",
+      };
     }
-  }
 
-  const parsed = parseCline(planRes.body, items);
-  return parsed || { message: "ClinePass connected. No active quota limits were returned.", quotas: {} };
+    if (!response.ok) {
+      const errText = await response.text().catch(() => "");
+      return {
+        plan: "ClinePass",
+        message: `ClinePass usage API error (${response.status})${errText ? `: ${errText.slice(0, 120)}` : ""}`,
+      };
+    }
+
+    const body = await response.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return { message: "ClinePass usage response was not JSON." };
+    }
+
+    const limits = Array.isArray(body?.data?.limits) ? body.data.limits : [];
+    const byType = new Map();
+    for (const item of limits) {
+      if (!item || typeof item !== "object") continue;
+      const type = typeof item.type === "string" ? item.type : "";
+      if (!WINDOW_LABELS[type]) continue;
+      byType.set(type, item);
+    }
+
+    const quotas = {};
+    for (const type of WINDOW_ORDER) {
+      const item = byType.get(type);
+      if (!item) continue;
+      quotas[WINDOW_LABELS[type]] = percentQuota(item.percentUsed, item.resetsAt);
+    }
+
+    if (Object.keys(quotas).length === 0) {
+      return {
+        plan: "ClinePass",
+        message: "ClinePass connected. No usage limits reported for this plan.",
+        quotas: {},
+      };
+    }
+
+    return { plan: "ClinePass", quotas };
+  } catch (error) {
+    return { message: `ClinePass usage error: ${error.message}` };
+  }
 }
