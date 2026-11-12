@@ -21,6 +21,25 @@
 
 </div>
 
+> [!IMPORTANT]
+> **Este é o `9router-enhanced`, um fork comunitário do [decolua/9router](https://github.com/decolua/9router).** Ele acompanha os lançamentos oficiais (hoje baseado na v0.5.119) e adiciona mudanças próprias. Os selos, o comando `npm install -g 9router` e as imagens Docker `decolua/9router` deste README são do projeto **oficial** e instalam a versão oficial, não este fork.
+>
+> **O que o fork muda**
+> - **Segurança:** credenciais são mascaradas nos logs de requisição, a API do dashboard só aceita a mesma origem, pedidos "locais" precisam de `Host` de loopback, o login SSO pode ser limitado a uma lista de e-mails e um verificador de segredos roda em todo commit e push.
+> - **Resiliência:** circuit breaker e limite de concorrência por conta, erros de provedor disfarçados de resposta `200` acionam o fallback, e erros do provedor no meio do stream chegam ao cliente como erro.
+> - **Dashboard:** visão de saúde dos provedores, estatísticas de combos, importação de modelos e catálogo de modelos ao vivo por conta.
+> - **Testes:** cerca de 6.700 testes automatizados, executados no CI a cada push.
+>
+> **Como rodar o fork** (ele não é publicado no npm nem no Docker Hub):
+> ```bash
+> git clone https://github.com/scursel/9router-enhanced.git
+> cd 9router-enhanced
+> cp .env.example .env        # defina INITIAL_PASSWORD e JWT_SECRET
+> npm install
+> npm run build && PORT=20128 HOSTNAME=0.0.0.0 npm run start
+> ```
+> Dashboard: `http://localhost:20128/dashboard`. As mudanças do fork estão no [CHANGELOG.md](../CHANGELOG.md), nas versões `-enhanced`. Problemas específicos do fork devem ser relatados [aqui](https://github.com/scursel/9router-enhanced/issues), não no repositório oficial.
+
 ---
 
 ## 🤔 Por que 9Router?
