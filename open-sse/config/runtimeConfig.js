@@ -88,6 +88,15 @@ export function isFreshSocketReplayEnabled() {
   return !(raw === "off" || raw === "0" || raw === "false" || raw === "no");
 }
 
+// Where Codex system/developer prompts go. "instructions" (default, fork layout) folds the leading
+// text-only ones into body.instructions; "input" keeps them in body.input as role=developer, exactly
+// like upstream. Read per call so it can be flipped in tests; unknown values use the default.
+// Env: CODEX_SYSTEM_PROMPT_LAYOUT.
+export function getCodexSystemPromptLayout() {
+  const raw = String(process.env.CODEX_SYSTEM_PROMPT_LAYOUT ?? "").trim().toLowerCase();
+  return raw === "input" ? "input" : "instructions";
+}
+
 // Dead keep-alive sockets surface as these codes/substrings; DNS, connect-refused and TLS
 // failures are excluded so a real unreachable host is never mistaken for a stale socket.
 export const STALE_SOCKET_ERROR_CODES = new Set([

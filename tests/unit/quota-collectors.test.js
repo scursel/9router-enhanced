@@ -131,7 +131,7 @@ describe("Quota Collectors - Unit Tests", () => {
         if (url.includes("/billing/credits")) {
           return jsonResponse({
             credits: {
-              monthlyCredits: 60,
+              monthlyCredits: 15,
               purchasedCredits: 10,
               freeCredits: 5,
             },
@@ -154,13 +154,13 @@ describe("Quota Collectors - Unit Tests", () => {
 
       const res = await getCommandCodeUsage("cc-key");
 
-      expect(commandCodeMonthlyTotal("individual-pro")).toBe(80);
+      expect(commandCodeMonthlyTotal("individual-pro")).toBe(30);
       expect(res.plan).toBe("Pro");
       expect(res.quotas).toHaveProperty("Monthly credits (USD) - renews 15/09/2026");
       expect(res.quotas["Monthly credits (USD) - renews 15/09/2026"]).toEqual({
-        used: 20, // 80 - 60
-        total: 80,
-        remainingPercentage: 75,
+        used: 15, // 30 - 15
+        total: 30,
+        remainingPercentage: 50,
         resetAt: "2026-09-15T00:00:00.000Z",
         unlimited: false,
       });

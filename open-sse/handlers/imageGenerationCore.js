@@ -44,7 +44,7 @@ export async function handleImageGenerationCore({
     return createErrorResult(HTTP_STATUS.BAD_REQUEST, "Missing required field: prompt");
   }
 
-  const adapter = getImageAdapter(provider);
+  const adapter = getImageAdapter(provider, { model, credentials });
   if (!adapter) {
     return createErrorResult(
       HTTP_STATUS.BAD_REQUEST,

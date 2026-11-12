@@ -1,10 +1,43 @@
 import { nowSec } from "./_base.js";
 
-const ALIBABA_COMPAT_URL =
-  "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions";
+// The Alibaba image API (Wan models) is not OpenAI-compatible (own request body and
+// response shapes), so these models need their own adapter instead of the generic one.
+// It is selected by what the node IS (an Alibaba Cloud Model Studio host + a Wan model
+// id), never by a node id, so it works on any installation.
+const WAN_MODEL_RE = /^wan/i;
+const ALIBABA_HOSTS = [
+  "dashscope.aliyuncs.com",
+  "dashscope-intl.aliyuncs.com",
+  "maas.aliyuncs.com", // Token Plan: token-plan.<region>.maas.aliyuncs.com
+];
+const WAN_API_PATH = "/compatible-mode/v1/chat/completions";
+
+function alibabaOrigin(baseUrl) {
+  if (typeof baseUrl !== "string" || !baseUrl.trim()) return null;
+  let u;
+  try {
+    u = new URL(baseUrl.trim());
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "https:" || u.port || u.username || u.password) return null;
+  const host = u.hostname.toLowerCase();
+  const ok = ALIBABA_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+  return ok ? u.origin : null;
+}
+
+// Single selection rule: Alibaba host (https) AND Wan model id.
+export function isAlibabaWanRequest(model, baseUrl) {
+  return WAN_MODEL_RE.test(String(model || "")) && alibabaOrigin(baseUrl) !== null;
+}
 
 export default {
-  buildUrl: () => ALIBABA_COMPAT_URL,
+  // Same origin as the node (intl or mainland), fixed API path: no user-controlled path.
+  buildUrl: (model, credentials) => {
+    const origin = alibabaOrigin(credentials?.providerSpecificData?.baseUrl);
+    if (!origin) throw new Error("Alibaba Wan requires an https Alibaba Cloud base URL on the node");
+    return origin + WAN_API_PATH;
+  },
   buildHeaders: (credentials) => {
     const key = credentials?.apiKey || credentials?.accessToken || "";
     return {

@@ -1,3 +1,13 @@
+# v0.5.119-enhanced.5 (2026-11-12)
+
+Ajustes nas diferenças entre o fork e o oficial apontadas pela auditoria.
+
+- Publicação: `npm publish` do CLI agora recusa enviar uma versão do fork (`-enhanced`) com o nome oficial `9router`. Publicar com esse nome exige `NINEROUTER_ALLOW_OFFICIAL_PUBLISH=1` e uma versão sem o sufixo.
+- Xiaomi MiMo: a quota do MiMo Desktop voltou a ser lida da sessão local quando a conta não tem token importado, como no oficial. Com várias contas MiMo sem token, todos os cartões mostram a quota da conta logada no Desktop (o oficial tem a mesma limitação).
+- Command Code: o limite do plano `individual-pro` voltou a 30 e a variável `COMMAND_CODE_API_BASE_URL` voltou a valer, como no oficial.
+- Imagem Alibaba Wan: o adaptador deixou de depender do identificador de um nó específico. Vale para qualquer nó personalizado cujo endereço seja da Alibaba (`dashscope.aliyuncs.com`, `dashscope-intl.aliyuncs.com`, `*.maas.aliyuncs.com`) com um modelo `wan*`, e a chamada vai para o endereço do próprio nó.
+- Codex: nova variável `CODEX_SYSTEM_PROMPT_LAYOUT`. O padrão (`instructions`) mantém o comportamento do fork; `input` usa o formato do oficial. O script `scripts/codex-cache-compare.mjs` mede os tokens em cache em cada formato.
+
 # v0.5.119-enhanced.4 (2026-11-12)
 
 Auditoria completa das mudanças do fork contra o oficial (324 arquivos). Nenhuma mudança do fork ficou redundante com o oficial; 17 defeitos confirmados foram corrigidos, cada um com teste quando havia como testar.

@@ -183,6 +183,31 @@ describe("getUsageForProvider(commandcode)", () => {
     });
     expect(usage.message).toMatch(/auth|key|login/i);
   });
+
+  it("uses COMMAND_CODE_API_BASE_URL as the API base when set", async () => {
+    const prev = process.env.COMMAND_CODE_API_BASE_URL;
+    process.env.COMMAND_CODE_API_BASE_URL = "https://cc.example.test";
+    try {
+      // BASE is read at module load, so re-import the collector with the env set.
+      vi.resetModules();
+      const { getCommandCodeUsage } = await import("../../open-sse/services/usage/commandcode.js");
+      const { proxyAwareFetch: freshFetch } = await import("../../open-sse/utils/proxyFetch.js");
+      freshFetch.mockImplementation(async (url) => {
+        const u = String(url);
+        if (u.includes("/alpha/whoami")) return jsonResponse(WHOAMI);
+        if (u.includes("/alpha/billing/credits")) return jsonResponse(CREDITS);
+        if (u.includes("/alpha/billing/subscriptions")) return jsonResponse(SUBS);
+        return jsonResponse({ error: "unexpected " + u }, 404);
+      });
+
+      await getCommandCodeUsage("user_test");
+
+      expect(String(freshFetch.mock.calls[0][0]).startsWith("https://cc.example.test/alpha/whoami")).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.COMMAND_CODE_API_BASE_URL;
+      else process.env.COMMAND_CODE_API_BASE_URL = prev;
+    }
+  });
 });
 
 describe("parseQuotaData(commandcode)", () => {

@@ -1,6 +1,8 @@
 import { getJson, quotaError, quota, balance, formatDate, num } from "./quotaShared.js";
 import { buildCommandCodeHeaders } from "../../shared/commandCodeHeaders.js";
 
+const BASE = (process.env.COMMAND_CODE_API_BASE_URL || "https://api.commandcode.ai").replace(/\/$/, "");
+
 // credits.monthlyCredits is remaining, not the plan grant. Totals come from
 // https://commandcode.ai/docs/resources/pricing-limits keyed by planId.
 export function commandCodeMonthlyTotal(planId) {
@@ -8,7 +10,7 @@ export function commandCodeMonthlyTotal(planId) {
     "individual-go": 10,
     "individual-go-v1": 10,
     "individual-goat": 70,
-    "individual-pro": 80,
+    "individual-pro": 30,
     "individual-pro-v1": 80,
     "individual-provider": 15,
     "individual-max": 150,
@@ -111,7 +113,7 @@ export async function getCommandCodeUsage(apiKey, proxyOptions) {
     return { message: "CommandCode API key not available.", quotas: {} };
   }
 
-  const base = "https://api.commandcode.ai";
+  const base = BASE;
   // Same identity headers as the official CLI (upstream v0.5.112); getJson sets Authorization.
   const { Authorization, ...headers } = buildCommandCodeHeaders({ accept: "application/json" });
   const get = (url) => getJson(url, apiKey, proxyOptions, headers);

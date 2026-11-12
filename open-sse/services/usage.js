@@ -36,21 +36,35 @@ import { getOpenRouterUsage } from "./usage/openrouter.js";
 import { getAlibabaTokenPlanUsage } from "./usage/alibabaTokenPlan.js";
 import { normalizeXaiUsage } from "./usage/xaiNormalize.js";
 
+const MIMO_NEUTRAL_MESSAGE = "MiMo usage unavailable: no quota data from the console cookie or the MiMo Desktop session.";
+
+// Two independent sources are merged: the console balance (needs a quota cookie)
+// and the Desktop weekly quota. The Desktop collector is ALWAYS attempted, like
+// upstream: without a stored mimoPassToken it falls back to the local MiMo Desktop
+// session by itself (an earlier fork gate skipped it and showed "unavailable").
+// Known caveat, inherited from upstream: that local fallback is the OS user's
+// single Desktop account, so with several MiMo connections and no stored token each
+// card shows that account's quota; importing a per-connection pass token avoids it.
 async function getXiaomiMimoCombinedUsage(c) {
   const hasBalanceSource = Boolean(c.providerSpecificData?.quotaCookie || process.env.MIMO_QUOTA_COOKIE);
-  const hasDesktopSource = Boolean(c.providerSpecificData?.mimoPassToken);
-  const results = await Promise.all([
-    hasBalanceSource
-      ? getMimoBalanceUsage(c.providerSpecificData, c.proxyOptions).catch((error) => ({ message: `MiMo balance unavailable: ${error.message}` }))
-      : null,
-    hasDesktopSource
-      ? getMimoDesktopUsage(null, c.providerSpecificData, c.proxyOptions).catch((error) => ({ message: `MiMo Desktop unavailable: ${error.message}` }))
-      : null,
+  const hasPassToken = Boolean(c.providerSpecificData?.mimoPassToken);
+  const run = (fn, label) => Promise.resolve().then(fn).catch((error) => ({ message: `${label} unavailable: ${error.message}` }));
+  const [balance, desktop] = await Promise.all([
+    hasBalanceSource ? run(() => getMimoBalanceUsage(c.providerSpecificData, c.proxyOptions), "MiMo balance") : null,
+    run(() => getMimoDesktopUsage(null, c.providerSpecificData, c.proxyOptions), "MiMo Desktop"),
   ]);
-  const available = results.filter(Boolean);
-  if (!available.length) return { message: "MiMo usage unavailable: no applicable account session or console cookie is configured.", quotas: {} };
-
+  // Desktop without a pass token is opportunistic: its "not connected" notice is noise.
+  const desktopCounts = desktop && (hasPassToken || desktop.quotas);
+  const available = [balance, desktopCounts ? desktop : null].filter((result) => result && typeof result === "object");
   const quotas = Object.assign({}, ...available.map((result) => result.quotas || {}));
+
+  if (!Object.keys(quotas).length) {
+    // One message only. Prefer a failure from a source the user explicitly configured;
+    // the Desktop "not connected" notice (no pass token) is not worth showing.
+    const message = available.map((result) => result.message).find(Boolean);
+    return { message: message || MIMO_NEUTRAL_MESSAGE, quotas: {} };
+  }
+
   const messages = available.map((result) => result.message).filter(Boolean);
   const plans = available.map((result) => result.plan).filter(Boolean);
   return {

@@ -9,7 +9,7 @@ import { normalizeResponsesInput } from "../translator/formats/responsesApi.js";
 import { fetchImageAsBase64 } from "../translator/concerns/image.js";
 import { getModelUpstreamId, getProviderModels } from "../config/providerModels.js";
 import { getThinkingLevels } from "../providers/thinkingLevels.js";
-import { DEFAULT_RETRY_CONFIG, HTTP_STATUS, resolveRetryEntry } from "../config/runtimeConfig.js";
+import { DEFAULT_RETRY_CONFIG, HTTP_STATUS, getCodexSystemPromptLayout, resolveRetryEntry } from "../config/runtimeConfig.js";
 import { dbg } from "../utils/debugLog.js";
 import { resolveSessionId } from "../utils/sessionManager.js";
 import { stripCodexUnsupportedPatterns } from "../utils/codexToolSchema.js";
@@ -505,7 +505,9 @@ export class CodexExecutor extends BaseExecutor {
 
     // Non-Lite models take tools/instructions as top-level fields: unpack a Lite-style
     // additional_tools prefix into body.tools and fold the leading instruction messages.
-    if (!isCodexResponsesLiteModel(upstreamModel) && Array.isArray(body.input)) {
+    // CODEX_SYSTEM_PROMPT_LAYOUT=input skips this block entirely (upstream behaviour).
+    if (getCodexSystemPromptLayout() === "instructions"
+      && !isCodexResponsesLiteModel(upstreamModel) && Array.isArray(body.input)) {
       const hadLitePrefix = body.input.some(item => item?.type === "additional_tools")
         && moveAdditionalToolsToBody(body);
       foldLeadingInstructionMessages(body, { useDefaultInstructions: !hadLitePrefix });
