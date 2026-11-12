@@ -20,7 +20,7 @@
     "pack:cli": "npm run build && npm pack --pack-destination ..",
     "publish:cli": "npm run build && npm publish",
     "postinstall": "node hooks/postinstall.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "node ../scripts/publish-guard.mjs && npm run build"
   },
   "dependencies": {
     "enquirer": "^2.4.1",
