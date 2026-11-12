@@ -274,7 +274,14 @@ describe("B — chatCore hook placement (reactive trigger mocked)", () => {
     // cannot change what the client sees (same mocks, fresh handler call).
     triggerMock.mockImplementation(() => undefined);
     const withoutHook = await handleChatCore(chatArgs("conn-9"));
-    expect(withoutHook).toEqual(result);
+    // Compared field by field: two Response objects are never structurally equal
+    // on every Node version (their internal state differs), so `toEqual` on the
+    // whole result fails for reasons that have nothing to do with the hook.
+    const { response: hookedResponse, ...hookedFields } = result;
+    const { response: plainResponse, ...plainFields } = withoutHook;
+    expect(plainFields).toEqual(hookedFields);
+    expect(plainResponse.status).toBe(hookedResponse.status);
+    expect(await plainResponse.clone().text()).toBe(await hookedResponse.clone().text());
   });
 
   it("B2: the request never waits on the sync — a trigger promise that never settles still returns the 404 immediately", async () => {

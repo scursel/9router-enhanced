@@ -4,6 +4,11 @@
 import { describe, it, expect } from "vitest";
 import { PROVIDERS } from "../../open-sse/config/providers.js";
 import { DefaultExecutor } from "../../open-sse/executors/default.js";
+import { createRequire } from "node:module";
+
+// The app version and the Node version end up in some User-Agent style headers.
+// Masking them keeps the snapshot valid across releases and across machines.
+const APP_VERSION = createRequire(import.meta.url)("../../package.json").version;
 
 // Credentials mẫu cố định (deterministic) — KHÔNG dùng Date.now/random.
 const API_KEY_CRED = { apiKey: "sk-test-APIKEY", providerSpecificData: {} };
@@ -35,6 +40,8 @@ function sanitize(headers) {
       ? v.replace(/Bearer .+/, "Bearer <TOK>")
           .replace(/sk-test-APIKEY|tok-test-ACCESS/g, "<CRED>")
           .replace(/kimi-\d{10,}/g, "kimi-<TS>")
+          .split(APP_VERSION).join("<VERSION>")
+          .split(process.version).join("<NODE>")
           .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<UUID>")
       : v;
   }

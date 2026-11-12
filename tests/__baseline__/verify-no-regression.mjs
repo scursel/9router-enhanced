@@ -25,10 +25,14 @@ const resultsPath = process.argv[2];
 if (!resultsPath) { console.error("Missing results.json path"); process.exit(2); }
 
 const r = JSON.parse(readFileSync(resultsPath, "utf8"));
-const nowFails = r.testResults.flatMap(f =>
-  f.assertionResults.filter(a => a.status === "failed")
-    .map(a => repoRelative(f.name) + " :: " + a.fullName)
-);
+const nowFails = r.testResults.flatMap(f => {
+  const failed = f.assertionResults.filter(a => a.status === "failed")
+    .map(a => repoRelative(f.name) + " :: " + a.fullName);
+  // A file that fails to COLLECT (bad import, missing dependency) reports no
+  // assertions at all. Count it, or a whole suite can vanish without the gate noticing.
+  if (!failed.length && f.status === "failed") failed.push(repoRelative(f.name) + " :: (failed to collect)");
+  return failed;
+});
 
 // Regression = fail bây giờ NHƯNG không có trong baseline known-fails
 const regressions = nowFails.filter(f => !knownFails.has(f));

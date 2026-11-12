@@ -1,0 +1,41 @@
+name: Tests
+
+# Runs the vitest suite and the regression gate on every push and pull request.
+# tests/ is its own package: root dependencies first (tests import from src/),
+# then the suite's own.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vitest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install root dependencies
+        run: npm install --no-audit --no-fund
+      - name: Install test dependencies
+        working-directory: tests
+        run: npm install --no-audit --no-fund
+      - name: Run tests
+        working-directory: tests
+        # The gate below decides pass/fail, so a red run here must not stop the job.
+        run: npx vitest run --reporter=default --reporter=json --outputFile=results.json || true
+      - name: Regression gate
+        run: node tests/__baseline__/verify-no-regression.mjs tests/results.json
+      - name: Baselines (providers, aliases, OAuth URLs)
+        run: |
+          node tests/__baseline__/verify-providers.mjs
+          node tests/__baseline__/verify-alias.mjs
+          node tests/__baseline__/verify-oauth-urls.mjs

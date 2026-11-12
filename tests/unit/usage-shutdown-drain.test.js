@@ -206,6 +206,9 @@ if (mode === "http_server_smoke") {
     },
   });
 
+  // Captured at listen time: once shutdown closes the listening socket,
+  // server.address() is null and the second client could not find the port.
+  let listenPort = 0;
   const server = http.createServer((req, res) => {
     if (req.url === "/admitted") {
       db.saveRequestUsage({
@@ -223,7 +226,7 @@ if (mode === "http_server_smoke") {
       // connection may be refused before it reaches the wrapper — the 503 path
       // itself is proven deterministically by the http_503 mode.
       setTimeout(() => {
-        const req2 = http.get("http://127.0.0.1:" + server.address().port + "/new", (res2) => {
+        const req2 = http.get("http://127.0.0.1:" + listenPort + "/new", (res2) => {
           console.log("REQ2_STATUS:" + res2.statusCode);
           res2.resume();
           res2.on("end", () => { secondClientDone = true; });
@@ -245,6 +248,7 @@ if (mode === "http_server_smoke") {
 
   server.listen(0, "127.0.0.1", () => {
     const port = server.address().port;
+    listenPort = port;
     const req1 = http.get("http://127.0.0.1:" + port + "/admitted", (res1) => {
       let data = "";
       res1.on("data", (c) => { data += c; });
@@ -511,7 +515,7 @@ describe("F-07 — usage persistence drain on shutdown", () => {
 
   it("child HTTP server: admits inflight request, rejects new requests with 503 during SIGTERM, drains usage to DB", async () => {
     const res = await runChild({ mode: "http_server_smoke", timeoutMs: 15000 });
-    expect(res.code).toBe(0);
+    expect(res.code, `stderr: ${res.stderr.slice(0, 1500)} stdout: ${res.stdout.slice(0, 600)}`).toBe(0);
     expect(res.stdout).toMatch(/REQ1_STATUS:200/);
     expect(res.stdout).toMatch(/(REQ2_STATUS:503|REQ2_ERROR:(ECONNREFUSED|ECONNRESET))/);
     expect(countRows("usageHistory")).toBe(1);

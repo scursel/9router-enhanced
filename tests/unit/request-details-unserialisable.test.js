@@ -2,10 +2,11 @@
 // block the request-details write buffer forever, and the buffer itself must be
 // bounded so a failing flush cannot grow memory without limit.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-const SCRATCH = "/tmp/claude-1000/-home-scursel-9router-enhanced/e6bfecda-d0a0-4470-a2e0-a45ccaf8de08/scratchpad";
+const SCRATCH = os.tmpdir();
 
 let tempDir;
 const originalDataDir = process.env.DATA_DIR;

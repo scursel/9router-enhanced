@@ -3,12 +3,13 @@
 // never reach disk until traffic stops — a crash loses everything since the
 // last quiet moment. There must be a maximum wait on top of the debounce.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import initSqlJs from "sql.js";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createSqlJsAdapter } from "../../src/lib/db/adapters/sqljsAdapter.js";
 
-const SCRATCH = "/tmp/claude-1000/-home-scursel-9router-enhanced/e6bfecda-d0a0-4470-a2e0-a45ccaf8de08/scratchpad";
+const SCRATCH = os.tmpdir();
 
 let dir;
 let file;

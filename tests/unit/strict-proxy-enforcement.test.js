@@ -13,7 +13,15 @@
 //    attempt. When no proxy URL resolves there is nothing to try, so it
 //    reaches the trailing `return originalFetch(url, options)` and connects
 //    directly.
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
+
+// "No proxy configured" must hold for the machine too: an HTTPS_PROXY inherited
+// from the shell or CI is a configured proxy, and would make these cases about
+// that proxy instead of about the strictProxy option.
+for (const name of ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]) {
+  vi.stubEnv(name, "");
+}
+afterAll(() => vi.unstubAllEnvs());
 
 vi.mock("@/models", () => ({
   getProxyPoolById: vi.fn(),
