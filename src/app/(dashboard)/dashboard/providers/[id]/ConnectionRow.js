@@ -311,7 +311,7 @@ export default function ConnectionRow({ connection, affectedCombos = [], proxyPo
             {connection.lastError && connection.isActive !== false && (
               <ErrorReason
                 error={connection.lastError}
-                status={connection.errorCode ?? connection.lastErrorCode}
+                status={connection.errorCode}
                 compact
                 className="max-w-full text-xs sm:max-w-[300px]"
               />

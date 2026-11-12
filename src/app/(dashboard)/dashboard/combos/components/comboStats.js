@@ -14,9 +14,6 @@
  * when the source has none — a null rate renders as "—", never 0%/100%.
  */
 
-/** Accepted `?range=` values → window length. `24h` is the route default. */
-export const RANGES = ["1h", "24h", "7d", "30d"];
-
 /**
  * UsageStats period selector → combo-stats range. `today` has no dedicated
  * window upstream, so it maps to the 24h default; `60d` clamps to the widest

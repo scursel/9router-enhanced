@@ -40,6 +40,7 @@ export default function DetectMetaButton({ providerId, modelId, buttonClassName 
     if (status === "running") return;
     setStatus("running");
     setError(null);
+    setResult(null);
     try {
       const res = await fetch("/api/models/meta/detect", {
         method: "POST",

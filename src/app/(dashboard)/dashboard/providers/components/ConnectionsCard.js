@@ -123,7 +123,7 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
             {connection.lastError && connection.isActive !== false && (
               <ErrorReason
                 error={connection.lastError}
-                status={connection.errorCode ?? connection.lastErrorCode}
+                status={connection.errorCode}
                 compact
                 className="max-w-[300px] text-xs"
               />

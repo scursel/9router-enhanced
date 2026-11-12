@@ -28,6 +28,8 @@ const PROVIDER_ORDER = [
 // zed added in #4244 (upstream v0.5.95): its backend customResolver already
 // returns live models but the frontend omitted it, hiding Zed entirely from the
 // Combo picker. Cline/ClinePass are now included upstream as well.
+// Keep in sync with LIVE_CATALOG_PROVIDERS in @/shared/utils/selectableModels
+// (CLI-tools picker); a source-grep test pins this literal, so it is not imported.
 const LIVE_CATALOG_PROVIDERS = ["cursor", "cline", "clinepass", "zed", "qoder", "qoder-cn"];
 
 // Stable identity for the "nothing live" state so callers that memoize on the

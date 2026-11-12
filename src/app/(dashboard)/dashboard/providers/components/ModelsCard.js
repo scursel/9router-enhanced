@@ -1,5 +1,6 @@
 "use client";
 
+import { buildLifecycleIndex } from "@/shared/utils/modelLifecycleIndex";
 import { applyQoderModelNames } from "@/shared/utils/providerCustomModels";
 
 import { useState, useCallback, useEffect } from "react";
@@ -185,17 +186,11 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
     };
     if (listRes?.ok) {
       const listData = await listRes.json().catch(() => null);
-      const byId = {};
-      for (const m of listData?.data || []) {
-        if (typeof m?.id !== "string" || !m.lifecycle) continue;
-        byId[m.id] = m.lifecycle;
-        const slash = m.id.indexOf("/");
-        if (slash >= 0) byId[m.id.slice(slash + 1)] = m.lifecycle;
-      }
+      const byId = buildLifecycleIndex(listData?.data, [providerAlias, providerId]);
       snapshot.lifecycleById = byId;
     }
     return snapshot;
-  }, [kindFilter]);
+  }, [kindFilter, providerAlias, providerId]);
 
   const applySnapshot = useCallback((snapshot) => {
     if (snapshot.aliases) setModelAliases(snapshot.aliases);

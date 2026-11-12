@@ -85,6 +85,22 @@ export function aggregateCircuitBreakersForConnection(breakers, providerId, conn
   };
 }
 
+/**
+ * Number of distinct ACCOUNTS of a provider that are paused (a breaker in OPEN).
+ * Breaker keys are one per account+model, and DEGRADED/HALF_OPEN entries are
+ * merely unstable, so counting keys overstated the "N paused" badge.
+ */
+export function countPausedAccountsForProvider(breakers, providerId) {
+  if (!Array.isArray(breakers)) return 0;
+  const prefix = `${providerId}:`;
+  const accounts = new Set();
+  for (const b of breakers) {
+    if (!b || typeof b.name !== "string" || b.state !== "OPEN" || !b.name.startsWith(prefix)) continue;
+    accounts.add(b.name.split(":").slice(0, 2).join(":"));
+  }
+  return accounts.size;
+}
+
 async function loadCircuitBreakers() {
   const res = await fetch("/api/providers/circuit-breakers");
   if (!res.ok) throw new Error(`circuit-breakers GET ${res.status}`);
@@ -158,10 +174,10 @@ export function useCircuitBreakers() {
     [breakers],
   );
 
-  const getOpenCountForProvider = useCallback((providerId) => {
-    const prefix = `${providerId}:`;
-    return breakers.filter((s) => s.name.startsWith(prefix) && s.state !== "CLOSED").length;
-  }, [breakers]);
+  const getOpenCountForProvider = useCallback(
+    (providerId) => countPausedAccountsForProvider(breakers, providerId),
+    [breakers],
+  );
 
   const resetCircuitBreaker = useCallback(async (name) => {
     try {

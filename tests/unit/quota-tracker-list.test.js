@@ -21,6 +21,17 @@ describe("quota tracker list", () => {
       ).toBe(false);
     });
 
+    it("keeps a card whose only content is a provider message explaining the missing quota", () => {
+      for (const message of [
+        "Kiro quota API authentication expired. Chat may still work.",
+        "Groq authentication failed. Check the API key.",
+      ]) {
+        expect(
+          shouldShowQuotaCard({ loading: false, error: null, quota: { quotas: [], message } }),
+        ).toBe(true);
+      }
+    });
+
     it("hides a loaded card with no visible quota rows", () => {
       expect(
         shouldShowQuotaCard({

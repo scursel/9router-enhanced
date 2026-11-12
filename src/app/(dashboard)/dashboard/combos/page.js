@@ -10,7 +10,6 @@ import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, ConfirmModa
 import { translate } from "@/i18n/runtime";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { useComboStats } from "./components/useComboStats.js";
 import ComboStatsBadge from "./components/ComboStatsBadge.js";
 import { pickComboEntry, MEMBER_VERDICT, memberVerdictKey } from "./components/comboStats.js";

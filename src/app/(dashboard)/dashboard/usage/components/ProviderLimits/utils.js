@@ -36,11 +36,18 @@ export function getConnectionQuotaRemaining(connection, quotaData) {
   return Number.POSITIVE_INFINITY;
 }
 
+const NO_QUOTA_MESSAGE_RE = /^(Usage API not implemented for |Usage not available for this connection)/;
+
 export function shouldShowQuotaCard({ loading = false, error = null, quota = null } = {}) {
   if (error) return true;
   const quotas = Array.isArray(quota?.quotas) ? quota.quotas : [];
   if (quotas.some((row) => row && row.name !== "error")) return true;
-  if (quota) return false;
+  if (quota) {
+    // Keep a card that explains why the quota is unavailable (auth expired,
+    // Kiro/Claude notices...); only the two "nothing to track" sentinels hide.
+    const message = typeof quota.message === "string" ? quota.message.trim() : "";
+    return Boolean(message) && !NO_QUOTA_MESSAGE_RE.test(message);
+  }
   return Boolean(loading);
 }
 
