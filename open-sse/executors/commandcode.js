@@ -2,6 +2,15 @@ import { BaseExecutor } from "./base.js";
 import { PROVIDERS } from "../config/providers.js";
 import { buildCommandCodeHeaders } from "../shared/commandCodeHeaders.js";
 import { commandCodeToOpenAIResponse } from "../translator/response/commandcode-to-openai.js";
+import { FORMATS } from "../translator/formats.js";
+import { proxyAwareFetch } from "../utils/proxyFetch.js";
+import {
+  buildCommandCodeWebHeaders,
+  buildWebSearchJson,
+  buildWebSearchSse,
+  executeWebSearch,
+  webSearchUrl,
+} from "../providers/commandcodeWebSearch.js";
 import { SSE_DONE } from "../utils/sseConstants.js";
 
 /**
@@ -40,6 +49,80 @@ export class CommandCodeExecutor extends BaseExecutor {
   }
 
   async execute(opts) {
+    if (opts?.body?._commandCodeWebSearch) {
+      const ws = opts.body._commandCodeWebSearch;
+      const url = webSearchUrl(this.buildUrl(opts.model, opts.stream, 0, opts.credentials));
+      const apiKey = opts.credentials?.apiKey || opts.credentials?.accessToken;
+      const headers = buildCommandCodeWebHeaders(apiKey);
+      const transformedBody = {
+        query: ws.query,
+        ...(ws.allowedDomains?.length ? { allowedDomains: ws.allowedDomains } : {}),
+        ...(ws.blockedDomains?.length ? { blockedDomains: ws.blockedDomains } : {}),
+      };
+      const searchResult = await executeWebSearch({
+        url,
+        headers,
+        query: ws.query,
+        numResults: ws.numResults,
+        allowedDomains: ws.allowedDomains,
+        blockedDomains: ws.blockedDomains,
+        signal: opts.signal,
+        fetchImpl: opts.fetchImpl || ((u, init) => proxyAwareFetch(u, init, opts.proxyOptions)),
+      });
+
+      // Propagate auth/quota/rate-limit errors so the account fallback loop can react.
+      if (searchResult.error && (searchResult.upstreamStatus === 401 || searchResult.upstreamStatus === 403 || searchResult.upstreamStatus === 429)) {
+        opts.log?.warn?.("SEARCH", `CommandCode web-search failed (${searchResult.upstreamStatus}): ${(searchResult.errorText || "").slice(0, 200)}`);
+        return {
+          response: new Response(
+            JSON.stringify({
+              error: {
+                message: searchResult.errorText || `CommandCode web-search returned ${searchResult.upstreamStatus}`,
+                code: searchResult.upstreamStatus,
+              },
+            }),
+            {
+              status: searchResult.upstreamStatus,
+              headers: { "Content-Type": "application/json; charset=utf-8" },
+            }
+          ),
+          url,
+          headers,
+          transformedBody,
+          responseFormat: FORMATS.CLAUDE,
+        };
+      }
+
+      if (searchResult.error) {
+        opts.log?.warn?.("SEARCH", `CommandCode web-search error (${searchResult.upstreamStatus || "network"}): ${(searchResult.errorText || "").slice(0, 200)}`);
+      }
+
+      const payloadOpts = {
+        model: ws.model || opts.model,
+        query: ws.query,
+        results: searchResult.results,
+        error: searchResult.error,
+      };
+      const wantsStream = ws.stream !== false;
+      const response = wantsStream
+        ? new Response(buildWebSearchSse(payloadOpts), {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+          })
+        : new Response(JSON.stringify(buildWebSearchJson(payloadOpts)), {
+            status: 200,
+            headers: { "Content-Type": "application/json; charset=utf-8" },
+          });
+
+      return {
+        response,
+        url,
+        headers,
+        transformedBody,
+        responseFormat: FORMATS.CLAUDE,
+      };
+    }
+
     const maxRetries = 2;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const result = await super.execute(opts);

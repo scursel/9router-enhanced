@@ -30,6 +30,7 @@
  */
 
 import { assertPublicUrl } from "../../../src/shared/utils/ssrfGuard.js";
+import { buildCommandCodeWebHeaders } from "../../providers/commandcodeWebSearch.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -548,6 +549,29 @@ function buildGlmSearchRequest(config, params) {
   };
 }
 
+// ── Command Code /alpha/web-search ───────────────────────────────────────
+// POST https://api.commandcode.ai/alpha/web-search
+// Body: { query, numResults (1..10), allowedDomains?, blockedDomains? }
+// Response: { results: [{ title, url, snippet, publishedDate? }], formatted? }
+function buildCommandCodeSearchRequest(config, params) {
+  const { includes, excludes } = parseDomainFilter(params.domainFilter);
+  const numResults = Math.min(10, Math.max(1, Math.round(Number(params.maxResults) || 5)));
+  const body = {
+    query: params.query,
+    numResults,
+  };
+  if (includes.length) body.allowedDomains = includes;
+  if (excludes.length) body.blockedDomains = excludes;
+  return {
+    url: resolveBaseUrl(config, params),
+    init: {
+      method: "POST",
+      headers: buildCommandCodeWebHeaders(params.token),
+      body: JSON.stringify(body),
+    },
+  };
+}
+
 // ── Dispatcher ──────────────────────────────────────────────────────────
 
 const BUILDERS = {
@@ -565,6 +589,7 @@ const BUILDERS = {
   "tinyfish": buildTinyfishRequest,
   "ollama-search": buildOllamaSearchRequest,
   "glm": buildGlmSearchRequest,
+  "commandcode": buildCommandCodeSearchRequest,
 };
 
 /**

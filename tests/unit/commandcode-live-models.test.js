@@ -172,5 +172,18 @@ describe("GET /v1/models — the gateway advertises the live catalog", () => {
     expect(ids).toContain("cmc/claude-sonnet-5-5");
     expect(ids).toContain("cmc/deepseek/deepseek-v4.1-flash-fast");
     expect(ids).not.toContain("cmc/stealth/glyph-cluster:free");
+    expect(ids).not.toContain("cmc/typesafe/jev-1.14.0");
+    expect(ids).not.toContain("cmc/typesafe/jev");
+  });
+
+  it("advertises Jev 1.14 under systemone and search/fetch under web kinds", async () => {
+    const { buildModelsList } = await import("@/app/api/v1/models/route.js");
+    const sysoneIds = (await buildModelsList(["systemone"])).map((m) => m.id);
+    expect(sysoneIds).toContain("cmc/typesafe/jev-1.14.0");
+    expect(sysoneIds).toContain("cmc/typesafe/jev");
+
+    const webIds = (await buildModelsList(["webSearch", "webFetch"])).map((m) => m.id);
+    expect(webIds).toContain("cmc/search");
+    expect(webIds).toContain("cmc/fetch");
   });
 });

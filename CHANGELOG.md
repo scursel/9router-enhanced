@@ -1,3 +1,10 @@
+# v0.5.119-enhanced.7 (2026-11-19)
+
+- Command Code: suporte completo a WebSearch (`/v1/search` via `/alpha/web-search`), WebFetch (`/v1/web/fetch` via `/alpha/web-fetch`) e System One JEV 1.14 (`/v1/systemone` via `/provider/v1/systemone` com `typesafe/jev-1.14.0` e `typesafe/jev`), reutilizando a mesma chave CLI da conta.
+- Command Code (Claude Code): interceptação automática de side-queries `web_search_20250305` em `/v1/messages` para `/alpha/web-search` (streaming SSE e JSON `stream: false`, timeout de 15s, suporte a `proxyOptions` e propagação de 401/403/429 para fallback de contas).
+- Pickers & `/v1/models`: contas com `enabledModels` curado para chat não escondem mais provedores em combos de Web Search/Web Fetch nem modelos de System One; `systemone` mapeado em `MODEL_TYPE_TO_KIND` e `/v1/models/systemone` (evitando vazamento de Jev na lista LLM).
+- Deploy: novo `npm run deploy:remote -- <host-ssh> [--ssh-key <chave>] [--dry-run]`, que leva o CLI a uma máquina que o roda como serviço systemd `--user`. Um deploy feito à mão instalou o pacote no prefixo global padrão do npm (`~/.local`), e não no prefixo de onde o serviço roda: o serviço continuou na versão antiga, ficou uma cópia solta, e a política `allow-scripts` do npm pulou o `postinstall` sem avisar. O script descobre a instalação pelo mesmo `~/.9router/9router-package-root` que o script de início lê, instala com `--prefix` derivado dela e confere a versão nesse diretório antes de reiniciar. Também roda o `postinstall` explicitamente, aplica o cutover guard contra a versão remota, recusa pacotes com arquivos de estado, faz backup e só termina quando `/api/version` responde a versão nova, imprimindo o comando de rollback.
+
 # v0.5.119-enhanced.6 (2026-11-12)
 
 - Codex: o prompt de sistema volta a ir no campo `input`, como no oficial. O formato do fork (texto de sistema no campo `instructions`) nunca foi medido contra o do oficial, então o padrão passa a ser o do oficial; ele continua disponível com `CODEX_SYSTEM_PROMPT_LAYOUT=instructions`. O desempacotamento de `additional_tools` para modelos não-Lite continua valendo nos dois formatos.

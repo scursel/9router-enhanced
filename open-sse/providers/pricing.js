@@ -185,6 +185,11 @@ export const MODEL_PRICING = {
   // === OpenRouter fallback ===
   "auto":                         { input: 2.00,  output: 8.00,  cached: 1.00,  reasoning: 12.00,  cache_creation: 2.00  },
 
+  // === System One (TypeSafe Jev) ===
+  // Billed on input tokens only; output tokens are $0.
+  "jev-1.14.0":                   { input: 0.042, output: 0,     cached: 0,     reasoning: 0,      cache_creation: 0     },
+  "jev":                          { input: 0.042, output: 0,     cached: 0,     reasoning: 0,      cache_creation: 0     },
+
   // === Misc ===
   "oswe-vscode-prime":            { input: 1.00,  output: 4.00,  cached: 0.50,  reasoning: 6.00,   cache_creation: 1.00  },
   "gpt-oss-120b-medium":          { input: 0.50,  output: 2.00,  cached: 0.25,  reasoning: 3.00,   cache_creation: 0.50  },

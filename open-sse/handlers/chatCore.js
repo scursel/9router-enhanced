@@ -38,6 +38,7 @@ import { applyProviderThinkingOverride } from "./chatCore/providerThinking.js";
 import { applyPassthroughSuffixThinking } from "./chatCore/passthroughThinking.js";
 import { clampOutputTokens } from "./chatCore/outputLimit.js";
 import { stripUnsupportedModalities } from "../translator/concerns/modality.js";
+import { isWebSearchSideQuery, extractSearchQuery } from "../providers/commandcodeWebSearch.js";
 import { prefetchRemoteImages } from "../translator/concerns/prefetch.js";
 import { defaultClaudeToolType, shouldDefaultClaudeToolType } from "../translator/concerns/toolCall.js";
 import { resolveSessionId } from "../utils/sessionManager.js";
@@ -459,6 +460,24 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // system/tools/messages, and a stale anchor costs a full prefix rewrite.
   if (passthrough && clientTool === "claude") anchorClaudeCache(translatedBody);
 
+  // Claude Code sends web_search_20250305 as a standalone /v1/messages side-query;
+  // route it through Command Code's /alpha/web-search quota instead of /alpha/generate.
+  if (provider === "commandcode" && sourceFormat === FORMATS.CLAUDE) {
+    const wsTool = isWebSearchSideQuery(body);
+    if (wsTool) {
+      translatedBody = {
+        ...translatedBody,
+        _commandCodeWebSearch: {
+          query: extractSearchQuery(body?.messages),
+          model: body?.model || model,
+          allowedDomains: wsTool.allowed_domains,
+          blockedDomains: wsTool.blocked_domains,
+          stream: clientRequestedStreaming,
+        },
+      };
+    }
+  }
+
   const executor = getExecutor(provider);
   beginPending();
   appendRequestLog({ model, provider, connectionId, status: "PENDING" }).catch(() => { });
@@ -725,8 +744,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     if (result) { streamController.handleComplete(); return result; }
   }
 
-  // True non-streaming response
-  if (!stream) {
+  // True non-streaming response (or a forced-stream provider that returned JSON directly)
+  if (!stream || !clientRequestedStreaming) {
     const result = await handleNonStreamingResponse({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, reqLogger, toolNameMap, customToolNames, trackDone, appendLog });
     streamController.handleComplete();
     return result;

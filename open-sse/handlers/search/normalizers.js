@@ -295,6 +295,20 @@ function normalizeGlmSearch(data, _query, _searchType) {
   return { results, totalResults: results.length };
 }
 
+function normalizeCommandCodeSearch(data, _query, _searchType) {
+  const now = new Date().toISOString();
+  const items = Array.isArray(data?.results) ? data.results : [];
+  const results = items.map((item, idx) =>
+    makeResult("commandcode", {
+      title: item.title,
+      url: item.url,
+      snippet: item.snippet || item.content || "",
+      published_at: item.publishedDate || item.published_at || null,
+    }, idx, now)
+  );
+  return { results, totalResults: results.length };
+}
+
 const NORMALIZERS = {
   "serper": normalizeSerper,
   "brave-search": normalizeBrave,
@@ -310,6 +324,7 @@ const NORMALIZERS = {
   "tinyfish": normalizeTinyfish,
   "ollama-search": normalizeOllamaSearch,
   "glm": normalizeGlmSearch,
+  "commandcode": normalizeCommandCodeSearch,
 };
 
 /**

@@ -29,7 +29,9 @@ CLI package (`cli/`):
 ```bash
 npm run cli:pack       # build + npm pack from root
 cd cli && npm run dev  # nodemon watch
+npm run deploy:remote -- <ssh-host> [--ssh-key <path>] [--dry-run]   # pack + install + restart on a host running the CLI as a systemd --user service
 ```
+Deploy to a service host with `deploy:remote`, never a bare `npm install -g <tgz>` there: the host's default npm prefix may differ from the one the service runs from (the install lands elsewhere and the service keeps the old version), and npm's `allow-scripts` policy can silently skip `postinstall`. The script resolves the service's package root from `~/.9router/9router-package-root`, installs with `--prefix` derived from it, verifies before restarting, and prints a rollback command.
 
 Tests (vitest, in `tests/`, an **independent** ESM package — not wired into root `npm test`):
 ```bash

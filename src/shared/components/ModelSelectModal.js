@@ -482,27 +482,37 @@ export default function ModelSelectModal({
       if (group.models.length === 0) delete groups[providerId];
     });
 
-    // Filter by enabledModels if explicitly configured on any active connection for this provider
-    Object.entries(groups).forEach(([providerId, group]) => {
-      const providerConns = filteredActiveProviders.filter((p) => p.provider === providerId);
-      const explicitEnabled = [];
-      for (const conn of providerConns) {
-        if (Array.isArray(conn.providerSpecificData?.enabledModels) && conn.providerSpecificData.enabledModels.length > 0) {
-          explicitEnabled.push(...conn.providerSpecificData.enabledModels);
+    // Filter by enabledModels if explicitly configured on any active connection for this provider.
+    // enabledModels is curated on the LLM provider page, so it must never hide provider-as-model
+    // kinds (webSearch/webFetch) or non-LLM kinds (e.g. systemone/Jev) when none of the curated
+    // IDs belong to that kind.
+    if (!kindFilter || !PROVIDER_AS_MODEL_KINDS.has(kindFilter)) {
+      Object.entries(groups).forEach(([providerId, group]) => {
+        const providerConns = filteredActiveProviders.filter((p) => p.provider === providerId);
+        const explicitEnabled = [];
+        for (const conn of providerConns) {
+          if (Array.isArray(conn.providerSpecificData?.enabledModels) && conn.providerSpecificData.enabledModels.length > 0) {
+            explicitEnabled.push(...conn.providerSpecificData.enabledModels);
+          }
         }
-      }
-      if (explicitEnabled.length > 0) {
-        const enabledSet = new Set(explicitEnabled);
-        const alias = group.alias || getProviderAlias(providerId) || providerId;
-        group.models = group.models.filter((m) =>
-          enabledSet.has(m.id) ||
-          enabledSet.has(m.value) ||
-          enabledSet.has(`${alias}/${m.id}`) ||
-          (m.value && enabledSet.has(m.value.replace(`${alias}/`, "")))
-        );
-        if (group.models.length === 0) delete groups[providerId];
-      }
-    });
+        if (explicitEnabled.length > 0) {
+          const enabledSet = new Set(explicitEnabled);
+          const alias = group.alias || getProviderAlias(providerId) || providerId;
+          const matched = group.models.filter((m) =>
+            enabledSet.has(m.id) ||
+            enabledSet.has(m.value) ||
+            enabledSet.has(`${alias}/${m.id}`) ||
+            (m.value && enabledSet.has(m.value.replace(`${alias}/`, "")))
+          );
+          if (!kindFilter) {
+            group.models = matched;
+            if (group.models.length === 0) delete groups[providerId];
+          } else if (matched.length > 0) {
+            group.models = matched;
+          }
+        }
+      });
+    }
 
     return groups;
   }, [filteredActiveProviders, modelAliases, allProviders, providerNodes, customModels, disabledModels, kindFilter, effectiveConnections, deactivatedProviderIds, cursorModels, clineModels, clinepassModels, zedModels, qoderModels, qoderCnModels]);

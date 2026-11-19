@@ -1,6 +1,7 @@
 // Web Fetch handler — dispatches to firecrawl, jina-reader, tavily, exa, ollama, tinyfish
 // Returns normalized shape across all providers
 import { HTTP_STATUS } from "../../config/runtimeConfig.js";
+import { buildCommandCodeWebHeaders } from "../../providers/commandcodeWebSearch.js";
 
 const DEFAULT_TIMEOUT_MS = 15000;
 const DEFAULT_FORMAT = "markdown";
@@ -141,6 +142,19 @@ export async function handleFetchCore({ url, format, maxCharacters, provider, pr
     }
     if (provider === "tinyfish") {
       return await runTinyfish({ url, fmt, timeoutMs, apiKey, maxCharacters, costPerQuery, startedAt, baseUrl: providerConfig?.baseUrl });
+    }
+    if (provider === "commandcode") {
+      return await runCommandCode({
+        url,
+        fmt,
+        timeoutMs,
+        apiKey,
+        maxCharacters,
+        defaultMaxCharacters: providerConfig?.maxCharacters,
+        costPerQuery,
+        startedAt,
+        baseUrl: providerConfig?.baseUrl,
+      });
     }
     return { success: false, status: 400, error: `Unsupported provider: ${provider}` };
   } catch (err) {
@@ -347,5 +361,61 @@ async function runOllama({
       responseMs: Date.now() - startedAt,
       upstreamMs
     })
+  };
+}
+
+async function runCommandCode({
+  url,
+  fmt,
+  timeoutMs,
+  apiKey,
+  maxCharacters,
+  defaultMaxCharacters,
+  costPerQuery,
+  startedAt,
+  baseUrl,
+}) {
+  const upstreamStart = Date.now();
+  const targetUrl = baseUrl || "https://api.commandcode.ai/alpha/web-fetch";
+  const r = await tryFetch(targetUrl, {
+    method: "POST",
+    headers: buildCommandCodeWebHeaders(apiKey),
+    body: JSON.stringify({ url }),
+  }, timeoutMs);
+
+  if (!r.ok) {
+    return { success: false, status: r.timeout ? 504 : 502, error: r.error };
+  }
+  const upstreamMs = Date.now() - upstreamStart;
+  const { json, text: responseText } = await readJsonOrText(r.res);
+  if (!r.res.ok) {
+    const rawErr = json?.error?.message
+      || (typeof json?.error === "string" ? json.error : null)
+      || json?.message
+      || responseText?.slice(0, 500)
+      || `CommandCode error: ${r.res.status}`;
+    return { success: false, status: r.res.status, error: String(rawErr) };
+  }
+  if (!json || typeof json.content !== "string") {
+    return { success: false, status: 502, error: "CommandCode returned an empty or invalid web fetch response" };
+  }
+
+  // Command Code ignores maxChars server-side; enforce client/provider cap on the gateway.
+  const effectiveMax = maxCharacters > 0 && defaultMaxCharacters > 0
+    ? Math.min(maxCharacters, defaultMaxCharacters)
+    : (maxCharacters > 0 ? maxCharacters : defaultMaxCharacters);
+  const text = truncate(json.content, effectiveMax);
+  return {
+    success: true,
+    data: buildData({
+      provider: "commandcode",
+      url: json.url || url,
+      title: json.title || null,
+      format: fmt,
+      text,
+      costUsd: costPerQuery,
+      responseMs: Date.now() - startedAt,
+      upstreamMs,
+    }),
   };
 }

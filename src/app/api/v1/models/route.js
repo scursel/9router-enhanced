@@ -173,7 +173,18 @@ const LIVE_MODEL_RESOLVERS = {
   commandcode: async () => {
     const result = await resolveCommandCodeModels();
     if (!result?.models?.length) return null;
-    return { models: result.models.map(({ id, name }) => ({ id, name })) };
+    // GET /provider/v1/models?view=client omits System One decision models
+    // (typesafe/jev-1.14.0, typesafe/jev), so preserve static non-LLM models
+    // from the registry alongside the live chat catalog.
+    const staticNonLlm = (PROVIDER_MODELS.commandcode || [])
+      .filter((m) => m?.id && m.kind && m.kind !== "llm")
+      .map((m) => ({ id: m.id, name: m.name, kind: m.kind }));
+    return {
+      models: [
+        ...result.models.map(({ id, name }) => ({ id, name })),
+        ...staticNonLlm,
+      ],
+    };
   },
 };
 
@@ -198,6 +209,7 @@ const MODEL_TYPE_TO_KIND = {
   stt: "stt",
   imageToText: "imageToText",
   video: "video",
+  systemone: "systemone",
 };
 
 function modelKind(model) {
@@ -579,6 +591,20 @@ export async function buildModelsList(kindFilter, options = {}) {
           // nothing of its own — it must not resurrect ids the others curated
           // away, and it must not hide the others' (static seed is a
           // per-provider fallback for the no-data case below, not evidence).
+        }
+        // Curated enabledModels come from the LLM provider page; preserve static
+        // non-LLM models (e.g. systemone/Jev) when requested by kindFilter and
+        // none of the curated IDs belong to that kind.
+        for (const reqKind of kindFilter) {
+          if (reqKind === LLM_KIND) continue;
+          const hasCuratedOfKind = rawModelIds.some(
+            (id) => staticModelKindById.get(stripProviderPrefix(id)) === reqKind
+          );
+          if (!hasCuratedOfKind) {
+            for (const m of providerModels) {
+              if (m?.id && modelKind(m) === reqKind) pushCurated(m.id);
+            }
+          }
         }
       } else {
         rawModelIds = providerModels.map((model) => model.id);
