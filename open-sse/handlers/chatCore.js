@@ -205,7 +205,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // Provider-level thinking override (see chatCore/providerThinking.js)
   body = applyProviderThinkingOverride(body, providerThinking);
 
-  const upstreamModel = getModelUpstreamId(alias, model, body);
+  const upstreamModel = modelInfo.upstreamModelId || getModelUpstreamId(alias, model, body);
 
   // Per-request opt-out: client can bypass all token savers via header
   const tokenSaverEnabled = clientRawRequest?.headers?.[TOKEN_SAVER_HEADER]?.toLowerCase() !== "off";

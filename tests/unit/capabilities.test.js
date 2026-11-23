@@ -3,6 +3,15 @@ import { getCapabilitiesForModel } from "../../open-sse/providers/capabilities.j
 
 describe("getCapabilitiesForModel", () => {
 
+  it.each(["qwen38-gguf-mtp", "qwen38-gguf-mtp-vision"])("reports the tested Basalt limits and vision for %s", (model) => {
+    expect(getCapabilitiesForModel("openai-compatible-chat-test", model)).toMatchObject({
+      vision: true,
+      videoInput: true,
+      contextWindow: 65536,
+      maxOutput: 16384,
+    });
+  });
+
   it("reports DeepSeek V4.1-Flash ids as vision-capable without dropping their thinking/context", () => {
     const v41 = { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 1000000, maxOutput: 384000 };
     expect(getCapabilitiesForModel(undefined, "deepseek-v4.1-flash")).toMatchObject(v41);

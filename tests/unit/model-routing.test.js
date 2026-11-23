@@ -12,10 +12,12 @@ async function setupDb() {
 
   const { createProviderNode } = await import("@/models/index.js");
   const { getModelInfo } = await import("@/sse/services/model.js");
+  const { addCustomModel } = await import("@/lib/db/repos/aliasRepo.js");
 
   return {
     createProviderNode,
     getModelInfo,
+    addCustomModel,
     cleanup() {
       fs.rmSync(tempDir, { recursive: true, force: true });
     },
@@ -76,5 +78,33 @@ describe("model routing", () => {
         provider: "openai-compatible-chat-test",
         model: "gpt-image-1",
       });
+  });
+
+  it("preserves the requested identity when a custom chat model has an upstream id", async () => {
+    const ctx = await setupDb();
+    cleanup = ctx.cleanup;
+    const provider = "openai-compatible-chat-test";
+    await ctx.createProviderNode({
+      id: provider,
+      type: "openai-compatible",
+      name: "Workhorse",
+      prefix: "workhorse",
+      apiType: "chat",
+      baseUrl: "https://compatible.test/v1",
+    });
+    await ctx.addCustomModel({
+      providerAlias: "workhorse",
+      id: "qwen38-gguf-mtp-vision",
+      upstreamModelId: "qwen38-gguf-mtp",
+    });
+
+    await expect(ctx.getModelInfo("workhorse/qwen38-gguf-mtp-vision"))
+      .resolves.toEqual({ provider, model: "qwen38-gguf-mtp-vision" });
+    for (const prefix of ["workhorse", provider]) {
+      await expect(ctx.getModelInfo(`${prefix}/qwen38-gguf-mtp-vision(high)`, { resolveUpstreamId: true }))
+        .resolves.toEqual({ provider, model: "qwen38-gguf-mtp-vision(high)", upstreamModelId: "qwen38-gguf-mtp(high)" });
+    }
+    await expect(ctx.getModelInfo("workhorse/qwen38-gguf-mtp", { resolveUpstreamId: true }))
+      .resolves.toEqual({ provider, model: "qwen38-gguf-mtp" });
   });
 });

@@ -29,6 +29,10 @@ export async function getCustomModels() {
   return Object.values(all);
 }
 
+export function getCustomModel(providerAlias, id, type = "llm") {
+  return customKv.get(customKey(providerAlias, id, type));
+}
+
 // Atomic upsert inside transaction to prevent duplicate races.
 // Re-adding an existing model updates caps/name/transport without resetting omitted fields.
 export async function addCustomModel({ providerAlias, id, type = "llm", name, caps, transport, upstreamModelId }) {

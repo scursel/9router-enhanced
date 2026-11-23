@@ -272,7 +272,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     return errorResponse(CLIENT_ABORTED_STATUS, "Request aborted");
   }
 
-  const modelInfo = await getModelInfo(modelStr);
+  const modelInfo = await getModelInfo(modelStr, { resolveUpstreamId: true });
 
   // If provider is null, this might be a combo name - check and handle
   if (!modelInfo.provider) {
@@ -561,7 +561,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         // place (msg.content, cache_control, generationConfig), and this same
         // body is retried on the next account and the next combo member.
         body: { ...structuredClone(body), model: `${provider}/${model}` },
-        modelInfo: { provider, model },
+        modelInfo,
         credentials: refreshedCredentials,
         log,
         clientRawRequest,

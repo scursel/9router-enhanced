@@ -1,8 +1,10 @@
 // Re-export from open-sse with localDb integration
 import { getModelAliases, getComboByName, getProviderNodes, getProviderConnections } from "@/lib/localDb";
+import { getCustomModel } from "@/lib/db/repos/aliasRepo.js";
 import { parseModel as parseModelCore, resolveModelAliasFromMap, getModelInfoCore } from "open-sse/services/model.js";
 import REGISTRY from "open-sse/providers/registry/index.js";
 import { getCatalogLifecycle } from "open-sse/providers/catalogOverride.js";
+import { stripThinkingSuffix } from "open-sse/translator/concerns/thinkingUnified.js";
 import * as log from "../utils/logger.js";
 
 // Local provider alias overrides (HMR-friendly, applied on top of open-sse map)
@@ -34,10 +36,26 @@ export async function resolveModelAlias(alias) {
   return resolveModelAliasFromMap(alias, aliases);
 }
 
+async function resolveCompatibleChatModel(node, model) {
+  const info = { provider: node.id, model };
+  const baseModel = stripThinkingSuffix(model);
+  if (!baseModel) return info;
+
+  const registered = await getCustomModel(node.id, baseModel)
+    || (node.prefix && node.prefix !== node.id && await getCustomModel(node.prefix, baseModel));
+  if (!registered?.upstreamModelId) return info;
+
+  const thinkingSuffix = model.match(/\([^()]+\)\s*$/)?.[0] || "";
+  const upstreamModelId = thinkingSuffix
+    ? stripThinkingSuffix(registered.upstreamModelId) + thinkingSuffix
+    : registered.upstreamModelId;
+  return { ...info, upstreamModelId };
+}
+
 /**
  * Get full model info (parse or resolve)
  */
-export async function getModelInfo(modelStr) {
+export async function getModelInfo(modelStr, { resolveUpstreamId = false } = {}) {
   const parsed = parseModel(modelStr);
 
   if (!parsed.isAlias) {
@@ -45,9 +63,12 @@ export async function getModelInfo(modelStr) {
     // provider ids/aliases such as `cf`, `cloudflare-ai`, `openai`, or `hf`.
     if (!RESERVED_PROVIDER_PREFIXES.has(parsed.providerAlias)) {
       const openaiNodes = await getProviderNodes({ type: "openai-compatible" });
-      const matchedOpenAI = openaiNodes.find((node) => node.prefix === parsed.providerAlias);
+      const matchedOpenAI = openaiNodes.find((node) => node.prefix === parsed.providerAlias)
+        || (resolveUpstreamId && openaiNodes.find((node) => node.id === parsed.providerAlias));
       if (matchedOpenAI) {
-        return { provider: matchedOpenAI.id, model: parsed.model };
+        return resolveUpstreamId
+          ? resolveCompatibleChatModel(matchedOpenAI, parsed.model)
+          : { provider: matchedOpenAI.id, model: parsed.model };
       }
 
       const anthropicNodes = await getProviderNodes({ type: "anthropic-compatible" });
@@ -159,11 +180,12 @@ function feedLifecycleIsRetired(providerId, modelId) {
 async function filterUnavailableComboMembers(models) {
   const connections = await getProviderConnections({ isActive: true });
   const candidates = await Promise.all(models.map(async (member) => {
-    const info = await getModelInfo(member);
+    const info = await getModelInfo(member, { resolveUpstreamId: true });
     if (!info?.provider || !info?.model) return member;
     const accounts = connections.filter((connection) => connection.provider === info.provider);
     if (!accounts.length) return member;
     const catalogued = accounts.filter(connectionHasSyncedCatalog);
+    const catalogModel = info.upstreamModelId ? stripThinkingSuffix(info.upstreamModelId) : info.model;
     // A synced catalogue that still lists the member (available or
     // temporarily-absent) beats every feed signal: the models.dev lifecycle
     // never removes what an account still lists — same authority shape as the
@@ -171,11 +193,11 @@ async function filterUnavailableComboMembers(models) {
     // nit 3): an active account's curated enabledModels counts as listing
     // evidence too, even when that account never synced a catalogue.
     const listedLive = catalogued.some((connection) =>
-      catalogListsModel(connection.modelCatalog.models, info.provider, info.model)
+      catalogListsModel(connection.modelCatalog.models, info.provider, catalogModel)
     ) || accounts.some((connection) => accountCuratesModel(connection, info.model));
     if (listedLive) return member;
     const knownSomewhere = catalogued.some((connection) =>
-      catalogKnowsModel(connection.modelCatalog.models, info.model)
+      catalogKnowsModel(connection.modelCatalog.models, catalogModel)
     );
     // Passthrough providers accept ids the listing never heard of (Cline
     // remaps, user-typed aggregators). Only act on members the catalog

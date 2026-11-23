@@ -1,3 +1,7 @@
+# v0.5.123-enhanced.2 (2026-11-23)
+
+- O Qwen3.8 GGUF do Basalt anuncia visão, contexto de 65.536 tokens e até 16.384 tokens de saída. Modelos personalizados de nós OpenAI-compatible podem encaminhar o ID público para o `upstreamModelId` cadastrado, preservando a variante `-vision` para clientes existentes.
+
 # v0.5.123-enhanced.1 (2026-11-23 — upstream v0.5.123 sync)
 
 Merge do oficial decolua/9router v0.5.120–v0.5.123 (41 commits). A suíte passa sem falhas e a lista de falhas conhecidas segue vazia; rodar o gate com `TZ=UTC` (ver pendências).

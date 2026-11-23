@@ -81,11 +81,23 @@ export function capabilitiesFromServiceKind(kind) {
   return SERVICE_KIND_CAPABILITIES[kind] || null;
 }
 
+// Basalt serves the same weights through the native ID and the router's vision alias.
+const QWEN38_GGUF_MTP_CAPABILITIES = {
+  vision: true,
+  videoInput: true,
+  reasoning: true,
+  thinkingFormat: "qwen",
+  contextWindow: 65536,
+  maxOutput: 16384,
+};
+
 /**
  * Canonical exact-id overrides — used for exceptions that patterns would
  * otherwise mis-match. Only declare deltas vs DEFAULT.
  */
 export const MODEL_CAPABILITIES = {
+  "qwen38-gguf-mtp": QWEN38_GGUF_MTP_CAPABILITIES,
+  "qwen38-gguf-mtp-vision": QWEN38_GGUF_MTP_CAPABILITIES,
   "sensenova-6.8-flash-lite": {
     vision: true,
     reasoning: true,
