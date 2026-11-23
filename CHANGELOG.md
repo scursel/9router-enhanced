@@ -1,3 +1,34 @@
+# v0.5.123-enhanced.1 (2026-11-23 — upstream v0.5.123 sync)
+
+Merge do oficial decolua/9router v0.5.120–v0.5.123 (40 commits). A suíte passa sem falhas e a lista de falhas conhecidas segue vazia; rodar o gate com `TZ=UTC` (ver pendências).
+
+- Do oficial (provedores): Synthetic (a chave é validada em `/v2/quotas`), DeepRelay, OpenDesign Go e QwenCloud, os três primeiros com leitura de quota. GPT 6.2 Sol e Astra no Codex. Lista de modelos do Alibaba Token Plan atualizada.
+- Do oficial (Antigravity e Kiro): Gemini 4 Hydrogen com decodificação longa (um `max_tokens` acima de 64K chega a 1M de saída num só turno) e os níveis Neon, além dos níveis `max` do Claude 5.5. A impressão digital do Antigravity passa a Hub 2.33.0. O Kiro se identifica como Kiro IDE 1.4.154 em toda chamada, inclusive na renovação do token, e ganha o fallback `CreateResponse` (`/v1/responses`) quando recebe 429 `USER_REQUEST_RATE_EXCEEDED`.
+- Do oficial (correções): o cabeçalho de cobrança do cliente não entra mais no prompt de sistema do Claude que vai para o cache; Mistral com conteúdo em lista emite `text_delta` como texto; catálogos do Cloudflare AI e do System One atualizados, e o System One desembrulha o envelope `result` do Cloudflare; o Pi (CLI) recebe entrada, raciocínio e níveis de pensamento do modelo; o ElevenLabs atualiza os modelos de TTS e respeita o campo de voz da OpenAI; embeddings da NVIDIA com `input_type`; contagens em bilhões e trilhões nos gráficos de uso; o Command Code e o Claude aparecem nos seletores com o catálogo ao vivo.
+- Do oficial (economia de tokens): nova opção REA allow. No fork ela só atua com o economizador de tokens ligado, então `x-9router-token-saver: off` continua desligando também esta injeção.
+- Do oficial (dependências): `next` e `@next/third-parties` `^16.4.6`, `eslint-config-next` 16.4.6, `node-forge` `^1.4.3`, `vitest` `^4.1.12`, e `overrides` de `minimatch` e `brace-expansion` no `cli/`.
+- Alibaba Token Plan: ficou o transporte só OpenAI do fork (com `modelsFetcher` e os marcadores de uso). A lista de modelos é a união das duas, menos `qwen3.8-max-preview`. O transporte Claude do oficial não foi adotado (ver pendências).
+- Registro de provedores: os quatro novos ocupam `p155`–`p158` e o `orcarouter`, que só existe no fork, passou para `p159`.
+- Segredos nas respostas de conexão: `opendesignControlKey` e `sessionToken` entram na lista que nunca sai nas respostas, e o caso especial da AWS saiu por ser redundante.
+- Seletores de modelo: a lista de provedores com catálogo ao vivo é uma só (o par Qoder do fork mais Claude e Command Code do oficial), compartilhada pelo seletor de combo, pelos cartões das ferramentas de CLI e por `/api/providers/[id]/models`.
+- Níveis de pensamento: as regras do fork (série o, `deepseek-web`, casamento por expressão) e as do oficial (Neon, Hydrogen, Claude 5.5 no Antigravity, apelido `ag`) valem juntas.
+- Uso: `isUsageEligible` foi para `src/lib/usageEligibility.js` (saldo local, ou handler implementado com OAuth, lease ou chave de API), e `/api/usage` aceita conexões com lease e com saldo local. A lista de modelos do quota do Antigravity ganhou Hydrogen, Neon e os níveis `max`.
+- Tradutores: ficou a lógica de streaming e de `tool_call` do fork, com o `stripAnthropicBillingHeader` e o `extractTextContent` do oficial. O `mergeUsage` mantém a guarda de estimativa antes do `preferNextInput` do oficial.
+- Testes: baseline de provedores e snapshot do `golden-url-header` atualizados só com os quatro provedores novos. Quatro testes do oficial foram adaptados ao comportamento do fork: cobrança no cache do Claude (o texto do cliente é `system[0]`), Mistral em stream (a mensagem só fecha com o uso ou no fim do stream), modelo padrão do Codex e `model-sync-build-models` (o resolvedor ao vivo do opencode fazia uma chamada real a `opencode.ai`, agora trocada por falha simulada).
+- Orçamento de saída: o limite de `max_tokens` de um modelo com decodificação longa passou a ser o teto de 1M do Gemini, em vez do `maxOutput` comum, que cortava o orçamento em 65536.
+- Combos: um membro com sufixo de nível, como `cx/gpt-5.6-sol(high)`, é resolvido sem o sufixo no servidor e no cartão do combo do dashboard. Antes o cartão mostrava a janela de 1050000 em vez de 372000. Um id personalizado que de fato termina em parênteses (`cx/foo(beta)`) é tentado inteiro antes de o sufixo ser removido.
+- **Segurança:** as chaves dos novos provedores de gateway (OpenDesign Go, DeepRelay, QwenCloud) deixam de ser enviadas ao host de uso no teste de conexão: o teste consulta só a `validateUrl`.
+- **Segurança:** o teste de conexão genérico não consulta mais um `baseUrl` de usuário que não seja público (endereço interno ou de metadados). Provedores auto-hospedados continuam podendo apontar para a LAN. A checagem olha só o endereço literal, sem resolver DNS nem seguir redirecionamento.
+- **Segurança:** no `PUT` de uma conexão, enviar um segredo de `providerSpecificData` como string vazia o mantém, e enviar `null` o remove, para todos os segredos da lista (antes só valia para a AWS).
+- **Segurança:** o System One verifica o acesso da chave de API antes de consultar modelos personalizados,, e não depois. A validação do corpo e a busca do id do provedor passaram a resolver o apelido do provedor para o id do registro.
+
+Pendências:
+
+- **Alibaba:** o transporte Claude do Token Plan não foi adotado; falta um teste com chave real. Até lá o Token Plan Alibaba fala só OpenAI.
+- **Segurança:** o `case "llm7"` do teste de conexão ainda usa o `baseUrl` da conta sem a proteção contra endereços internos.
+- **Testes:** o teste `golden-url-header` depende do fuso horário da máquina. Rode a suíte e o gate com `TZ=UTC`, como o CI.
+- **Codex:** o oficial diz que o GPT 6.2 exige identidade de cliente Codex 0.166.0 ou maior; o `cliVersion` do fork não foi conferido.
+
 # v0.5.119-enhanced.8 (2026-11-23)
 
 - **Saldo local por conexão (BRL/USD)**: suporte a saldo/orçamento local em `providerSpecificData.localBalance` para a API paga do Gemini e demais contas API-key, com conversão USD→BRL (taxa manual por padrão ou automática via `/api/fx/usd-brl` com hosts HTTPS fixos, timeout de 5s e cache de 6h em memória + SQLite), margem opcional de IOF/spread, botões atômicos de recalibração (`Ajustar saldo atual`) e recarga (`+ Adicionar crédito`), fallback automático para `usageDaily.byAccount` quando `USAGE_RETENTION_DAYS` estiver ativo, e modo opcional de pausa/failover automático (`HTTP 402` sem `retry-after` quando todas as contas estiverem esgotadas).
