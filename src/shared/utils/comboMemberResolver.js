@@ -42,7 +42,8 @@ export function makeComboMemberResolver(connections = [], modelAliases = {}) {
     }
     const separator = fullModel.indexOf("/");
     const prefix = fullModel.slice(0, separator);
-    const model = fullModel.slice(separator + 1).trim();
+    // Drop a thinking-level suffix such as "(high)": it is not part of the model id.
+    const model = fullModel.slice(separator + 1).replace(/\([^()]+\)\s*$/, "").trim();
     if (!model) return null;
     return { provider: providerIdByPrefix.get(prefix) || prefix, model };
   };

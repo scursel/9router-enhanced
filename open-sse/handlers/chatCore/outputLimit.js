@@ -1,4 +1,5 @@
 import { getCapabilitiesForModel, hasKnownLimits } from "../../providers/capabilities.js";
+import { GEMINI_LONG_DECODE_MAX_OUTPUT } from "../../utils/geminiLongDecode.js";
 
 // Output-token fields per wire format. Gemini wrappers (gemini-cli,
 // antigravity) nest the Gemini body under `request`.
@@ -18,7 +19,10 @@ function clampField(obj, key, ceiling) {
 export function clampOutputTokens(body, provider, model) {
   if (!body || typeof body !== "object" || !model) return body;
   if (!hasKnownLimits(provider, model)) return body;
-  const ceiling = getCapabilitiesForModel(provider, model).maxOutput;
+  const caps = getCapabilitiesForModel(provider, model);
+  // Long-decode models (gemini-4-hydrogen) run continuation hops up to
+  // GEMINI_LONG_DECODE_MAX_OUTPUT, so their static 64K maxOutput is not the cap.
+  const ceiling = caps.longDecode === true ? GEMINI_LONG_DECODE_MAX_OUTPUT : caps.maxOutput;
   if (!Number.isFinite(ceiling) || ceiling <= 0) return body;
 
   for (const key of TOP_LEVEL_FIELDS) clampField(body, key, ceiling);
