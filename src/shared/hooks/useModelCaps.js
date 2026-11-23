@@ -57,11 +57,16 @@ export function refreshModelCaps() {
 // an unmapped alias falls through to the generic patterns and under-reports
 // (e.g. any *claude*haiku* id reads as 200k regardless of the provider entry).
 export function resolveCaps(byFull, byId, rawKey) {
-  // Drop a thinking-level suffix such as "(high)" before any lookup: it is not
-  // part of the model id, and a bare "gpt-5.6-sol(high)" misses the catalog.
-  const key = rawKey ? rawKey.replace(/\([^()]+\)\s*$/, "").trim() : rawKey;
+  if (typeof rawKey !== "string" || !rawKey) return null;
+  // A thinking-level suffix such as "(high)" is not part of the model id, and a
+  // bare "gpt-5.6-sol(high)" misses the catalog. Exact matches on the raw key
+  // come first so a custom id that legitimately ends in parentheses still wins.
+  const key = rawKey.replace(/\([^()]+\)\s*$/, "").trim();
   if (!key) return null;
+  if (byFull[rawKey]) return byFull[rawKey];
   if (byFull[key]) return byFull[key];
+  const rawBare = rawKey.includes("/") ? rawKey.slice(rawKey.indexOf("/") + 1) : rawKey;
+  if (byId[rawBare]) return byId[rawBare];
   const bare = key.includes("/") ? key.slice(key.indexOf("/") + 1) : key;
   if (byId[bare]) return byId[bare];
   const alias = key.includes("/") ? key.slice(0, key.indexOf("/")) : null;

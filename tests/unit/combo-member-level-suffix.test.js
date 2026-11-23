@@ -26,6 +26,10 @@ describe("dashboard resolveCaps strips a thinking-level suffix", () => {
     expect(resolveCaps({}, {}, "cx/gpt-5.6-sol(high)").contextWindow).toBe(372000);
   });
 
+  it("prefers an exact custom id that legitimately ends in parentheses", () => {
+    expect(resolveCaps({ "cx/foo(beta)": { contextWindow: 123 } }, {}, "cx/foo(beta)").contextWindow).toBe(123);
+  });
+
   it("keeps the codex window end-to-end through the combo aggregate", () => {
     const resolveMember = makeComboMemberResolver([], {});
     const caps = aggregateComboCapabilities(["cx/gpt-5.6-sol(high)"], null, {
