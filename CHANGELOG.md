@@ -7,7 +7,7 @@ Merge do oficial decolua/9router v0.5.120–v0.5.123 (41 commits). A suíte pass
 - Do oficial (correções): o cabeçalho de cobrança do cliente não entra mais no prompt de sistema do Claude que vai para o cache; Mistral com conteúdo em lista emite `text_delta` como texto; catálogos do Cloudflare AI e do System One atualizados, e o System One desembrulha o envelope `result` do Cloudflare; o Pi (CLI) recebe entrada, raciocínio e níveis de pensamento do modelo; o ElevenLabs atualiza os modelos de TTS e respeita o campo de voz da OpenAI; embeddings da NVIDIA com `input_type`; contagens em bilhões e trilhões nos gráficos de uso; o Command Code e o Claude aparecem nos seletores com o catálogo ao vivo.
 - Do oficial (economia de tokens): nova opção REA allow. No fork ela só atua com o economizador de tokens ligado, então `x-9router-token-saver: off` continua desligando também esta injeção.
 - Do oficial (dependências): `next` e `@next/third-parties` `^16.4.6`, `eslint-config-next` 16.4.6, `node-forge` `^1.4.3`, `vitest` `^4.1.12`, e `overrides` de `minimatch` e `brace-expansion` no `cli/`.
-- Alibaba Token Plan: ficou o transporte só OpenAI do fork (com `modelsFetcher` e os marcadores de uso). A lista de modelos é a união das duas, menos `qwen3.8-max-preview`. O transporte Claude do oficial não foi adotado (ver pendências).
+- Alibaba Token Plan: clientes Anthropic usam o endpoint Messages de Singapura, validado com uma chave do plano. Clientes OpenAI continuam usando o endereço configurável por conta. A lista de modelos combina os dois catálogos e exclui `qwen3.8-max-preview`. O `modelsFetcher` e os marcadores de uso do fork continuam ativos.
 - Registro de provedores: os quatro novos ocupam `p155`–`p158` e o `orcarouter`, que só existe no fork, passou para `p159`.
 - Segredos nas respostas de conexão: `opendesignControlKey` e `sessionToken` entram na lista que nunca sai nas respostas, e o caso especial da AWS saiu por ser redundante.
 - Seletores de modelo: a lista de provedores com catálogo ao vivo é uma só (o par Qoder do fork mais Claude e Command Code do oficial), compartilhada pelo seletor de combo, pelos cartões das ferramentas de CLI e por `/api/providers/[id]/models`.
@@ -24,7 +24,6 @@ Merge do oficial decolua/9router v0.5.120–v0.5.123 (41 commits). A suíte pass
 
 Pendências:
 
-- **Alibaba:** o transporte Claude do Token Plan não foi adotado; falta um teste com chave real. Até lá o Token Plan Alibaba fala só OpenAI.
 - **Segurança:** o `case "llm7"` do teste de conexão ainda usa o `baseUrl` da conta sem a proteção contra endereços internos.
 - **Testes:** o teste `golden-url-header` depende do fuso horário da máquina. Rode a suíte e o gate com `TZ=UTC`, como o CI.
 

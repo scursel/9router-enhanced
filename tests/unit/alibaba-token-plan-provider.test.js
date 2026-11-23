@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import REGISTRY from "../../open-sse/providers/registry/index.js";
 import { PROVIDERS, PROVIDER_MODELS } from "../../open-sse/providers/index.js";
+import { DefaultExecutor } from "../../open-sse/executors/default.js";
+import { resolveTransport } from "../../open-sse/services/provider.js";
 
 describe("Alibaba Token Plan provider", () => {
   const entry = REGISTRY.find((e) => e.id === "alitp-intl");
@@ -18,6 +20,20 @@ describe("Alibaba Token Plan provider", () => {
     expect(PROVIDERS["alitp-intl"].baseUrl).toBe(
       "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
     );
+  });
+
+  it("routes Anthropic clients to Messages and keeps the account URL for OpenAI clients", () => {
+    const executor = new DefaultExecutor("alitp-intl");
+    const model = "auto";
+    const baseUrl = "https://account.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions";
+    const credentials = { providerSpecificData: { baseUrl } };
+    const runtimeTransport = resolveTransport("alitp-intl", "claude");
+    expect(runtimeTransport?.auth).toMatchObject({ header: "Authorization", scheme: "bearer", anthropicVersion: true });
+    expect(executor.buildUrl(model, false, 0, { ...credentials, runtimeTransport })).toBe(
+      "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic/v1/messages",
+    );
+    expect(resolveTransport("alitp-intl", "openai")).toBeNull();
+    expect(executor.buildUrl(model, false, 0, credentials)).toBe(baseUrl);
   });
 
   it("does not collide with the other three Alibaba key types", () => {

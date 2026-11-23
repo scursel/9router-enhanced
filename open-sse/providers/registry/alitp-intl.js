@@ -1,9 +1,10 @@
+import { CLAUDE_API_HEADERS } from "../shared.js";
+
 // Token Plan — credit subscription keys on token-plan.<region>.maas.aliyuncs.com.
 // Fourth Alibaba key type: Coding Plan (alicode/alicode-intl) and Model Studio
 // (alims-intl) both reject these keys, and they reject Model Studio keys back.
 // Singapore is the only region that serves the plan; eu-central-1 answers
-// IllegalEndpoint. The Anthropic surface (/apps/anthropic/v1/messages) is not
-// authorized for this plan, so OpenAI-compatible mode is the only transport.
+// IllegalEndpoint.
 export default {
   id: "alitp-intl",
   priority: 11,
@@ -24,6 +25,16 @@ export default {
     headers: {},
     quirks: { preserveCacheControl: true },
   },
+  // Keep OpenAI on the default transport so the executor honors account baseUrl overrides.
+  transports: [
+    {
+      format: "claude",
+      baseUrl: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic/v1/messages",
+      headers: { ...CLAUDE_API_HEADERS },
+      auth: { combined: true, header: "Authorization", scheme: "bearer", anthropicVersion: true },
+      thinkingFormat: "claude-adaptive",
+    },
+  ],
   // Singapore is the only region serving the Token Plan; the /models listing
   // on the same host needs the account key (401 without one).
   modelsFetcher: { url: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/models", type: "openai" },
