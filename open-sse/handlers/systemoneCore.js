@@ -1,7 +1,7 @@
 import { createErrorResult, parseUpstreamError, formatProviderError } from "../utils/error.js";
 import { HTTP_STATUS, FETCH_CONNECT_TIMEOUT_MS } from "../config/runtimeConfig.js";
 import { PROVIDER_MEDIA } from "../providers/index.js";
-import { getModelMeta, getModelUpstreamId } from "../config/providerModels.js";
+import { getModelMeta, getModelUpstreamId, PROVIDER_ID_TO_ALIAS } from "../config/providerModels.js";
 import { generateSessionId } from "../executors/opencode-zen.js";
 
 const OPENCODE_PROVIDERS = new Set(["opencode", "opencode-zen"]);
@@ -20,7 +20,7 @@ export function validateSystemonePayload(body, provider, model, customPayloadSha
   if (!body || body.state === undefined || body.state === null) {
     return "Missing required field: state";
   }
-  const meta = provider && model ? getModelMeta(provider, model) : null;
+  const meta = provider && model ? getModelMeta(PROVIDER_ID_TO_ALIAS[provider] || provider, model) : null;
   const shape = customPayloadShape || meta?.payloadShape || (meta ? "questions" : null);
   if (shape === "fields") {
     if (!isPlainObject(body.fields)) {
@@ -115,7 +115,7 @@ export async function handleSystemoneCore({
   const customSelector = typeof customUpstreamModelId === "string" && customUpstreamModelId.trim()
     ? customUpstreamModelId.trim()
     : null;
-  const requestBody = { ...body, model: customSelector || getModelUpstreamId(provider, model) || model };
+  const requestBody = { ...body, model: customSelector || getModelUpstreamId(PROVIDER_ID_TO_ALIAS[provider] || provider, model) || model };
 
   log?.debug?.("SYSTEMONE", `${provider.toUpperCase()} | ${model}`);
 

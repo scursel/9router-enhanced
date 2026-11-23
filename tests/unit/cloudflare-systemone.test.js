@@ -250,3 +250,30 @@ describe("handleSystemoneCore response envelope", () => {
     expect(json).toEqual(body);
   });
 });
+
+describe("validateSystemonePayload provider id vs registry alias", () => {
+  it("validateSystemonePayload resolves aliases", () => {
+    // The `opencode` registry entry has alias `oc`; model metadata is keyed by alias.
+    expect(validateSystemonePayload({ state: {}, fields: {} }, "opencode", "jev-1.13-free"))
+      .toBe("Missing required field: questions");
+    expect(validateSystemonePayload({ state: {}, questions: {} }, "opencode", "jev-1.13-free"))
+      .toBeNull();
+  });
+
+  it("handleSystemoneCore forwards the registry upstream id for an alias-keyed provider", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ answers: {} }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await handleSystemoneCore({
+        body: { state: {}, questions: { q: { type: "noul" } } },
+        modelInfo: { provider: "opencode", model: "jev-1.13-free" },
+        credentials: { apiKey: "k" },
+      });
+      expect(result.success).toBe(true);
+      const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(sent.model).toBe(getModelUpstreamId("oc", "jev-1.13-free") || "jev-1.13-free");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

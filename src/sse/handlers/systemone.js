@@ -74,6 +74,11 @@ export async function handleSystemone(request) {
 
   const { provider, model } = modelInfo;
 
+  // Per-key access control: checked right after model resolution, before custom
+  // model lookup or any credential access.
+  const keyAccessDenied = await enforceKeyAccessResolved(await getKeyAccessContext(request), modelStr, provider, model);
+  if (keyAccessDenied) return keyAccessDenied;
+
   // Resolve optional custom-model upstreamModelId (e.g. Cloudflare decision models registered via /api/models/custom).
   let customUpstreamModelId = null;
   try {
@@ -93,10 +98,6 @@ export async function handleSystemone(request) {
   if (payloadError) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, payloadError);
   }
-
-  // Per-key access control: checked before any credential lookup.
-  const keyAccessDenied = await enforceKeyAccessResolved(await getKeyAccessContext(request), modelStr, provider, model);
-  if (keyAccessDenied) return keyAccessDenied;
 
   if (modelStr !== `${provider}/${model}`) {
     log.info("ROUTING", `${modelStr} → ${provider}/${model}`);
