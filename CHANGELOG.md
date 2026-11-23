@@ -1,6 +1,6 @@
 # v0.5.123-enhanced.1 (2026-11-23 — upstream v0.5.123 sync)
 
-Merge do oficial decolua/9router v0.5.120–v0.5.123 (40 commits). A suíte passa sem falhas e a lista de falhas conhecidas segue vazia; rodar o gate com `TZ=UTC` (ver pendências).
+Merge do oficial decolua/9router v0.5.120–v0.5.123 (41 commits). A suíte passa sem falhas e a lista de falhas conhecidas segue vazia; rodar o gate com `TZ=UTC` (ver pendências).
 
 - Do oficial (provedores): Synthetic (a chave é validada em `/v2/quotas`), DeepRelay, OpenDesign Go e QwenCloud, os três primeiros com leitura de quota. GPT 6.2 Sol e Astra no Codex, com a identidade de cliente do Codex em 0.167.1. Lista de modelos do Alibaba Token Plan atualizada.
 - Do oficial (Antigravity e Kiro): Gemini 4 Hydrogen com decodificação longa (um `max_tokens` acima de 64K chega a 1M de saída num só turno) e os níveis Neon, além dos níveis `max` do Claude 5.5. A impressão digital do Antigravity passa a Hub 2.33.0. O Kiro se identifica como Kiro IDE 1.4.154 em toda chamada, inclusive na renovação do token, e ganha o fallback `CreateResponse` (`/v1/responses`) quando recebe 429 `USER_REQUEST_RATE_EXCEEDED`.
@@ -20,7 +20,7 @@ Merge do oficial decolua/9router v0.5.120–v0.5.123 (40 commits). A suíte pass
 - **Segurança:** as chaves dos novos provedores de gateway (OpenDesign Go, DeepRelay, QwenCloud) deixam de ser enviadas ao host de uso no teste de conexão: o teste consulta só a `validateUrl`.
 - **Segurança:** o teste de conexão genérico não consulta mais um `baseUrl` de usuário que não seja público (endereço interno ou de metadados). Provedores auto-hospedados continuam podendo apontar para a LAN. A checagem olha só o endereço literal, sem resolver DNS nem seguir redirecionamento.
 - **Segurança:** no `PUT` de uma conexão, enviar um segredo de `providerSpecificData` como string vazia o mantém, e enviar `null` o remove, para todos os segredos da lista (antes só valia para a AWS).
-- **Segurança:** o System One verifica o acesso da chave de API antes de consultar modelos personalizados,, e não depois. A validação do corpo e a busca do id do provedor passaram a resolver o apelido do provedor para o id do registro.
+- **Segurança:** o System One verifica o acesso da chave de API antes de consultar modelos personalizados, e não depois. A validação do corpo e a busca do id do provedor passaram a resolver o apelido do provedor para o id do registro.
 
 Pendências:
 
