@@ -41,6 +41,28 @@ describe("toProviderConnectionResponse secrets redaction", () => {
     expect(result.providerSpecificData.uid).toBe("user-123");
   });
 
+  it("redacts opendesignControlKey", () => {
+    const connection = {
+      id: "test-odc",
+      provider: "opendesign-go",
+      providerSpecificData: { opendesignControlKey: "odc-x", baseUrl: "https://e.x" },
+    };
+    const result = toProviderConnectionResponse(connection);
+    expect(result.providerSpecificData.opendesignControlKey).toBeUndefined();
+    expect(result.providerSpecificData.baseUrl).toBe("https://e.x");
+  });
+
+  it("redacts sessionToken for non-AWS providers", () => {
+    const connection = {
+      id: "test-st",
+      provider: "kiro",
+      providerSpecificData: { sessionToken: "s", region: "us-east-1" },
+    };
+    const result = toProviderConnectionResponse(connection);
+    expect(result.providerSpecificData.sessionToken).toBeUndefined();
+    expect(result.providerSpecificData.region).toBe("us-east-1");
+  });
+
   it("should redact clientSecret from providerSpecificData", () => {
     const connection = {
       id: "test-3",
