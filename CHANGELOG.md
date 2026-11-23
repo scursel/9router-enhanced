@@ -2,7 +2,7 @@
 
 Merge do oficial decolua/9router v0.5.120–v0.5.123 (40 commits). A suíte passa sem falhas e a lista de falhas conhecidas segue vazia; rodar o gate com `TZ=UTC` (ver pendências).
 
-- Do oficial (provedores): Synthetic (a chave é validada em `/v2/quotas`), DeepRelay, OpenDesign Go e QwenCloud, os três primeiros com leitura de quota. GPT 6.2 Sol e Astra no Codex. Lista de modelos do Alibaba Token Plan atualizada.
+- Do oficial (provedores): Synthetic (a chave é validada em `/v2/quotas`), DeepRelay, OpenDesign Go e QwenCloud, os três primeiros com leitura de quota. GPT 6.2 Sol e Astra no Codex, com a identidade de cliente do Codex em 0.167.1. Lista de modelos do Alibaba Token Plan atualizada.
 - Do oficial (Antigravity e Kiro): Gemini 4 Hydrogen com decodificação longa (um `max_tokens` acima de 64K chega a 1M de saída num só turno) e os níveis Neon, além dos níveis `max` do Claude 5.5. A impressão digital do Antigravity passa a Hub 2.33.0. O Kiro se identifica como Kiro IDE 1.4.154 em toda chamada, inclusive na renovação do token, e ganha o fallback `CreateResponse` (`/v1/responses`) quando recebe 429 `USER_REQUEST_RATE_EXCEEDED`.
 - Do oficial (correções): o cabeçalho de cobrança do cliente não entra mais no prompt de sistema do Claude que vai para o cache; Mistral com conteúdo em lista emite `text_delta` como texto; catálogos do Cloudflare AI e do System One atualizados, e o System One desembrulha o envelope `result` do Cloudflare; o Pi (CLI) recebe entrada, raciocínio e níveis de pensamento do modelo; o ElevenLabs atualiza os modelos de TTS e respeita o campo de voz da OpenAI; embeddings da NVIDIA com `input_type`; contagens em bilhões e trilhões nos gráficos de uso; o Command Code e o Claude aparecem nos seletores com o catálogo ao vivo.
 - Do oficial (economia de tokens): nova opção REA allow. No fork ela só atua com o economizador de tokens ligado, então `x-9router-token-saver: off` continua desligando também esta injeção.
@@ -27,7 +27,6 @@ Pendências:
 - **Alibaba:** o transporte Claude do Token Plan não foi adotado; falta um teste com chave real. Até lá o Token Plan Alibaba fala só OpenAI.
 - **Segurança:** o `case "llm7"` do teste de conexão ainda usa o `baseUrl` da conta sem a proteção contra endereços internos.
 - **Testes:** o teste `golden-url-header` depende do fuso horário da máquina. Rode a suíte e o gate com `TZ=UTC`, como o CI.
-- **Codex:** o oficial diz que o GPT 6.2 exige identidade de cliente Codex 0.166.0 ou maior; o `cliVersion` do fork não foi conferido.
 
 # v0.5.119-enhanced.8 (2026-11-23)
 
