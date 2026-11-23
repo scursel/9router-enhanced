@@ -235,4 +235,37 @@ describe("toProviderConnectionResponse secrets redaction", () => {
       })
     );
   });
+  describe("PUT secret providerSpecificData keys", () => {
+    async function putSecret(provider, existingPsd, bodyPsd) {
+      const { getProviderConnectionById, updateProviderConnection } = await import("@/models");
+      updateProviderConnection.mockReset();
+      getProviderConnectionById.mockResolvedValue({
+        id: "sec-id",
+        provider,
+        providerSpecificData: { ...existingPsd },
+      });
+      updateProviderConnection.mockImplementation((id, data) => ({ ...data, id }));
+      const { PUT } = await import("../../src/app/api/providers/[id]/route.js");
+      await PUT({ json: async () => ({ providerSpecificData: bodyPsd }) }, { params: { id: "sec-id" } });
+      return updateProviderConnection.mock.calls[0][1].providerSpecificData;
+    }
+
+    it.each([
+      ["opendesign-go", "opendesignControlKey", "odc-x"],
+      ["kiro", "sessionToken", "s"],
+    ])("PUT keeps secrets sent as empty string (%s.%s)", async (provider, key, value) => {
+      const saved = await putSecret(provider, { [key]: value, region: "us-east-1" }, { [key]: "" });
+      expect(saved[key]).toBe(value);
+      expect(saved.region).toBe("us-east-1");
+    });
+
+    it.each([
+      ["opendesign-go", "opendesignControlKey", "odc-x"],
+      ["kiro", "sessionToken", "s"],
+    ])("PUT removes a secret sent as null (%s.%s)", async (provider, key, value) => {
+      const saved = await putSecret(provider, { [key]: value, region: "us-east-1" }, { [key]: null });
+      expect(Object.prototype.hasOwnProperty.call(saved, key)).toBe(false);
+      expect(saved.region).toBe("us-east-1");
+    });
+  });
 });

@@ -5,7 +5,7 @@ import {
   updateProviderConnection,
   deleteProviderConnection,
 } from "@/models";
-import { toProviderConnectionResponse, usesAwsCredentialForm } from "@/lib/providerConnectionResponse";
+import { toProviderConnectionResponse, SECRET_PROVIDER_SPECIFIC_KEYS } from "@/lib/providerConnectionResponse";
 import { validateLocalBalancePatch } from "open-sse/services/usage/localBalance.js";
 import { invalidateLocalBalanceCache } from "@/lib/localBalanceGuard.js";
 
@@ -200,18 +200,18 @@ export async function PUT(request, { params }) {
       )
     ) {
       const incomingProviderSpecificData = { ...(providerSpecificData || {}) };
-      const isAwsCredential = usesAwsCredentialForm(existing.provider);
-      // The edit form cannot read the stored token back. An empty password field means
-      // keep the saved credential; null explicitly removes it.
-      if (isAwsCredential && incomingProviderSpecificData.sessionToken === "") {
-        delete incomingProviderSpecificData.sessionToken;
+      // The edit form cannot read stored secrets back (they are redacted from the
+      // response). An empty field means keep the saved credential; null explicitly
+      // removes it.
+      for (const key of SECRET_PROVIDER_SPECIFIC_KEYS) {
+        if (incomingProviderSpecificData[key] === "") delete incomingProviderSpecificData[key];
       }
       updateData.providerSpecificData = {
         ...(existing.providerSpecificData || {}),
         ...incomingProviderSpecificData,
       };
-      if (isAwsCredential && incomingProviderSpecificData.sessionToken === null) {
-        delete updateData.providerSpecificData.sessionToken;
+      for (const key of SECRET_PROVIDER_SPECIFIC_KEYS) {
+        if (incomingProviderSpecificData[key] === null) delete updateData.providerSpecificData[key];
       }
 
       if (Object.prototype.hasOwnProperty.call(incomingProviderSpecificData, "localBalance")) {

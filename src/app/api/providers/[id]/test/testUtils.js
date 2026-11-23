@@ -37,6 +37,7 @@ import {
 } from "@/lib/oauth/constants/oauth";
 import { buildClineHeaders } from "@/shared/utils/clineAuth";
 import { hasWebIdentityProbe, fetchWebIdentity } from "open-sse/services/webIdentity.js";
+import { assertPublicUrl } from "@/shared/utils/ssrfGuard";
 
 // OAuth provider test endpoints
 const OAUTH_TEST_CONFIG = {
@@ -620,6 +621,31 @@ function isReservedTransportHeader(name) {
   return FRAMING_TRANSPORT_HEADERS.has(lower) || RESERVED_TRANSPORT_HEADER.test(lower);
 }
 
+// Providers built for a host on the local machine or LAN: their user-supplied
+// baseUrl is legitimately private, so the public-URL guard must not apply.
+const LOCAL_BASEURL_PROVIDERS = new Set([
+  "selfhosted-embedding",
+  "selfhosted-tts",
+  "selfhosted-stt",
+  "comfyui",
+  "sdwebui",
+]);
+
+// True when a user-supplied baseUrl may receive the connection's bearer key.
+// assertPublicUrl only inspects the literal IP/hostname: it does no DNS
+// resolution and follows no redirects, so a hostname that resolves to a private
+// address (or redirects there) is not caught here. It still blocks the direct
+// cases (cloud metadata, loopback, RFC1918 literals) at no async cost.
+function isProbeableBaseUrl(provider, baseUrl) {
+  if (LOCAL_BASEURL_PROVIDERS.has(provider)) return true;
+  try {
+    assertPublicUrl(String(baseUrl));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Ordered probes for a provider with no hand-written case.
  *
@@ -649,7 +675,7 @@ export function buildGenericProbes(connection) {
   const probes = [];
 
   // 1. User-supplied base URL — self-hosted and gateway connections.
-  if (psd.baseUrl) {
+  if (psd.baseUrl && isProbeableBaseUrl(connection.provider, psd.baseUrl)) {
     probes.push({ name: "baseUrl/models", method: "GET", url: `${String(psd.baseUrl).replace(/\/$/, "")}/models`, headers: bearer });
   }
 
@@ -1146,6 +1172,9 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
       case "bai":
       case "muse":
       case "runcrate":
+      case "opendesign-go":
+      case "deeprelay":
+      case "qwencloud":
       case "synthetic": {
         const cfg = PROVIDERS[connection.provider];
         const res = await fetchWithConnectionProxy(cfg.validateUrl, { headers: { Authorization: `Bearer ${connection.apiKey}` } }, effectiveProxy);

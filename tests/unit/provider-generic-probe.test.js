@@ -145,6 +145,30 @@ describe("generic provider probe fallback", () => {
         .toBeLessThan(probes.findIndex((probe) => probe.name === "transport.baseUrl"));
     });
 
+    it("generic probe skips a non-public baseUrl", () => {
+      const names = (baseUrl) => buildGenericProbes(connectionFor("orcarouter", {
+        providerSpecificData: { baseUrl },
+      })).map((probe) => probe.name);
+
+      // Cloud metadata, loopback and RFC1918 literals must never get the bearer key.
+      expect(names("http://169.254.169.254/latest")).not.toContain("baseUrl/models");
+      expect(names("http://127.0.0.1:9/v1")).not.toContain("baseUrl/models");
+      expect(names("http://10.0.0.5/v1")).not.toContain("baseUrl/models");
+      expect(names("https://gw.example.com/v1")).toContain("baseUrl/models");
+    });
+
+    it("self-hosted providers keep their LAN baseUrl", () => {
+      for (const provider of ["selfhosted-embedding", "selfhosted-tts", "selfhosted-stt", "comfyui", "sdwebui"]) {
+        const probes = buildGenericProbes(connectionFor(provider, {
+          apiKey: "",
+          providerSpecificData: { baseUrl: "http://192.168.1.20:8080/v1" },
+        }));
+        const probe = probes.find((p) => p.name === "baseUrl/models");
+        expect(probe, provider).toBeDefined();
+        expect(probe.url, provider).toBe("http://192.168.1.20:8080/v1/models");
+      }
+    });
+
     it("returns no probes for a provider the registry does not know", () => {
       expect(buildGenericProbes(connectionFor("totally-unknown-provider"))).toEqual([]);
     });
@@ -280,6 +304,27 @@ describe("generic provider probe fallback", () => {
 
       expect(result.valid).toBe(false);
       expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("new gateway providers never send the runtime key to the usage host", async () => {
+      const expected = {
+        "opendesign-go": "https://amr-link.open-design.ai/v1/models",
+        deeprelay: "https://api.deeprelay.ai/v1/models",
+        qwencloud: "https://token-plan.maas.qwencloudapi.com/compatible-mode/v1/models",
+      };
+      for (const [provider, validateUrl] of Object.entries(expected)) {
+        expect(PROVIDERS[provider].validateUrl).toBe(validateUrl);
+        mocks.getProviderConnectionById.mockResolvedValue(connectionFor(provider));
+        // 500 (not 200/401): the generic chain stops at the first probe on those,
+        // which would let this test pass without the explicit case.
+        global.fetch = vi.fn().mockImplementation(() => jsonRes({ error: "boom" }, 500));
+
+        await testSingleConnection(`${provider}-conn`);
+
+        const urls = global.fetch.mock.calls.map((call) => String(call[0]));
+        expect(urls, provider).toEqual([validateUrl]);
+        expect(urls.some((u) => u.includes("amr-api.open-design.ai")), provider).toBe(false);
+      }
     });
 
     it("never falls back to the old 'Provider test not supported' placeholder", async () => {

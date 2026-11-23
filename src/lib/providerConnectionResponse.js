@@ -4,7 +4,7 @@ export function usesAwsCredentialForm(provider) {
   return AI_PROVIDERS[provider]?.credentialForm === "aws";
 }
 
-const SECRET_PROVIDER_SPECIFIC_KEYS = new Set([
+export const SECRET_PROVIDER_SPECIFIC_KEYS = new Set([
   "cookie",
   "quotaCookie",
   "clientSecret",
