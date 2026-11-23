@@ -154,6 +154,9 @@ describe("generic provider probe fallback", () => {
       expect(names("http://169.254.169.254/latest")).not.toContain("baseUrl/models");
       expect(names("http://127.0.0.1:9/v1")).not.toContain("baseUrl/models");
       expect(names("http://10.0.0.5/v1")).not.toContain("baseUrl/models");
+      expect(names("http://localhost:8080/v1")).not.toContain("baseUrl/models");
+      expect(names("http://[::1]:8080/v1")).not.toContain("baseUrl/models");
+      expect(names("http://[::ffff:127.0.0.1]/v1")).not.toContain("baseUrl/models");
       expect(names("https://gw.example.com/v1")).toContain("baseUrl/models");
     });
 
@@ -166,6 +169,25 @@ describe("generic provider probe fallback", () => {
         const probe = probes.find((p) => p.name === "baseUrl/models");
         expect(probe, provider).toBeDefined();
         expect(probe.url, provider).toBe("http://192.168.1.20:8080/v1/models");
+      }
+    });
+
+    it("custom embedding nodes keep their LAN baseUrl", () => {
+      const probes = buildGenericProbes(connectionFor("custom-embedding-lan-node", {
+        providerSpecificData: { baseUrl: "http://192.168.1.20:8080/v1" },
+      }));
+      const probe = probes.find((p) => p.name === "baseUrl/models");
+      expect(probe).toBeDefined();
+      expect(probe.url).toBe("http://192.168.1.20:8080/v1/models");
+    });
+
+    it("only probes http(s) baseUrls, even for exempt providers", () => {
+      for (const provider of ["orcarouter", "selfhosted-embedding", "custom-embedding-lan-node"]) {
+        for (const baseUrl of ["file:///etc/passwd", "ftp://gw.example.com/v1", "not a url"]) {
+          const names = buildGenericProbes(connectionFor(provider, { providerSpecificData: { baseUrl } }))
+            .map((probe) => probe.name);
+          expect(names, `${provider} ${baseUrl}`).not.toContain("baseUrl/models");
+        }
       }
     });
 
@@ -319,8 +341,9 @@ describe("generic provider probe fallback", () => {
         // which would let this test pass without the explicit case.
         global.fetch = vi.fn().mockImplementation(() => jsonRes({ error: "boom" }, 500));
 
-        await testSingleConnection(`${provider}-conn`);
+        const result = await testSingleConnection(`${provider}-conn`);
 
+        expect(result.valid, provider).toBe(false);
         const urls = global.fetch.mock.calls.map((call) => String(call[0]));
         expect(urls, provider).toEqual([validateUrl]);
         expect(urls.some((u) => u.includes("amr-api.open-design.ai")), provider).toBe(false);

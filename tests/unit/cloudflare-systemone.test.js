@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import cloudflareAi from "../../open-sse/providers/registry/cloudflare-ai.js";
-import { getModelMeta, getModelUpstreamId } from "../../open-sse/config/providerModels.js";
+import { getModelMeta, getModelUpstreamId, PROVIDER_MODELS } from "../../open-sse/config/providerModels.js";
 import { handleSystemoneCore, validateSystemonePayload } from "../../open-sse/handlers/systemoneCore.js";
 
 describe("cloudflare-ai System One models (#5748)", () => {
@@ -261,6 +261,14 @@ describe("validateSystemonePayload provider id vs registry alias", () => {
   });
 
   it("handleSystemoneCore forwards the registry upstream id for an alias-keyed provider", async () => {
+    // PROVIDER_MODELS is keyed by alias ("oc"), not by provider id ("opencode").
+    // A distinct upstreamModelId makes the id-vs-alias lookup observable: without
+    // the PROVIDER_ID_TO_ALIAS normalization both lookups fall back to the model id.
+    const entry = PROVIDER_MODELS.oc.find((m) => m.id === "jev-1.13-free");
+    expect(entry).toBeDefined();
+    const hadUpstream = Object.prototype.hasOwnProperty.call(entry, "upstreamModelId");
+    const originalUpstream = entry.upstreamModelId;
+    entry.upstreamModelId = "jev-1.13-upstream";
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ answers: {} }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     try {
@@ -271,8 +279,10 @@ describe("validateSystemonePayload provider id vs registry alias", () => {
       });
       expect(result.success).toBe(true);
       const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
-      expect(sent.model).toBe(getModelUpstreamId("oc", "jev-1.13-free") || "jev-1.13-free");
+      expect(sent.model).toBe("jev-1.13-upstream");
     } finally {
+      if (hadUpstream) entry.upstreamModelId = originalUpstream;
+      else delete entry.upstreamModelId;
       vi.unstubAllGlobals();
     }
   });

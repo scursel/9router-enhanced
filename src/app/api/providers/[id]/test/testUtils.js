@@ -1,7 +1,7 @@
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { testProxyUrl } from "@/lib/network/proxyTest";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS } from "@/shared/constants/providers";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, isCustomEmbeddingProvider, AI_PROVIDERS } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { inspectAndWrapCommandCodeResponse } from "open-sse/executors/commandcode.js";
 import { openaiToCommandCodeRequest } from "open-sse/translator/request/openai-to-commandcode.js";
@@ -632,14 +632,25 @@ const LOCAL_BASEURL_PROVIDERS = new Set([
 ]);
 
 // True when a user-supplied baseUrl may receive the connection's bearer key.
+// Only http(s) is probeable, for every provider. Custom embedding nodes are
+// user-created for the user's own server (often on the LAN), so like the
+// local-host providers they are exempt from the public-URL guard.
 // assertPublicUrl only inspects the literal IP/hostname: it does no DNS
 // resolution and follows no redirects, so a hostname that resolves to a private
 // address (or redirects there) is not caught here. It still blocks the direct
 // cases (cloud metadata, loopback, RFC1918 literals) at no async cost.
 function isProbeableBaseUrl(provider, baseUrl) {
-  if (LOCAL_BASEURL_PROVIDERS.has(provider)) return true;
+  const raw = String(baseUrl);
+  let protocol;
   try {
-    assertPublicUrl(String(baseUrl));
+    protocol = new URL(raw).protocol;
+  } catch {
+    return false;
+  }
+  if (protocol !== "http:" && protocol !== "https:") return false;
+  if (LOCAL_BASEURL_PROVIDERS.has(provider) || isCustomEmbeddingProvider(provider)) return true;
+  try {
+    assertPublicUrl(raw);
     return true;
   } catch {
     return false;
