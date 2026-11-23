@@ -33,9 +33,13 @@ describe("usage route eligibility", () => {
       providerSpecificData: { localBalance: { enabled: true, initialAmount: 100, currency: "USD" } },
     });
 
-    const body = await (await call()).json();
+    const res = await call();
+    const body = await res.json();
 
+    // A 500 (handler threw) must not pass for "eligible".
+    expect(res.status).toBe(200);
     expect(body).not.toEqual(NOT_AVAILABLE);
+    expect(mocks.getUsage).toHaveBeenCalledTimes(1);
   });
 
   it("accepts a MiniMax lease connection", async () => {
@@ -46,8 +50,12 @@ describe("usage route eligibility", () => {
       providerSpecificData: {},
     });
 
-    const body = await (await call()).json();
+    const res = await call();
+    const body = await res.json();
 
+    // A 500 (handler threw) must not pass for "eligible".
+    expect(res.status).toBe(200);
     expect(body).not.toEqual(NOT_AVAILABLE);
+    expect(mocks.getUsage).toHaveBeenCalledTimes(1);
   });
 });
