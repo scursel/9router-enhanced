@@ -56,7 +56,10 @@ export function refreshModelCaps() {
 // by provider id (opencode-go, commandcode, …), so map it before the lookup —
 // an unmapped alias falls through to the generic patterns and under-reports
 // (e.g. any *claude*haiku* id reads as 200k regardless of the provider entry).
-export function resolveCaps(byFull, byId, key) {
+export function resolveCaps(byFull, byId, rawKey) {
+  // Drop a thinking-level suffix such as "(high)" before any lookup: it is not
+  // part of the model id, and a bare "gpt-5.6-sol(high)" misses the catalog.
+  const key = rawKey ? rawKey.replace(/\([^()]+\)\s*$/, "").trim() : rawKey;
   if (!key) return null;
   if (byFull[key]) return byFull[key];
   const bare = key.includes("/") ? key.slice(key.indexOf("/") + 1) : key;
