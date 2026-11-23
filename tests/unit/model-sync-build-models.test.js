@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock all localDb access used by buildModelsList + getComboModels
 const mocks = vi.hoisted(() => ({
@@ -69,12 +69,17 @@ function catalog(models) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The keyless opencode (oc) provider has a live /zen/v1/models resolver. Keep it
+  // offline so the suite does not depend on the network (live rows are all tier "free").
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline (test)"); }));
   mocks.getProviderConnections.mockResolvedValue([]);
   mocks.getCombos.mockResolvedValue([]);
   mocks.getCustomModels.mockResolvedValue([]);
   mocks.getModelAliases.mockResolvedValue({});
   mocks.getDisabledModels.mockResolvedValue({});
 });
+
+afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("B2: /v1/models/free via buildModelsList tier filter", () => {
   it("advertises only tier=free models when caller filters downstream", async () => {

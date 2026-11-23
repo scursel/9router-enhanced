@@ -353,6 +353,12 @@ export function extractUsage(chunk) {
 // estimate never overwrites real usage. Max-merge only applies between partial
 // REAL reports — otherwise the persisted prompt_tokens became
 // max(estimate, real), inflated whenever the estimate exceeded reality.
+//
+// Exception: some Anthropic-compatible providers (e.g. Alibaba Token Plan)
+// report message_start.input_tokens as the TOTAL before cache accounting, then
+// message_delta.input_tokens as the NON-CACHED portion alongside cache fields.
+// In that case max-merge keeps the inflated pre-cache total; prefer the delta's
+// input_tokens so canonicalizeUsage folds cache correctly.
 export function mergeUsage(prev, next) {
   if (!prev) return next || null;
   if (!next) return prev;
@@ -370,11 +376,18 @@ export function mergeUsage(prev, next) {
     return next;
   }
   const merged = { ...prev };
+  const nextHasCache = next.cache_read_input_tokens != null || next.cache_creation_input_tokens != null;
+  const prevHasCache = prev.cache_read_input_tokens != null || prev.cache_creation_input_tokens != null;
+  const preferNextInput = nextHasCache && !prevHasCache && next.prompt_tokens != null;
   for (const [k, v] of Object.entries(next)) {
     // typeof NaN === "number" — guard with Number.isFinite so one malformed
     // chunk can't poison the whole accumulation (Math.max(x, NaN) is NaN).
     if (typeof v === "number" && Number.isFinite(v)) {
-      merged[k] = Math.max(typeof merged[k] === "number" ? merged[k] : 0, v);
+      if (k === "prompt_tokens" && preferNextInput) {
+        merged[k] = v;
+      } else {
+        merged[k] = Math.max(typeof merged[k] === "number" ? merged[k] : 0, v);
+      }
     } else if (v && typeof v === "object") {
       merged[k] = v; // nested details objects: take latest
     }

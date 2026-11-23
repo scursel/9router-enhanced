@@ -81,7 +81,7 @@ async function handleSingleModelTts(body, modelStr, responseFormat, language, st
 
   // noAuth providers — no credential needed
   if (!CREDENTIALED_PROVIDERS.has(provider)) {
-    const result = await handleTtsCore({ provider, model, input: body.input, responseFormat, language, style });
+    const result = await handleTtsCore({ provider, model, input: body.input, responseFormat, language, style, options: body });
     if (result.success) {
       recordModalityUsage({
         provider, model, endpoint, apiKey,
@@ -108,7 +108,7 @@ async function handleSingleModelTts(body, modelStr, responseFormat, language, st
       }
       if (excludeConnectionIds.size === 0) {
         if (provider === "ollama-local") {
-          const result = await handleTtsCore({ provider, model, input: body.input, credentials: null, responseFormat, language, style });
+          const result = await handleTtsCore({ provider, model, input: body.input, credentials: null, responseFormat, language, style, options: body });
           if (result.success) return result.response;
           return errorResponse(result.status || HTTP_STATUS.BAD_GATEWAY, result.error || "TTS failed");
         }
@@ -129,7 +129,7 @@ async function handleSingleModelTts(body, modelStr, responseFormat, language, st
       log.warn("TOKEN", `${provider} | token refresh failed: ${err?.message || err}`);
     }
 
-    const result = await handleTtsCore({ provider, model, input: body.input, credentials: refreshedCredentials, responseFormat, language, style });
+    const result = await handleTtsCore({ provider, model, input: body.input, credentials: refreshedCredentials, responseFormat, language, style, options: body });
 
     if (result.success) {
       try {

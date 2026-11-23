@@ -114,7 +114,15 @@ async function getGeminiSubscriptionInfo(accessToken, proxyOptions = null) {
   }
 }
 
-const ANTIGRAVITY_QUOTA_MODELS = new Set([
+export const ANTIGRAVITY_QUOTA_MODELS = new Set([
+  "gemini-4-hydrogen-xhigh",
+  "gemini-4-hydrogen-high",
+  "gemini-4-hydrogen-medium",
+  "gemini-4-hydrogen-low",
+  "gemini-4-neon-xhigh",
+  "gemini-4-neon-high",
+  "gemini-4-neon-medium",
+  "gemini-4-neon-low",
   "gemini-4-carbon-high",
   "gemini-4-carbon-medium",
   "gemini-4-carbon-low",
@@ -142,10 +150,12 @@ const ANTIGRAVITY_QUOTA_MODELS = new Set([
   "gemini-3.1-pro-low",
   "gemini-3.1-flash-image",
   "gemini-3.1-flash-lite",
+  "claude-sonnet-5-5-max",
   "claude-sonnet-5-5-high",
   "claude-sonnet-5-5-medium",
   "claude-sonnet-5-5-low",
   "claude-sonnet-5-5",
+  "claude-opus-5-5-max",
   "claude-opus-5-5-high",
   "claude-opus-5-5-medium",
   "claude-opus-5-5-low",

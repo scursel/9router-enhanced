@@ -3,18 +3,13 @@ import { FORMATS } from "../formats.js";
 import { adjustMaxTokens } from "../formats/maxTokens.js";
 import { encodeDataUri } from "../concerns/image.js";
 import { ROLE, OPENAI_BLOCK, CLAUDE_BLOCK, DEFAULT_IMAGE_MIME } from "../schema/index.js";
-import { collapseTextParts } from "../concerns/message.js";
+import { collapseTextParts, stripAnthropicBillingHeader } from "../concerns/message.js";
 
 // is_error has no slot on an OpenAI role:"tool" message (the direct claude→kiro route
 // keeps it structurally as status:"error"); fold it into the text with an explicit marker
 // so the model still sees the failure. Round-trip safe: openai→claude copies content
 // verbatim (marker survives) and tool pairing keys on tool_call_id, which is untouched.
 const TOOL_ERROR_MARKER = "[tool_error] ";
-
-function stripAnthropicBillingHeader(text) {
-  if (typeof text !== "string") return "";
-  return text.replace(/^x-anthropic-billing-header:[^\n]*(?:\r?\n)?/i, "");
-}
 
 // Convert Claude request to OpenAI format
 export function claudeToOpenAIRequest(model, body, stream, credentials, opts = {}) {

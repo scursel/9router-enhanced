@@ -11,10 +11,11 @@ const SECRET_PROVIDER_SPECIFIC_KEYS = new Set([
   "copilotToken",
   "storageState",
   "mimoPassToken",
+  "opendesignControlKey",
+  "sessionToken",
 ]);
 
 export function toProviderConnectionResponse(connection) {
-
   const { apiKey, accessToken, refreshToken, idToken, providerSpecificData, ...safe } = connection;
 
   // Redact secret keys from providerSpecificData
@@ -23,10 +24,6 @@ export function toProviderConnectionResponse(connection) {
     sanitizedProviderSpecificData = { ...providerSpecificData };
     for (const key of SECRET_PROVIDER_SPECIFIC_KEYS) {
       delete sanitizedProviderSpecificData[key];
-    }
-    // For AWS, also redact sessionToken (already handled separately above)
-    if (usesAwsCredentialForm(connection.provider)) {
-      delete sanitizedProviderSpecificData.sessionToken;
     }
   }
 

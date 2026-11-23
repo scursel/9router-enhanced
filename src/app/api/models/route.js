@@ -5,6 +5,7 @@ import { getDisabledModels } from "@/lib/disabledModelsDb";
 import { AI_MODELS } from "@/shared/constants/config";
 import { getProviderAlias, ALIAS_TO_ID } from "@/shared/constants/providers";
 import { getCapabilitiesForModel, hasKnownLimits } from "open-sse/providers/capabilities.js";
+import { getThinkingLevels } from "open-sse/providers/thinkingLevels.js";
 
 // Facts measured at the provider (import picker / Detect button) beat the
 // name-based estimate; the *Source fields tell the dashboard which is which:
@@ -52,11 +53,15 @@ export async function GET() {
         const providerAlias = getProviderAlias(m.provider) || m.provider;
         const routedModel = `${providerAlias}/${m.model}`;
         const c = getCapabilitiesForModel(m.provider, m.model);
+        const thinkingLevels = getThinkingLevels(m.provider, m.model);
         return {
           ...m,
           fullModel,
           routedModel,
           alias: aliasByModel[routedModel] || aliasByModel[fullModel] || m.model,
+          // Same per-model set /v1/models already publishes, so CLI-tool cards can
+          // seed thinking levels instead of guessing them (Pi, opencode).
+          ...(Array.isArray(thinkingLevels) && thinkingLevels.length > 0 ? { thinking_levels: thinkingLevels } : {}),
           caps: withMeasuredFacts({
             vision: c.vision,
             search: c.search,
@@ -87,6 +92,7 @@ export async function GET() {
       const fullModel = `${m.providerAlias}/${m.id}`;
       const providerId = ALIAS_TO_ID[m.providerAlias] || m.providerAlias;
       const c = getCapabilitiesForModel(providerId, m.id);
+      const thinkingLevels = getThinkingLevels(providerId, m.id);
       models.push({
         provider: m.providerAlias,
         model: m.id,
@@ -94,6 +100,7 @@ export async function GET() {
         fullModel,
         routedModel: fullModel,
         alias: aliasByModel[fullModel] || m.id,
+        ...(Array.isArray(thinkingLevels) && thinkingLevels.length > 0 ? { thinking_levels: thinkingLevels } : {}),
         caps: withMeasuredFacts({
           vision: c.vision,
           search: c.search,

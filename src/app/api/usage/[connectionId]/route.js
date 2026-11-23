@@ -9,6 +9,7 @@ import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { USAGE_APIKEY_PROVIDERS } from "@/shared/constants/providers";
 import { hasLocalBalanceConfigured } from "open-sse/services/usage/localBalance.js";
 import { fetchUsdToBrlRate } from "@/lib/fxRate.js";
+import { isLeaseConnection } from "open-sse/services/minimaxCodeLease.js";
 
 // Detect auth-expired messages returned by usage providers instead of throwing
 const AUTH_EXPIRED_PATTERNS = ["expired", "authentication", "unauthorized", "401", "re-authorize"];
@@ -154,8 +155,10 @@ export async function GET(request, { params }) {
     const isApikeyEligible =
       isApikeyAuth && USAGE_APIKEY_PROVIDERS.includes(connection.provider);
     const hasLocalBalance = hasLocalBalanceConfigured(connection);
+    // Lease connections borrow the desktop app's token inside the usage handler.
+    const isLease = isLeaseConnection(connection);
 
-    if (!isOAuth && !isApikeyEligible && !hasLocalBalance) {
+    if (!isOAuth && !isApikeyEligible && !hasLocalBalance && !isLease) {
       return Response.json({ message: "Usage not available for this connection" });
     }
 

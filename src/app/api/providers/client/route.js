@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { getProviderConnections } from "@/lib/localDb";
 import { backfillCodexEmails } from "@/lib/oauth/providers";
-import { USAGE_APIKEY_PROVIDERS, USAGE_SUPPORTED_PROVIDERS } from "@/shared/constants/providers";
-import { USAGE_IMPLEMENTED_PROVIDERS } from "open-sse/services/usage.js";
-import { hasLocalBalanceConfigured } from "open-sse/services/usage/localBalance.js";
+import { USAGE_SUPPORTED_PROVIDERS } from "@/shared/constants/providers";
+import { isUsageEligible } from "@/lib/usageEligibility";
 
 const SAFE_FIELDS = [
   "id", "provider", "authType", "name", "email", "displayName",
@@ -43,15 +42,6 @@ function sanitize(c) {
     safe.providerSpecificData = psd;
   }
   return safe;
-}
-
-function isUsageEligible(connection) {
-  if (hasLocalBalanceConfigured(connection)) return true;
-  return USAGE_SUPPORTED_PROVIDERS.includes(connection.provider)
-    && USAGE_IMPLEMENTED_PROVIDERS.includes(connection.provider)
-    && (
-      connection.authType === "oauth" || USAGE_APIKEY_PROVIDERS.includes(connection.provider)
-    );
 }
 
 function parsePositiveInt(value, fallback) {

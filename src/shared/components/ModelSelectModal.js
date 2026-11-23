@@ -13,7 +13,7 @@ import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS,
 import { modelsFromStoredCatalog, pickerModelLabel, resolvePickerModels } from "@/shared/utils/pickerCatalog";
 import { parseSearchQuery, matchesSearch } from "@/shared/utils/modelSearchFilter";
 import { getDeactivatedProviderIds } from "@/shared/utils/connectionStatus";
-import { NO_AUTH_PROVIDER_IDS } from "@/shared/utils/selectableModels";
+import { NO_AUTH_PROVIDER_IDS, LIVE_CATALOG_PROVIDERS, liveModelCaps } from "@/shared/utils/selectableModels";
 
 // Provider order: OAuth first, then Free Tier, then API Key (matches dashboard/providers)
 const PROVIDER_ORDER = [
@@ -23,14 +23,9 @@ const PROVIDER_ORDER = [
   ...Object.keys(APIKEY_PROVIDERS),
 ];
 
-// Providers with per-account live catalogs via /api/providers/[id]/models.
-// Static registry stays as fallback when live fetch fails or is empty.
-// zed added in #4244 (upstream v0.5.95): its backend customResolver already
-// returns live models but the frontend omitted it, hiding Zed entirely from the
-// Combo picker. Cline/ClinePass are now included upstream as well.
-// Keep in sync with LIVE_CATALOG_PROVIDERS in @/shared/utils/selectableModels
-// (CLI-tools picker); a source-grep test pins this literal, so it is not imported.
-const LIVE_CATALOG_PROVIDERS = ["cursor", "cline", "clinepass", "zed", "qoder", "qoder-cn"];
+// Providers with per-account live catalogs live in selectableModels so the Combo
+// picker, the CLI-tool cards and /api/providers/[id]/models cannot drift apart
+// (commandcode models were unreachable from the cards for exactly that reason).
 
 // Stable identity for the "nothing live" state so callers that memoize on the
 // returned array keep a referentially stable value between renders.
@@ -166,6 +161,8 @@ export default function ModelSelectModal({
   const zedConnectionIds = liveConnectionIdsByProvider.zed;
   const qoderConnectionIds = liveConnectionIdsByProvider.qoder;
   const qoderCnConnectionIds = liveConnectionIdsByProvider["qoder-cn"];
+  const claudeConnectionIds = liveConnectionIdsByProvider.claude;
+  const commandcodeConnectionIds = liveConnectionIdsByProvider.commandcode;
 
   const cursorModels = useLiveProviderModels(isOpen, cursorConnectionIds, "Cursor");
   const clineModels = useLiveProviderModels(isOpen, clineConnectionIds, "Cline");
@@ -173,6 +170,8 @@ export default function ModelSelectModal({
   const zedModels = useLiveProviderModels(isOpen, zedConnectionIds, "Zed");
   const qoderModels = useLiveProviderModels(isOpen, qoderConnectionIds, "Qoder");
   const qoderCnModels = useLiveProviderModels(isOpen, qoderCnConnectionIds, "Qoder CN");
+  const claudeModels = useLiveProviderModels(isOpen, claudeConnectionIds, "Claude");
+  const commandcodeModels = useLiveProviderModels(isOpen, commandcodeConnectionIds, "CommandCode");
 
   // Fetch all modal metadata concurrently when the modal opens. Results are applied
   // per endpoint (one failing endpoint degrades to its fallback without blocking the
@@ -219,6 +218,18 @@ export default function ModelSelectModal({
   // Group models by provider with priority order
   const groupedModels = useMemo(() => {
     const groups = {};
+    // Keyed by provider id so a provider added to LIVE_CATALOG_PROVIDERS only needs
+    // its connection ids above, not another ternary.
+    const liveModelsByProvider = {
+      cursor: cursorModels,
+      cline: clineModels,
+      clinepass: clinepassModels,
+      zed: zedModels,
+      qoder: qoderModels,
+      "qoder-cn": qoderCnModels,
+      claude: claudeModels,
+      commandcode: commandcodeModels,
+    };
 
     // Kinds where the provider IS the model (no per-model selection needed)
     const PROVIDER_AS_MODEL_KINDS = new Set(["webSearch", "webFetch"]);
@@ -330,9 +341,12 @@ export default function ModelSelectModal({
           // LLM/null kind: merge hardcoded models (e.g. mimo-free → mimo-auto) with user-added models
           const registeredLlms = customRegisteredModels.filter((m) => !getModelKind(m) || getModelKind(m) === "llm");
           const seen = new Set([...aliasModels, ...registeredLlms].map((m) => m.value));
-          const hardcoded = getModelsByProviderId(providerId)
+          // A passthrough provider can still have a live per-account catalog (commandcode),
+          // which replaces the static list (mirrors selectableModels.js).
+          const livePassthroughModels = liveModelsByProvider[providerId] || [];
+          const hardcoded = (livePassthroughModels.length > 0 ? livePassthroughModels : getModelsByProviderId(providerId))
             .filter((m) => !getModelKind(m) || getModelKind(m) === "llm")
-            .map((m) => ({ id: m.id, name: m.name, value: `${alias}/${m.id}`, kind: getModelKind(m) }))
+            .map((m) => ({ id: m.id, name: m.name, value: `${alias}/${m.id}`, kind: getModelKind(m), caps: liveModelCaps(m) }))
             .filter((m) => !seen.has(m.value));
           combined = [...registeredLlms, ...aliasModels.filter((m) => !registeredLlms.some((registered) => registered.value === m.value)), ...hardcoded];
         }
@@ -402,14 +416,9 @@ export default function ModelSelectModal({
         // Account catalog first: routing strips combo members missing from a
         // fully catalogued account, so offering stale registry ids (Token Plan
         // qwen3.8-max-preview vs live qwen3.8-max) lets the user save a member
-        // that will never run. Live catalog providers (upstream: cursor, cline,
-        // clinepass, zed) override via live fetch.
-        const liveModels = providerId === "cursor" ? cursorModels
-          : providerId === "cline" ? clineModels
-          : providerId === "clinepass" ? clinepassModels
-          : providerId === "zed" ? zedModels
-          : providerId === "qoder" ? qoderModels
-          : providerId === "qoder-cn" ? qoderCnModels : [];
+        // that will never run. Live catalog providers (LIVE_CATALOG_PROVIDERS)
+        // override via live fetch.
+        const liveModels = liveModelsByProvider[providerId] || [];
         const hardcodedModels = resolvePickerModels({
           liveModels,
           storedModels: modelsFromStoredCatalog(effectiveConnections, providerId),
@@ -438,7 +447,7 @@ export default function ModelSelectModal({
           .map((m) => ({ id: m.id, name: m.name || m.id, value: `${alias}/${m.id}`, isCustom: true }));
 
         const merged = [
-          ...applyQoderModelNames(hardcodedModels, customModels, alias).map((m) => ({ id: m.id, name: pickerModelLabel(m), value: `${alias}/${m.id}`, kind: getModelKind(m) })),
+          ...applyQoderModelNames(hardcodedModels, customModels, alias).map((m) => ({ id: m.id, name: pickerModelLabel(m), value: `${alias}/${m.id}`, kind: getModelKind(m), caps: liveModelCaps(m) })),
           ...customAliasModels,
           ...customRegisteredModels,
         ];
@@ -515,7 +524,7 @@ export default function ModelSelectModal({
     }
 
     return groups;
-  }, [filteredActiveProviders, modelAliases, allProviders, providerNodes, customModels, disabledModels, kindFilter, effectiveConnections, deactivatedProviderIds, cursorModels, clineModels, clinepassModels, zedModels, qoderModels, qoderCnModels]);
+  }, [filteredActiveProviders, modelAliases, allProviders, providerNodes, customModels, disabledModels, kindFilter, effectiveConnections, deactivatedProviderIds, cursorModels, clineModels, clinepassModels, zedModels, qoderModels, qoderCnModels, claudeModels, commandcodeModels]);
 
   // Parse search query into structured query (regex, positive tokens, negative tokens)
   const parsedQuery = useMemo(() => parseSearchQuery(searchQuery), [searchQuery]);

@@ -28,13 +28,21 @@ export default {
   // on the same host needs the account key (401 without one).
   modelsFetcher: { url: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/models", type: "openai" },
   models: [
+    { id: "auto", name: "Auto" },
+    { id: "qwen4-max", name: "Qwen4 Max" },
+    { id: "qwen4-max-preview", name: "Qwen4 Max Preview" },
     { id: "qwen3.8-max", name: "Qwen3.8 Max" },
     { id: "qwen3.8-flash", name: "Qwen3.8 Flash" },
     { id: "qwen3.7-max", name: "Qwen3.7 Max" },
     { id: "qwen3.7-plus", name: "Qwen3.7 Plus" },
     { id: "qwen3.6-flash", name: "Qwen3.6 Flash" },
+    { id: "glm-5.3", name: "GLM 5.3" },
     { id: "glm-5.2", name: "GLM 5.2" },
     { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro" },
+    { id: "deepseek-v4-pro-0813", name: "DeepSeek V4 Pro 0813" },
+    { id: "deepseek-v4-flash-0731", name: "DeepSeek V4 Flash 0731" },
+    { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash" },
+    { id: "deepseek-v4.1-flash-1017", name: "DeepSeek V4.1 Flash 1017" },
   ],
   features: {
     usage: true,

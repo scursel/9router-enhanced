@@ -26,6 +26,9 @@ import { getClinepassUsage } from "./usage/clinepass.js";
 import { resolveQoderCredentials } from "./qoderModels.js";
 import { getGlmUsage } from "./usage/glm.js";
 import { getCommandCodeUsage } from "./usage/commandcode.js";
+import { getSyntheticUsage } from "./usage/synthetic.js";
+import { getDeepRelayUsage } from "./usage/deeprelay.js";
+import { getOpenDesignUsage } from "./usage/opendesign.js";
 import {
   getIflowUsage,
   getOllamaUsage,
@@ -117,6 +120,11 @@ const USAGE_HANDLERS = {
   // weekly window (no more 5h quota) is metered locally from usageHistory.
   "alitp-intl": (c) => getAlibabaTokenPlanUsage(c),
   "qwen-cloud-token-plan": (c) => getAlibabaTokenPlanUsage(c),
+  synthetic: (c) => getSyntheticUsage(c.apiKey, c.proxyOptions),
+  deeprelay: (c) => getDeepRelayUsage(c.apiKey, c.proxyOptions),
+  // OpenDesign Go reads quota with the control-plane key from
+  // `providerSpecificData`, never the runtime apiKey (sk-amr cannot see quota).
+  "opendesign-go": (c) => getOpenDesignUsage(c),
   cursor: (c) => getCursorUsage(c.accessToken, c.providerSpecificData, c.proxyOptions),
   // OAuth WorkOS JWT (workos: prefix) or plain ClinePass API key — same usage-limits URL.
   clinepass: (c) => getClinepassUsage(c.accessToken, c.apiKey, c.proxyOptions),
@@ -145,6 +153,7 @@ export async function getUsageForProvider(connection, proxyOptions = null, optio
     id: connectionId,
     connectionId,
     provider,
+    authType: connection.authType,
     accessToken,
     apiKey,
     providerSpecificData,
