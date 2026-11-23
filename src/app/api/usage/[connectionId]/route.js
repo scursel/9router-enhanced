@@ -7,6 +7,8 @@ import { isUnrecoverableRefreshError } from "open-sse/services/tokenRefresh.js";
 import { getExecutor } from "open-sse/executors/index.js";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { USAGE_APIKEY_PROVIDERS } from "@/shared/constants/providers";
+import { hasLocalBalanceConfigured } from "open-sse/services/usage/localBalance.js";
+import { fetchUsdToBrlRate } from "@/lib/fxRate.js";
 
 // Detect auth-expired messages returned by usage providers instead of throwing
 const AUTH_EXPIRED_PATTERNS = ["expired", "authentication", "unauthorized", "401", "re-authorize"];
@@ -151,8 +153,9 @@ export async function GET(request, { params }) {
       connection.authType === "apikey" || connection.authType === "api_key";
     const isApikeyEligible =
       isApikeyAuth && USAGE_APIKEY_PROVIDERS.includes(connection.provider);
+    const hasLocalBalance = hasLocalBalanceConfigured(connection);
 
-    if (!isOAuth && !isApikeyEligible) {
+    if (!isOAuth && !isApikeyEligible && !hasLocalBalance) {
       return Response.json({ message: "Usage not available for this connection" });
     }
 
@@ -179,11 +182,26 @@ export async function GET(request, { params }) {
       }
     }
 
+    let liveFxRate = null;
+    const localCfg = connection.providerSpecificData?.localBalance;
+    if (
+      hasLocalBalance &&
+      localCfg?.currency === "BRL" &&
+      localCfg?.fxMode === "auto"
+    ) {
+      try {
+        const fxResult = await fetchUsdToBrlRate({ force });
+        liveFxRate = fxResult?.rate ?? null;
+      } catch {
+        // Fail-open to stored fxRate
+      }
+    }
+
     // Fetch usage from provider API (connection.id originates from DB connection record / route params)
     let usage = await getUsageForProvider(
       { ...connection, id: connection.id || connectionId },
       proxyOptions,
-      { force },
+      { force, liveFxRate },
     );
 
     // If provider returned an auth-expired message instead of throwing,
@@ -195,7 +213,7 @@ export async function GET(request, { params }) {
         usage = await getUsageForProvider(
           { ...connection, id: connection.id || connectionId },
           proxyOptions,
-          { force },
+          { force, liveFxRate },
         );
       } catch (retryError) {
         console.warn(`[Usage] ${connection.provider}: force refresh failed: ${retryError.message}`);

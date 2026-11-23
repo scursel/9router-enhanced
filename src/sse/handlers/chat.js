@@ -409,6 +409,12 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, msg);
       }
       if (credentials?.allRateLimited) {
+        if (credentials.budgetExhausted) {
+          const errorMsg = credentials.lastError || lastError || "Local balance limit reached";
+          const status = Number(credentials.lastErrorCode) || 402;
+          log.warn("CHAT", `[${provider}/${model}] ${errorMsg}`);
+          return errorResponse(status, `[${provider}/${model}] ${errorMsg}`);
+        }
         const errorMsg = lastError || credentials.lastError || "Unavailable";
         const status = HTTP_STATUS.SERVICE_UNAVAILABLE;
         log.warn("CHAT", `[${provider}/${model}] ${errorMsg} (${credentials.retryAfterHuman})`);

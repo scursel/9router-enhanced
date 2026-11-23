@@ -53,16 +53,55 @@ export async function PATCH(request) {
           );
         }
 
-        // Validate pricing fields
+        // Validate pricing fields (numeric rates + optional nested long_context tier)
         const validFields = ["input", "output", "cached", "reasoning", "cache_creation"];
         for (const [key, value] of Object.entries(pricing)) {
+          if (key === "long_context") {
+            if (typeof value !== "object" || value === null || Array.isArray(value)) {
+              return NextResponse.json(
+                { error: `Invalid long_context tier for ${provider}/${model}` },
+                { status: 400 }
+              );
+            }
+            if (!Number.isInteger(value.threshold) || value.threshold <= 0) {
+              return NextResponse.json(
+                { error: `Invalid long_context threshold for ${provider}/${model}: must be a positive integer` },
+                { status: 400 }
+              );
+            }
+            for (const [tierKey, tierVal] of Object.entries(value)) {
+              if (tierKey === "threshold") continue;
+              if (tierKey === "inclusive") {
+                if (typeof tierVal !== "boolean") {
+                  return NextResponse.json(
+                    { error: `Invalid long_context.inclusive for ${provider}/${model}: must be boolean` },
+                    { status: 400 }
+                  );
+                }
+                continue;
+              }
+              if (!validFields.includes(tierKey)) {
+                return NextResponse.json(
+                  { error: `Invalid long_context field: ${tierKey} for ${provider}/${model}` },
+                  { status: 400 }
+                );
+              }
+              if (typeof tierVal !== "number" || !Number.isFinite(tierVal) || tierVal < 0) {
+                return NextResponse.json(
+                  { error: `Invalid long_context value for ${tierKey} in ${provider}/${model}: must be non-negative number` },
+                  { status: 400 }
+                );
+              }
+            }
+            continue;
+          }
           if (!validFields.includes(key)) {
             return NextResponse.json(
               { error: `Invalid pricing field: ${key} for ${provider}/${model}` },
               { status: 400 }
             );
           }
-          if (typeof value !== "number" || isNaN(value) || value < 0) {
+          if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
             return NextResponse.json(
               { error: `Invalid pricing value for ${key} in ${provider}/${model}: must be non-negative number` },
               { status: 400 }

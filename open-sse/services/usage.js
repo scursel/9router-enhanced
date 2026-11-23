@@ -34,6 +34,7 @@ import {
 } from "./usage/misc.js";
 import { getOpenRouterUsage } from "./usage/openrouter.js";
 import { getAlibabaTokenPlanUsage } from "./usage/alibabaTokenPlan.js";
+import { getLocalBalanceUsage, hasLocalBalanceConfigured } from "./usage/localBalance.js";
 import { normalizeXaiUsage } from "./usage/xaiNormalize.js";
 
 const MIMO_NEUTRAL_MESSAGE = "MiMo usage unavailable: no quota data from the console cookie or the MiMo Desktop session.";
@@ -140,9 +141,7 @@ export async function getUsageForProvider(connection, proxyOptions = null, optio
     ...(projectId ? { projectId } : {}),
   };
 
-  const handler = USAGE_HANDLERS[provider];
-  if (!handler) return { message: `Usage API not implemented for ${provider}` };
-  return await handler({
+  const ctx = {
     id: connectionId,
     connectionId,
     provider,
@@ -152,5 +151,43 @@ export async function getUsageForProvider(connection, proxyOptions = null, optio
     providerDataWithProjectId,
     proxyOptions,
     force: options.force === true,
-  });
+    liveFxRate: options.liveFxRate ?? null,
+  };
+  const hasLocal = hasLocalBalanceConfigured(providerSpecificData);
+  const handler = USAGE_HANDLERS[provider];
+
+  if (!handler) {
+    if (hasLocal) return await getLocalBalanceUsage(ctx);
+    return { message: `Usage API not implemented for ${provider}` };
+  }
+
+  const nativeResult = await handler(ctx);
+  if (!hasLocal) return nativeResult;
+
+  const localResult = await getLocalBalanceUsage(ctx);
+  const localQuotas = localResult?.quotas || {};
+  if (Object.keys(localQuotas).length === 0) return nativeResult;
+
+  const nativeQuotas = nativeResult?.quotas || {};
+  const hasNativeQuotas = Object.keys(nativeQuotas).length > 0;
+  const mergedQuotas = { ...nativeQuotas, ...localQuotas };
+
+  if (!hasNativeQuotas) {
+    const combinedNotice = [nativeResult?.message, localResult?.notice].filter(Boolean).join(" · ");
+    return {
+      plan: localResult?.plan,
+      status: localResult?.status || "ok",
+      source: localResult?.source || "router-local",
+      fetchedAt: localResult?.fetchedAt,
+      ...(combinedNotice ? { notice: combinedNotice } : {}),
+      quotas: mergedQuotas,
+    };
+  }
+
+  const combinedNotice = [nativeResult?.notice, localResult?.notice].filter(Boolean).join(" · ");
+  return {
+    ...nativeResult,
+    ...(combinedNotice ? { notice: combinedNotice } : {}),
+    quotas: mergedQuotas,
+  };
 }

@@ -3,6 +3,7 @@ import { getProviderConnections } from "@/lib/localDb";
 import { backfillCodexEmails } from "@/lib/oauth/providers";
 import { USAGE_APIKEY_PROVIDERS, USAGE_SUPPORTED_PROVIDERS } from "@/shared/constants/providers";
 import { USAGE_IMPLEMENTED_PROVIDERS } from "open-sse/services/usage.js";
+import { hasLocalBalanceConfigured } from "open-sse/services/usage/localBalance.js";
 
 const SAFE_FIELDS = [
   "id", "provider", "authType", "name", "email", "displayName",
@@ -18,7 +19,7 @@ const SAFE_PSD_FIELDS = [
   "connectionProxyEnabled", "connectionProxyUrl", "connectionNoProxy",
   "githubLogin", "githubName", "githubEmail", "githubUserId",
   "username", "firstName", "lastName", "authMethod", "authKind",
-  "profileArn",
+  "profileArn", "localBalance",
 ];
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -45,6 +46,7 @@ function sanitize(c) {
 }
 
 function isUsageEligible(connection) {
+  if (hasLocalBalanceConfigured(connection)) return true;
   return USAGE_SUPPORTED_PROVIDERS.includes(connection.provider)
     && USAGE_IMPLEMENTED_PROVIDERS.includes(connection.provider)
     && (
@@ -62,8 +64,10 @@ function sortConnections(connections, sort) {
 
   if (sort === "provider") {
     return list.sort((a, b) => {
-      const orderA = USAGE_SUPPORTED_PROVIDERS.indexOf(a.provider);
-      const orderB = USAGE_SUPPORTED_PROVIDERS.indexOf(b.provider);
+      const idxA = USAGE_SUPPORTED_PROVIDERS.indexOf(a.provider);
+      const idxB = USAGE_SUPPORTED_PROVIDERS.indexOf(b.provider);
+      const orderA = idxA < 0 ? Number.MAX_SAFE_INTEGER : idxA;
+      const orderB = idxB < 0 ? Number.MAX_SAFE_INTEGER : idxB;
       if (orderA !== orderB) return orderA - orderB;
       return a.provider.localeCompare(b.provider);
     });

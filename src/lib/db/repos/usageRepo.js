@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { getMeta, setMeta } from "../helpers/metaStore.js";
+import { recordLocalBalanceSpend, invalidateLocalBalanceCache } from "@/lib/localBalanceGuard.js";
 
 /**
  * A row written by the combo attempt collector (D13/CB2) carries
@@ -376,6 +377,9 @@ export async function applyUsageRetention({ force = false } = {}) {
   ));
   const deleted = (res && res.changes) || 0;
   if (deleted > 0) {
+    try {
+      invalidateLocalBalanceCache();
+    } catch {}
     console.log(`[DB][usageRepo] retention(USAGE_RETENTION_DAYS=${days}): deleted ${deleted} usageHistory row(s) older than ${cutoff} (usageDaily aggregates kept)`);
   }
   return { enabled: true, days, deleted, cutoff };
@@ -539,6 +543,9 @@ async function persistUsageEvent(entry) {
     });
 
     if (inserted && !isFailureUsageStatus(entry.status)) {
+      try {
+        recordLocalBalanceSpend(entry.connectionId, entry.cost);
+      } catch {}
       pushToRing(entry);
       scheduleStatsEvent("update", 250);
       // Retention pass after the committed write (no-op unless

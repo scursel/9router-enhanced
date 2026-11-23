@@ -1,3 +1,10 @@
+# v0.5.119-enhanced.8 (2026-11-23)
+
+- **Saldo local por conexão (BRL/USD)**: suporte a saldo/orçamento local em `providerSpecificData.localBalance` para a API paga do Gemini e demais contas API-key, com conversão USD→BRL (taxa manual por padrão ou automática via `/api/fx/usd-brl` com hosts HTTPS fixos, timeout de 5s e cache de 6h em memória + SQLite), margem opcional de IOF/spread, botões atômicos de recalibração (`Ajustar saldo atual`) e recarga (`+ Adicionar crédito`), fallback automático para `usageDaily.byAccount` quando `USAGE_RETENTION_DAYS` estiver ativo, e modo opcional de pausa/failover automático (`HTTP 402` sem `retry-after` quando todas as contas estiverem esgotadas).
+- **Precificação Gemini e contexto longo (`>200k` tokens)**: portada `applyLongContextTier` do OmniRoute em `open-sse/providers/pricing.js` e adicionada tabela `PROVIDER_PRICING.gemini` com degrau `>200k` (`gemini-2.5-pro`, `gemini-3.1-pro*`), `reasoning = output` e tarifas explícitas para embeddings, TTS e imagem; `PATCH /api/pricing` passa a validar `long_context` e `getPricingForModel` mescla overrides do usuário sobre os padrões preservando `long_context`.
+- **Banco de dados**: `SCHEMA_VERSION` atualizado (`3 → 4`) com índice composto `idx_uh_conn_ts` em `usageHistory(connectionId, timestamp)`.
+- **Dashboard**: nova seção "Saldo / Orçamento Local" em `EditConnectionModal` (corrigindo sobrescrita de `providerSpecificData` entre seções), exibição de `Saldo (BRL)` em `R$` no Quota Tracker (`ProviderLimits`) com atualização ao salvar e exibição de avisos (`raw.notice`).
+
 # v0.5.119-enhanced.7 (2026-11-19)
 
 - Command Code: suporte completo a WebSearch (`/v1/search` via `/alpha/web-search`), WebFetch (`/v1/web/fetch` via `/alpha/web-fetch`) e System One JEV 1.14 (`/v1/systemone` via `/provider/v1/systemone` com `typesafe/jev-1.14.0` e `typesafe/jev`), reutilizando a mesma chave CLI da conta.

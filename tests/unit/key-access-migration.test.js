@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { SCHEMA_VERSION } from "@/lib/db/schema.js";
 
 let tempDir;
 const originalDataDir = process.env.DATA_DIR;
@@ -63,7 +64,7 @@ describe("apiKeys access columns: upgrade from the previous schema", () => {
 
     // The schema bump took the pre-change safety backup.
     const backups = fs.readdirSync(path.join(tempDir, "db", "backups"));
-    expect(backups.some((d) => d.startsWith("schema-1-to-3"))).toBe(true);
+    expect(backups.some((d) => d.startsWith(`schema-1-to-${SCHEMA_VERSION}`))).toBe(true);
   });
 
   it("persists access through update, new keys default to unrestricted", async () => {
@@ -101,7 +102,7 @@ describe("apiKeys access columns: upgrade from the previous schema", () => {
     expect((await db.getApiKeys()).length).toBe(2);
   });
 
-  it("upgrades a v2 DB to v3, takes pre-schema backup schema-2-to-3, adds access columns, and verifies plaintext key lookup", async () => {
+  it("upgrades a v2 DB to current schema, takes pre-schema backup, adds access columns, and verifies plaintext key lookup", async () => {
     fs.mkdirSync(path.join(tempDir, "db"), { recursive: true });
     const dbFile = new DatabaseSync(path.join(tempDir, "db", "data.sqlite"));
     dbFile.exec(`CREATE TABLE _meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
@@ -123,6 +124,6 @@ describe("apiKeys access columns: upgrade from the previous schema", () => {
     expect(key.access).toEqual({ restricted: false, allow: [] });
 
     const backups = fs.readdirSync(path.join(tempDir, "db", "backups"));
-    expect(backups.some((d) => d.startsWith("schema-2-to-3"))).toBe(true);
+    expect(backups.some((d) => d.startsWith(`schema-2-to-${SCHEMA_VERSION}`))).toBe(true);
   });
 });

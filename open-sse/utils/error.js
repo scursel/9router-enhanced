@@ -115,18 +115,24 @@ export function createErrorResult(statusCode, message, resetsAtMs, extraHeaders 
  * @returns {Response}
  */
 export function unavailableResponse(statusCode, message, retryAfter, retryAfterHuman, extraHeaders = null) {
-  const retryAfterSec = Math.max(Math.ceil((new Date(retryAfter).getTime() - Date.now()) / 1000), 1);
-  const msg = `${message} (${retryAfterHuman})`;
+  const headers = {
+    ...extraHeaders,
+    "Content-Type": "application/json",
+  };
+  if (retryAfter) {
+    const retryMs = new Date(retryAfter).getTime();
+    if (Number.isFinite(retryMs)) {
+      const retryAfterSec = Math.max(Math.ceil((retryMs - Date.now()) / 1000), 1);
+      // Intentionally mis-cased to prevent duplicate headers
+      headers["retry-after"] = String(retryAfterSec);
+    }
+  }
+  const msg = retryAfterHuman ? `${message} (${retryAfterHuman})` : message;
   return new Response(
     JSON.stringify({ error: { message: msg } }),
     {
       status: statusCode,
-      headers: {
-        ...extraHeaders,
-        "Content-Type": "application/json",
-        // Intentionally mis-cased to prevent duplicate headers
-        "retry-after": String(retryAfterSec)
-      }
+      headers
     }
   );
 }

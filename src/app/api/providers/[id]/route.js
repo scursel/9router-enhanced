@@ -6,6 +6,8 @@ import {
   deleteProviderConnection,
 } from "@/models";
 import { toProviderConnectionResponse, usesAwsCredentialForm } from "@/lib/providerConnectionResponse";
+import { validateLocalBalancePatch } from "open-sse/services/usage/localBalance.js";
+import { invalidateLocalBalanceCache } from "@/lib/localBalanceGuard.js";
 
 function normalizeProxyConfig(body = {}) {
   const hasAnyProxyField =
@@ -92,8 +94,76 @@ export async function PUT(request, { params }) {
       testStatus,
       lastError,
       lastErrorAt,
-      providerSpecificData
+      providerSpecificData,
+      localBalanceAction,
     } = body;
+
+    if (localBalanceAction !== undefined) {
+      if (!localBalanceAction || typeof localBalanceAction !== "object" || Array.isArray(localBalanceAction)) {
+        return NextResponse.json({ error: "Invalid localBalanceAction" }, { status: 400 });
+      }
+      const actionType = localBalanceAction.type;
+      const amount = localBalanceAction.amount;
+      const fxRate = localBalanceAction.fxRate;
+      if (actionType !== "calibrate" && actionType !== "topup") {
+        return NextResponse.json({ error: "Invalid localBalanceAction.type" }, { status: 400 });
+      }
+      if (
+        typeof amount !== "number" ||
+        !Number.isFinite(amount) ||
+        amount > 1e9 ||
+        (actionType === "calibrate" ? amount < 0 : amount <= 0)
+      ) {
+        return NextResponse.json({ error: "Invalid localBalanceAction.amount" }, { status: 400 });
+      }
+      if (
+        fxRate !== undefined &&
+        (typeof fxRate !== "number" || !Number.isFinite(fxRate) || fxRate <= 0 || fxRate >= 1000)
+      ) {
+        return NextResponse.json({ error: "Invalid localBalanceAction.fxRate" }, { status: 400 });
+      }
+
+      let actionError = null;
+      const updatedAction = await updateProviderConnection(id, (existingConn) => {
+        const existingLb = existingConn?.providerSpecificData?.localBalance;
+        if (!existingLb || existingLb.enabled !== true) {
+          actionError = "Local balance is not enabled for this connection";
+          return null;
+        }
+        const candidate =
+          actionType === "calibrate"
+            ? {
+                ...existingLb,
+                initialAmount: amount,
+                since: new Date().toISOString(),
+                ...(fxRate !== undefined ? { fxRate } : {}),
+              }
+            : {
+                ...existingLb,
+                initialAmount: (Number(existingLb.initialAmount) || 0) + amount,
+              };
+        const check = validateLocalBalancePatch(candidate);
+        if (!check.valid) {
+          actionError = check.error;
+          return null;
+        }
+        return {
+          providerSpecificData: {
+            ...(existingConn.providerSpecificData || {}),
+            localBalance: check.value,
+          },
+        };
+      });
+
+      if (!updatedAction) {
+        return NextResponse.json({ error: "Connection not found" }, { status: 404 });
+      }
+      if (actionError) {
+        return NextResponse.json({ error: actionError }, { status: 400 });
+      }
+      invalidateLocalBalanceCache(id);
+      return NextResponse.json({ connection: toProviderConnectionResponse(updatedAction) });
+    }
 
     const existing = await getProviderConnectionById(id);
     if (!existing) {
@@ -144,6 +214,29 @@ export async function PUT(request, { params }) {
         delete updateData.providerSpecificData.sessionToken;
       }
 
+      if (Object.prototype.hasOwnProperty.call(incomingProviderSpecificData, "localBalance")) {
+        if (incomingProviderSpecificData.localBalance === null) {
+          delete updateData.providerSpecificData.localBalance;
+        } else {
+          const rawLb = incomingProviderSpecificData.localBalance;
+          const existingLb = existing.providerSpecificData?.localBalance;
+          const candidate =
+            rawLb &&
+            typeof rawLb === "object" &&
+            !Array.isArray(rawLb) &&
+            rawLb.since === undefined &&
+            existingLb?.enabled === true &&
+            existingLb?.since
+              ? { ...rawLb, since: existingLb.since }
+              : rawLb;
+          const check = validateLocalBalancePatch(candidate);
+          if (!check.valid) {
+            return NextResponse.json({ error: check.error }, { status: 400 });
+          }
+          updateData.providerSpecificData.localBalance = check.value;
+        }
+      }
+
       if (proxyConfig.hasAnyProxyField) {
         updateData.providerSpecificData.connectionProxyEnabled = proxyConfig.connectionProxyEnabled;
         updateData.providerSpecificData.connectionProxyUrl = proxyConfig.connectionProxyUrl;
@@ -170,6 +263,8 @@ export async function PUT(request, { params }) {
     if (!updated) {
       return NextResponse.json({ error: "Connection not found" }, { status: 404 });
     }
+
+    invalidateLocalBalanceCache(id);
 
     return NextResponse.json({ connection: toProviderConnectionResponse(updated) });
   } catch (error) {

@@ -9,6 +9,10 @@ import {
   isBlocked,
   getRetryAfterMs,
 } from "open-sse/utils/circuitBreaker.js";
+import {
+  preloadLocalBalanceGuard,
+  isConnectionLocalBalanceExhaustedSync,
+} from "@/lib/localBalanceGuard.js";
 import * as log from "../utils/logger.js";
 
 // Mutex to prevent race conditions during account selection
@@ -37,6 +41,11 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     : (excludeConnectionIds ? new Set([excludeConnectionIds]) : new Set());
   const preferredConnectionId = options?.preferredConnectionId || null;
   const requestedModel = options?.requestedModel || model;
+  const providerIdPre = resolveProviderId(provider);
+  const { liveRate: localBalanceLiveRate } = FREE_PROVIDERS[providerIdPre]?.noAuth
+    ? { liveRate: null }
+    : await preloadLocalBalanceGuard(providerIdPre);
+
   // Acquire mutex to prevent race conditions
   const currentMutex = selectionMutex;
   let resolveMutex;
@@ -46,7 +55,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     await currentMutex;
 
     // Resolve alias to provider ID (e.g., "kc" -> "kilocode")
-    const providerId = resolveProviderId(provider);
+    const providerId = providerIdPre;
 
     // Inject a virtual connection for no-auth free providers (with optional proxy pool from settings)
     if (FREE_PROVIDERS[providerId]?.noAuth) {
@@ -88,7 +97,8 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     const isAntigravity = providerId === "antigravity";
     const antigravityQuotaCache = isAntigravity && model ? getAntigravityQuotaCache() : null;
 
-    // Filter out model-locked, excluded, Antigravity quota-exhausted, and circuit-open connections.
+    // Filter out model-locked, excluded, Antigravity quota-exhausted, local-budget-exhausted, and circuit-open connections.
+    const budgetBlocked = [];
     const availableConnections = connections.filter(c => {
       if (excludeSet.has(c.id)) return false;
       if (isModelLockActive(c, model)) return false;
@@ -103,6 +113,12 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
           log.info("AG_QUOTA", `${account} | CACHE_BLOCK ${model} — skip upstream until ${quota.resetAt}`);
           return false;
         }
+      }
+      // Local balance soft guard (sync, uses preloaded spend cache)
+      const budgetState = isConnectionLocalBalanceExhaustedSync(c, localBalanceLiveRate);
+      if (budgetState.exhausted) {
+        budgetBlocked.push({ conn: c, summary: budgetState.summary });
+        return false;
       }
       // Per-model breaker. Without a model there is nothing account-wide to
       // consult, so the account stays eligible rather than being hidden by a
@@ -154,6 +170,18 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
           retryAfterHuman: formatRetryAfter(earliest),
           lastError: earliestConn?.lastError || null,
           lastErrorCode: earliestConn?.errorCode || 503
+        };
+      }
+      if (budgetBlocked.length > 0) {
+        const summary = budgetBlocked[0].summary;
+        log.warn("AUTH", `${provider} | all ${connections.length} accounts blocked by local balance limit: ${summary}`);
+        return {
+          allRateLimited: true,
+          budgetExhausted: true,
+          retryAfter: null,
+          retryAfterHuman: null,
+          lastError: summary,
+          lastErrorCode: 402
         };
       }
       log.warn("AUTH", `${provider} | all ${connections.length} accounts unavailable`);

@@ -71,9 +71,15 @@ function pricingFromCatalogCost(cost) {
 export async function getPricingForModel(provider, model) {
   if (!model) return null;
   const userPricing = await getUserPricing();
-  if (provider && userPricing[provider]?.[model]) return userPricing[provider][model];
   const { getPricingForModel: resolveConst } = await import("open-sse/providers/pricing.js");
   const resolved = resolveConst(provider, model);
+
+  // Merge user overrides over built-in defaults so a flat-rate override (e.g. from
+  // PricingModal) does not silently strip `long_context` unless explicitly replaced.
+  const userOverride = provider ? userPricing[provider]?.[model] : null;
+  if (userOverride) {
+    return resolved ? { ...resolved, ...userOverride } : userOverride;
+  }
   if (resolved) return resolved;
 
   // Static tables miss → models.dev / OpenRouter catalog (provider first, then

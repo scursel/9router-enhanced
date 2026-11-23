@@ -203,6 +203,54 @@ export const MODEL_PRICING = {
  * Keyed by provider alias (cc, cx, gc, gh, ...) or provider id (openai, anthropic, ...).
  */
 export const PROVIDER_PRICING = {
+  // Gemini Developer API (ai.google.dev) paid-tier rates + >200k long_context tier.
+  // Kept provider-scoped so Antigravity / Gemini CLI / Vertex stay unchanged.
+  gemini: {
+    "gemini-4-argon":                         { input: 2.00, output: 10.00, cached: 0.10,  reasoning: 10.00, cache_creation: 2.00 },
+    "gemini-4-hydrogen":                      { input: 1.50, output: 7.50,  cached: 0.075, reasoning: 7.50,  cache_creation: 1.50 },
+    "gemini-3.8-flash":                       { input: 1.50, output: 7.50,  cached: 0.15,  reasoning: 7.50,  cache_creation: 1.50 },
+    "gemini-3.7-flash":                       { input: 1.50, output: 7.50,  cached: 0.15,  reasoning: 7.50,  cache_creation: 1.50 },
+    "gemini-3.6-flash":                       { input: 1.50, output: 7.50,  cached: 0.15,  reasoning: 7.50,  cache_creation: 1.50 },
+    "gemini-3.5-flash-lite":                  { input: 0.30, output: 2.50,  cached: 0.03,  reasoning: 2.50,  cache_creation: 0.30 },
+    "gemini-3.1-pro": {
+      input: 2.00, output: 12.00, cached: 0.20, reasoning: 12.00, cache_creation: 2.00,
+      long_context: { threshold: 200_000, input: 4.00, output: 18.00, cached: 0.40, reasoning: 18.00, cache_creation: 4.00 },
+    },
+    "gemini-3.1-pro-preview": {
+      input: 2.00, output: 12.00, cached: 0.20, reasoning: 12.00, cache_creation: 2.00,
+      long_context: { threshold: 200_000, input: 4.00, output: 18.00, cached: 0.40, reasoning: 18.00, cache_creation: 4.00 },
+    },
+    "gemini-3-pro-preview": {
+      input: 2.00, output: 12.00, cached: 0.20, reasoning: 12.00, cache_creation: 2.00,
+      long_context: { threshold: 200_000, input: 4.00, output: 18.00, cached: 0.40, reasoning: 18.00, cache_creation: 4.00 },
+    },
+    "gemini-3.1-flash-lite-preview":          { input: 0.25, output: 1.50,  cached: 0.025, reasoning: 1.50,  cache_creation: 0.25 },
+    "gemini-3-flash-preview":                 { input: 0.50, output: 3.00,  cached: 0.05,  reasoning: 3.00,  cache_creation: 0.50 },
+    "gemini-3-flash":                         { input: 0.50, output: 3.00,  cached: 0.05,  reasoning: 3.00,  cache_creation: 0.50 },
+    "gemini-2.5-pro": {
+      input: 1.25, output: 10.00, cached: 0.125, reasoning: 10.00, cache_creation: 1.25,
+      long_context: { threshold: 200_000, input: 2.50, output: 15.00, cached: 0.25, reasoning: 15.00, cache_creation: 2.50 },
+    },
+    "gemini-2.5-flash":                       { input: 0.30, output: 2.50,  cached: 0.03,  reasoning: 2.50,  cache_creation: 0.30 },
+    "gemini-2.5-flash-lite":                  { input: 0.10, output: 0.40,  cached: 0.01,  reasoning: 0.40,  cache_creation: 0.10 },
+    "gemini-2.0-flash":                       { input: 0.10, output: 0.40,  cached: 0.025, reasoning: 0.40,  cache_creation: 0.10 },
+    "gemini-2.5-flash-native-audio-preview-09-17": { input: 0.50, output: 2.00, cached: 0.05, reasoning: 2.00, cache_creation: 0.50 },
+    "gemma-4-31b-it":                         { ...ZERO_PRICING },
+    // Embeddings (input-only)
+    "gemini-embedding-2-preview":             { input: 0.15, output: 0,     cached: 0.15,  reasoning: 0,     cache_creation: 0.15 },
+    "gemini-embedding-001":                   { input: 0.15, output: 0,     cached: 0.15,  reasoning: 0,     cache_creation: 0.15 },
+    "text-embedding-005":                     { input: 0.15, output: 0,     cached: 0.15,  reasoning: 0,     cache_creation: 0.15 },
+    "text-embedding-004":                     { input: 0.15, output: 0,     cached: 0.15,  reasoning: 0,     cache_creation: 0.15 },
+    "embedding-001":                          { input: 0.15, output: 0,     cached: 0.15,  reasoning: 0,     cache_creation: 0.15 },
+    // TTS
+    "gemini-3.1-flash-tts-preview":           { input: 0.50, output: 10.00, cached: 0.50,  reasoning: 10.00, cache_creation: 0.50 },
+    "gemini-2.5-flash-preview-tts":           { input: 0.50, output: 10.00, cached: 0.50,  reasoning: 10.00, cache_creation: 0.50 },
+    "gemini-2.5-pro-preview-tts":             { input: 1.00, output: 20.00, cached: 1.00,  reasoning: 20.00, cache_creation: 1.00 },
+    // Image generation
+    "gemini-3.1-flash-image-preview":         { input: 0.30, output: 30.00, cached: 0.03,  reasoning: 30.00, cache_creation: 0.30 },
+    "gemini-3-pro-image-preview":             { input: 2.00, output: 30.00, cached: 0.20,  reasoning: 30.00, cache_creation: 2.00 },
+    "gemini-2.5-flash-image":                 { input: 0.30, output: 30.00, cached: 0.03,  reasoning: 30.00, cache_creation: 0.30 },
+  },
   // GitHub Copilot (gh) — explicit override, matches canonical gpt-5.3-codex rate
   gh: {
     "gpt-5.3-codex": { input: 1.75, output: 14.00, cached: 0.175, reasoning: 14.00, cache_creation: 1.75 },
@@ -479,6 +527,30 @@ export function formatCost(cost) {
 }
 
 /**
+ * Apply optional `long_context` rate tier when cache-inclusive input tokens
+ * cross `threshold` (`>` by default, or `>=` when `inclusive === true`).
+ * Malformed tiers are ignored so callers always get a valid pricing object.
+ */
+export function applyLongContextTier(pricing, inputTokens) {
+  const tier = pricing?.long_context;
+  if (!tier || typeof tier !== "object" || Array.isArray(tier)) return pricing;
+  const limit = Number(tier.threshold);
+  if (!Number.isFinite(limit) || limit <= 0) return pricing;
+  const promptCount = Number(inputTokens);
+  if (!Number.isFinite(promptCount)) return pricing;
+  const crossed = tier.inclusive === true ? promptCount >= limit : promptCount > limit;
+  if (!crossed) return pricing;
+  const next = { ...pricing };
+  for (const field of ["input", "output", "cached", "reasoning", "cache_creation"]) {
+    const val = tier[field];
+    if (typeof val === "number" && Number.isFinite(val) && val >= 0) {
+      next[field] = val;
+    }
+  }
+  return next;
+}
+
+/**
  * Calculate cost from tokens and pricing
  * @param {object} tokens
  * @param {object} pricing
@@ -490,16 +562,17 @@ export function calculateCostFromTokens(tokens, pricing) {
   let cost = 0;
 
   const inputTokens = tokens.prompt_tokens || tokens.input_tokens || 0;
+  const effectivePricing = applyLongContextTier(pricing, inputTokens);
   const cachedTokens = tokens.cached_tokens || tokens.cache_read_input_tokens || 0;
   const cacheCreationTokens = tokens.cache_creation_input_tokens || 0;
   // prompt_tokens is cache-inclusive (see canonicalizeUsage): cached + cache_creation
   // are subsets, so subtract both to avoid charging them at the full input rate.
   const nonCachedInput = Math.max(0, inputTokens - cachedTokens - cacheCreationTokens);
 
-  cost += nonCachedInput * (pricing.input / 1000000);
+  cost += nonCachedInput * (effectivePricing.input / 1000000);
 
   if (cachedTokens > 0) {
-    cost += cachedTokens * ((pricing.cached || pricing.input) / 1000000);
+    cost += cachedTokens * ((effectivePricing.cached || effectivePricing.input) / 1000000);
   }
 
   const outputTokens = tokens.completion_tokens || tokens.output_tokens || 0;
@@ -510,14 +583,14 @@ export function calculateCostFromTokens(tokens, pricing) {
   // remainder at the output rate, the reasoning slice at the reasoning rate.
   const reasoningIncluded = tokens.reasoning_included_in_output === 1 || tokens.reasoning_included_in_output === true;
   const billedOutputTokens = reasoningIncluded ? Math.max(0, outputTokens - reasoningTokens) : outputTokens;
-  cost += billedOutputTokens * (pricing.output / 1000000);
+  cost += billedOutputTokens * (effectivePricing.output / 1000000);
 
   if (reasoningTokens > 0) {
-    cost += reasoningTokens * ((pricing.reasoning || pricing.output) / 1000000);
+    cost += reasoningTokens * ((effectivePricing.reasoning || effectivePricing.output) / 1000000);
   }
 
   if (cacheCreationTokens > 0) {
-    cost += cacheCreationTokens * ((pricing.cache_creation || pricing.input) / 1000000);
+    cost += cacheCreationTokens * ((effectivePricing.cache_creation || effectivePricing.input) / 1000000);
   }
 
   return cost;

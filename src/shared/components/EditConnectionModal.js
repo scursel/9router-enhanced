@@ -1,75 +1,86 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import PropTypes from "prop-types";
 import Modal from "@/shared/components/Modal";
 import Input from "@/shared/components/Input";
 import Button from "@/shared/components/Button";
 import Badge from "@/shared/components/Badge";
+import Toggle from "@/shared/components/Toggle";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS } from "@/shared/constants/providers";
 import Select from "@/shared/components/Select";
+import {
+  hasLocalBalanceConfigured,
+  validateLocalBalancePatch,
+} from "open-sse/services/usage/localBalanceMath.js";
 
-export default function EditConnectionModal({ isOpen, connection, proxyPools, onSave, onClose }) {
-  const [formData, setFormData] = useState({
-    name: "",
-    priority: 1,
+function buildInitialLocalBalance(connection) {
+  const savedLb = connection?.providerSpecificData?.localBalance;
+  if (savedLb && typeof savedLb === "object") {
+    return {
+      enabled: savedLb.enabled === true,
+      currency: savedLb.currency === "USD" ? "USD" : "BRL",
+      initialAmount: savedLb.initialAmount != null ? String(savedLb.initialAmount) : "",
+      fxMode: savedLb.fxMode === "auto" ? "auto" : "manual",
+      fxRate: savedLb.fxRate != null ? String(savedLb.fxRate) : "",
+      fxMarkupPct: savedLb.fxMarkupPct != null ? String(savedLb.fxMarkupPct) : "0",
+      enforcement: savedLb.enforcement === "block" ? "block" : "track",
+      stopAtPct: savedLb.stopAtPct != null ? String(savedLb.stopAtPct) : "100",
+      since: savedLb.since || null,
+    };
+  }
+  return {
+    enabled: false,
+    currency: "BRL",
+    initialAmount: "",
+    fxMode: "manual",
+    fxRate: "",
+    fxMarkupPct: "0",
+    enforcement: "track",
+    stopAtPct: "100",
+    since: null,
+  };
+}
+
+function EditConnectionModalBody({ connection, onSave, onClose }) {
+  const psd = connection?.providerSpecificData || {};
+  const providerCfg = AI_PROVIDERS?.[connection?.provider];
+
+  const [formData, setFormData] = useState(() => ({
+    name: connection?.name || "",
+    priority: connection?.priority || 1,
     apiKey: "",
-  });
-  const [azureData, setAzureData] = useState({
-    azureEndpoint: "",
-    apiVersion: "2024-10-01-preview",
-    deployment: "",
-    organization: "",
-  });
-  const [cloudflareData, setCloudflareData] = useState({ accountId: "" });
-  const [awsData, setAwsData] = useState({ profile: "", region: "", accessKeyId: "", sessionToken: "" });
+  }));
+  const [azureData, setAzureData] = useState(() => ({
+    azureEndpoint: connection?.provider === "azure" ? (psd.azureEndpoint || "") : "",
+    apiVersion: connection?.provider === "azure" ? (psd.apiVersion || "2024-10-01-preview") : "2024-10-01-preview",
+    deployment: connection?.provider === "azure" ? (psd.deployment || "") : "",
+    organization: connection?.provider === "azure" ? (psd.organization || "") : "",
+  }));
+  const [cloudflareData, setCloudflareData] = useState(() => ({
+    accountId: connection?.provider === "cloudflare-ai" ? (psd.accountId || "") : "",
+  }));
+  const [awsData, setAwsData] = useState(() => ({
+    profile: providerCfg?.credentialForm === "aws" ? (psd.profile || "") : "",
+    region: providerCfg?.credentialForm === "aws" ? (psd.region || "") : "",
+    accessKeyId: providerCfg?.credentialForm === "aws" ? (psd.accessKeyId || "") : "",
+    sessionToken: "",
+  }));
   const [clearAwsSessionToken, setClearAwsSessionToken] = useState(false);
-  const [region, setRegion] = useState("");
+  const [region, setRegion] = useState(() => (
+    providerCfg?.regions
+      ? (psd.region || providerCfg.defaultRegion || providerCfg.regions[0]?.id || "")
+      : ""
+  ));
+  const [localBalance, setLocalBalance] = useState(() => buildInitialLocalBalance(connection));
+  const [quickActionAmount, setQuickActionAmount] = useState("");
+  const [fxLookup, setFxLookup] = useState({ loading: false, info: null, error: null });
+  const [balanceError, setBalanceError] = useState(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (connection) {
-      setFormData({
-        name: connection.name || "",
-        priority: connection.priority || 1,
-        apiKey: "",
-      });
-      // Load Azure-specific data if present
-      if (connection.provider === "azure" && connection.providerSpecificData) {
-        setAzureData({
-          azureEndpoint: connection.providerSpecificData.azureEndpoint || "",
-          apiVersion: connection.providerSpecificData.apiVersion || "2024-10-01-preview",
-          deployment: connection.providerSpecificData.deployment || "",
-          organization: connection.providerSpecificData.organization || "",
-        });
-      }
-      if (connection.provider === "cloudflare-ai" && connection.providerSpecificData) {
-        setCloudflareData({ accountId: connection.providerSpecificData.accountId || "" });
-      }
-      if (AI_PROVIDERS?.[connection.provider]?.credentialForm === "aws") {
-        const psd = connection.providerSpecificData || {};
-        setAwsData({
-          profile: psd.profile || "",
-          region: psd.region || "",
-          accessKeyId: psd.accessKeyId || "",
-          sessionToken: "",
-        });
-        setClearAwsSessionToken(false);
-      }
-      // Load region for providers that support it (e.g. xiaomi-tokenplan)
-      const providerCfg = AI_PROVIDERS?.[connection.provider];
-      if (providerCfg?.regions) {
-        const savedRegion = connection.providerSpecificData?.region || providerCfg.defaultRegion || providerCfg.regions[0]?.id || "";
-        setRegion(savedRegion);
-      }
-      setTestResult(null);
-      setValidationResult(null);
-    }
-  }, [connection, isOpen]);
 
   const isOAuth = connection?.authType === "oauth";
   const isAzure = connection?.provider === "azure";
@@ -80,9 +91,9 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     : false;
   const providerRegions = connection ? (AI_PROVIDERS?.[connection.provider]?.regions || null) : null;
 
-  // Build providerSpecificData for region-aware providers
+  // Build providerSpecificData for region-aware providers without spreading unrelated keys
   const buildRegionSpecificData = () => {
-    if (providerRegions && region) return { ...((connection?.providerSpecificData) || {}), region };
+    if (providerRegions && region) return { region };
     return undefined;
   };
 
@@ -136,8 +147,111 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     }
   };
 
+  const handleFetchFxRate = async (forceRefresh = true) => {
+    setFxLookup({ loading: true, info: null, error: null });
+    try {
+      const url = forceRefresh ? "/api/fx/usd-brl?refresh=1" : "/api/fx/usd-brl";
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok || !Number.isFinite(Number(data?.rate))) {
+        setFxLookup({
+          loading: false,
+          info: null,
+          error: data?.error || "Não foi possível obter a cotação USD/BRL",
+        });
+        return;
+      }
+      setLocalBalance((prev) => ({
+        ...prev,
+        fxRate: Number(data.rate).toFixed(4),
+      }));
+      setFxLookup({
+        loading: false,
+        info: `1 USD = R$ ${Number(data.rate).toFixed(4)} (${data.source}${data.stale ? ", cache" : ""})`,
+        error: null,
+      });
+    } catch {
+      setFxLookup({
+        loading: false,
+        info: null,
+        error: "Erro de rede ao consultar cotação USD/BRL",
+      });
+    }
+  };
+
+  const handleToggleLocalBalance = (nextEnabled) => {
+    setBalanceError(null);
+    setLocalBalance((prev) => ({
+      ...prev,
+      enabled: nextEnabled,
+      since: prev.since || (nextEnabled ? new Date().toISOString() : null),
+    }));
+    if (nextEnabled && localBalance.currency === "BRL" && !localBalance.fxRate) {
+      handleFetchFxRate(false);
+    }
+  };
+
+  const handleQuickBalanceAction = async (type) => {
+    if (!connection) return;
+    setBalanceError(null);
+    const amount = Number.parseFloat(quickActionAmount);
+    if (!Number.isFinite(amount) || (type === "calibrate" ? amount < 0 : amount <= 0)) {
+      setBalanceError(
+        type === "calibrate"
+          ? "Informe um saldo atual válido (>= 0) para ajustar."
+          : "Informe um valor positivo (> 0) para adicionar crédito."
+      );
+      return;
+    }
+    const parsedFx = Number.parseFloat(localBalance.fxRate);
+    const actionPayload = {
+      type,
+      amount,
+      ...(type === "calibrate" &&
+      localBalance.currency === "BRL" &&
+      Number.isFinite(parsedFx) &&
+      parsedFx > 0
+        ? { fxRate: parsedFx }
+        : {}),
+    };
+    setSaving(true);
+    try {
+      await onSave({ localBalanceAction: actionPayload });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!connection) return;
+    setBalanceError(null);
+
+    let nextLocalBalancePatch;
+    if (!isOAuth) {
+      if (localBalance.enabled) {
+        const isBrl = localBalance.currency === "BRL";
+        const candidate = {
+          enabled: true,
+          currency: localBalance.currency,
+          initialAmount: Number.parseFloat(localBalance.initialAmount),
+          since: localBalance.since || new Date().toISOString(),
+          fxMode: isBrl ? localBalance.fxMode : "manual",
+          fxRate: isBrl ? Number.parseFloat(localBalance.fxRate) : 1,
+          fxMarkupPct: isBrl ? (Number.parseFloat(localBalance.fxMarkupPct) || 0) : 0,
+          enforcement: localBalance.enforcement,
+          stopAtPct: Number.parseInt(localBalance.stopAtPct, 10) || 100,
+        };
+        const check = validateLocalBalancePatch(candidate);
+        if (!check.valid) {
+          setBalanceError(check.error);
+          return;
+        }
+        nextLocalBalancePatch = check.value;
+      } else if (connection.providerSpecificData?.localBalance) {
+        nextLocalBalancePatch = null;
+      }
+    }
+
     setSaving(true);
     try {
       const updates = {
@@ -178,37 +292,40 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           updates.lastErrorAt = null;
         }
       }
-      
-      // Add Azure-specific data if this is an Azure connection
+
+      // Merge providerSpecificData cleanly so section builders never overwrite each other
+      const nextPsd = {};
       if (isAzure) {
-        updates.providerSpecificData = {
+        Object.assign(nextPsd, {
           azureEndpoint: azureData.azureEndpoint,
           apiVersion: azureData.apiVersion,
           deployment: azureData.deployment,
           organization: azureData.organization,
-        };
+        });
       }
       if (isCloudflareAi) {
-        updates.providerSpecificData = { accountId: cloudflareData.accountId };
+        nextPsd.accountId = cloudflareData.accountId;
       }
       if (usesAwsCredentialForm) {
-        updates.providerSpecificData = buildAwsSpecificData();
+        Object.assign(nextPsd, buildAwsSpecificData());
       }
-      // Persist updated region for region-aware providers
       if (providerRegions && region) {
-        updates.providerSpecificData = buildRegionSpecificData();
+        nextPsd.region = region;
       }
-      
+      if (nextLocalBalancePatch !== undefined) {
+        nextPsd.localBalance = nextLocalBalancePatch;
+      }
+      if (Object.keys(nextPsd).length > 0) {
+        updates.providerSpecificData = nextPsd;
+      }
+
       await onSave(updates);
     } finally {
       setSaving(false);
     }
   };
 
-  if (!connection) return null;
-
   return (
-    <Modal isOpen={isOpen} title="Edit Connection" onClose={onClose}>
       <div className="flex flex-col gap-4">
         <Input
           label="Name"
@@ -347,6 +464,186 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           />
         )}
 
+        {!isOAuth && (
+          <div className="bg-sidebar/50 p-4 rounded-lg border border-black/10 dark:border-white/10 flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h3 className="font-semibold text-sm">Saldo / Orçamento Local</h3>
+                <p className="text-xs text-text-muted">
+                  Acompanha e limita gasto estimado por conexão no Quota Tracker.
+                </p>
+              </div>
+              <Toggle
+                size="sm"
+                checked={localBalance.enabled}
+                onChange={handleToggleLocalBalance}
+                disabled={saving}
+              />
+            </div>
+
+            {localBalance.enabled && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Select
+                    label="Moeda"
+                    value={localBalance.currency}
+                    onChange={(e) => {
+                      const nextCur = e.target.value === "USD" ? "USD" : "BRL";
+                      setBalanceError(null);
+                      setLocalBalance((prev) => ({ ...prev, currency: nextCur }));
+                      if (nextCur === "BRL" && !localBalance.fxRate) {
+                        handleFetchFxRate(false);
+                      }
+                    }}
+                    options={[
+                      { value: "BRL", label: "BRL (R$)" },
+                      { value: "USD", label: "USD (US$)" },
+                    ]}
+                  />
+                  <Input
+                    label={`Saldo disponível (${localBalance.currency})`}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={localBalance.initialAmount}
+                    onChange={(e) => {
+                      setBalanceError(null);
+                      setLocalBalance((prev) => ({ ...prev, initialAmount: e.target.value }));
+                    }}
+                    placeholder="150.00"
+                  />
+                </div>
+
+                {localBalance.currency === "BRL" && (
+                  <div className="flex flex-col gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Select
+                        label="Câmbio USD → BRL"
+                        value={localBalance.fxMode}
+                        onChange={(e) => setLocalBalance((prev) => ({ ...prev, fxMode: e.target.value === "auto" ? "auto" : "manual" }))}
+                        options={[
+                          { value: "manual", label: "Manual — taxa fixa (recomendado)" },
+                          { value: "auto", label: "Automática — cotação do dia" },
+                        ]}
+                      />
+                      <Input
+                        label="Margem IOF/spread (%)"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="100"
+                        value={localBalance.fxMarkupPct}
+                        onChange={(e) => setLocalBalance((prev) => ({ ...prev, fxMarkupPct: e.target.value }))}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="flex gap-2 items-start">
+                      <Input
+                        label="Cotação USD → BRL (fallback/fixa)"
+                        type="number"
+                        step="0.0001"
+                        min="0.01"
+                        value={localBalance.fxRate}
+                        onChange={(e) => {
+                          setBalanceError(null);
+                          setLocalBalance((prev) => ({ ...prev, fxRate: e.target.value }));
+                        }}
+                        placeholder="5.80"
+                        className="flex-1"
+                      />
+                      <div className="pt-7">
+                        <Button
+                          type="button"
+                          onClick={() => handleFetchFxRate(true)}
+                          variant="secondary"
+                          disabled={fxLookup.loading || saving}
+                        >
+                          {fxLookup.loading ? "Buscando..." : "Buscar cotação"}
+                        </Button>
+                      </div>
+                    </div>
+                    {fxLookup.info && (
+                      <p className="text-xs text-text-muted">{fxLookup.info}</p>
+                    )}
+                    {fxLookup.error && (
+                      <p className="text-xs text-red-500">{fxLookup.error}</p>
+                    )}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Select
+                    label="Ao atingir o limite"
+                    value={localBalance.enforcement}
+                    onChange={(e) => setLocalBalance((prev) => ({ ...prev, enforcement: e.target.value === "block" ? "block" : "track" }))}
+                    options={[
+                      { value: "track", label: "Apenas monitorar" },
+                      { value: "block", label: "Pausar conta / fallback" },
+                    ]}
+                  />
+                  {localBalance.enforcement === "block" && (
+                    <Input
+                      label="Pausar ao atingir (%)"
+                      type="number"
+                      step="1"
+                      min="1"
+                      max="100"
+                      value={localBalance.stopAtPct}
+                      onChange={(e) => setLocalBalance((prev) => ({ ...prev, stopAtPct: e.target.value }))}
+                      placeholder="100"
+                    />
+                  )}
+                </div>
+
+                {hasLocalBalanceConfigured(connection) && (
+                  <div className="border-t border-black/10 dark:border-white/10 pt-3 flex flex-col gap-2">
+                    <p className="text-xs font-medium text-text-main">Ajuste rápido atômico</p>
+                    <div className="flex flex-wrap gap-2 items-end">
+                      <Input
+                        label={`Valor (${localBalance.currency})`}
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={quickActionAmount}
+                        onChange={(e) => {
+                          setBalanceError(null);
+                          setQuickActionAmount(e.target.value);
+                        }}
+                        placeholder="50.00"
+                        className="flex-1 min-w-[120px]"
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={saving}
+                        onClick={() => handleQuickBalanceAction("calibrate")}
+                      >
+                        Ajustar saldo atual
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={saving}
+                        onClick={() => handleQuickBalanceAction("topup")}
+                      >
+                        + Adicionar crédito
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {balanceError && (
+                  <p className="text-xs text-red-500">{balanceError}</p>
+                )}
+
+                <p className="text-[11px] leading-relaxed text-text-muted">
+                  Estimativa local pelos tokens gravados no 9Router (limite suave em chamadas paralelas). Uso fora do 9Router ou TTS nativo via /v1beta não entra automaticamente; em chaves free-tier o gasto exibido é fictício.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
         {!isCompatible && !isAzure && !isCloudflareAi && (
           <div className="flex items-center gap-3">
             <Button onClick={handleTest} variant="secondary" disabled={testing}>
@@ -365,6 +662,22 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           <Button onClick={onClose} variant="ghost" fullWidth>Cancel</Button>
         </div>
       </div>
+  );
+}
+
+export default function EditConnectionModal({ isOpen, connection, onSave, onClose }) {
+  if (!connection) return null;
+
+  return (
+    <Modal isOpen={isOpen} title="Edit Connection" onClose={onClose}>
+      {isOpen && (
+        <EditConnectionModalBody
+          key={connection.id || "edit"}
+          connection={connection}
+          onSave={onSave}
+          onClose={onClose}
+        />
+      )}
     </Modal>
   );
 }

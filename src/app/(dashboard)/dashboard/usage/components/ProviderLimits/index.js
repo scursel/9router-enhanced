@@ -501,7 +501,12 @@ export default function ProviderLimits() {
           await fetchConnections();
           setShowEditModal(false);
           setSelectedConnection(null);
-          if (USAGE_SUPPORTED_PROVIDERS.includes(provider)) {
+          if (
+            USAGE_SUPPORTED_PROVIDERS.includes(provider) ||
+            selectedConnection?.providerSpecificData?.localBalance?.enabled ||
+            formData?.providerSpecificData?.localBalance?.enabled ||
+            formData?.localBalanceAction
+          ) {
             await fetchQuota(connectionId, provider);
           }
         }
@@ -1378,7 +1383,7 @@ export default function ProviderLimits() {
                     </span>
                     <p className="mt-1.5 text-xs text-text-muted">{error}</p>
                   </div>
-                ) : quota?.message ? (
+                ) : quota?.message && (!quota?.quotas || quota.quotas.length === 0) ? (
                   <div className="text-center py-5">
                     <p className="text-xs text-text-muted">{quota.message}</p>
                   </div>
@@ -1407,6 +1412,11 @@ export default function ProviderLimits() {
                       onHideQuota={(quotaRow) => handleHideQuota(conn.provider, quotaRow)}
                     />
                   </>
+                )}
+                {quota?.raw?.notice && !error && !isLoading && (
+                  <p className="mt-2 px-1 text-[10px] leading-relaxed text-text-muted">
+                    {quota.raw.notice}
+                  </p>
                 )}
                 {quota?.message && !error && !isLoading && (
                   <p className="mt-2 px-1 text-[10px] leading-relaxed text-text-muted">
