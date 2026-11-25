@@ -842,7 +842,7 @@ function splitMember(member) {
  * @param {(member: string) => ({provider: string|null, model: string}|null)} [options.resolveMember]
  *   maps a member string to the provider id + model to look up (connection
  *   prefixes, model aliases). Default: split on the first "/". null = skip.
- * @param {(member: string) => (object|null)} [options.resolveCaps]
+ * @param {(member: string, target: object, defaults: object) => (object|null)} [options.resolveCaps]
  *   optional member → caps override (upstream v0.5.91). The synced model catalog is
  *   server-only, so the dashboard passes the server's answer (/api/models via
  *   useModelCaps); it is merged over the local tables and marks the limits as known.
@@ -874,7 +874,7 @@ function aggregate(comboModels, comboLookup, resolveMember, depth, visited, reso
     const target = resolveMember(member);
     if (!target?.model) continue;
     const found = lookupCapabilities(target.provider, target.model);
-    const override = resolveCaps?.(member);
+    const override = resolveCaps?.(member, target, found.caps);
     members.push(override
       ? { caps: { ...found.caps, ...override }, limitsKnown: found.limitsKnown || Number.isFinite(override.contextWindow) }
       : found);
@@ -890,6 +890,7 @@ function aggregate(comboModels, comboLookup, resolveMember, depth, visited, reso
   merged.reasoning = reasoners.length > 0;
   if (merged.reasoning) {
     const primary = reasoners[0];
+    Object.defineProperty(merged, "thinkingLevels", { value: primary.thinkingLevels });
     merged.thinkingFormat = primary.thinkingFormat;
     merged.thinkingRange = primary.thinkingRange;
     merged.thinkingEffortSupported = primary.thinkingEffortSupported;

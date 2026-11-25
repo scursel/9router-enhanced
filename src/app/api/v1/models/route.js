@@ -8,6 +8,7 @@ import {
   isOpenAICompatibleProvider,
 } from "@/shared/constants/providers";
 import { getProviderConnections, getCombos, getCustomModels, getModelAliases } from "@/lib/localDb";
+import { getModelMeta } from "@/lib/db/repos/modelMetaRepo.js";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
 import { classifyTier } from "@/shared/utils/modelTier.js";
 import { getKeyAccessContext, filterModelsListForKey } from "@/sse/services/keyAccess.js";
@@ -25,7 +26,7 @@ import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { aggregateComboCapabilities, capabilitiesFromServiceKind, getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
 import { getCatalogCost, getCatalogLifecycle } from "open-sse/providers/catalogOverride.js";
 import { makeComboMemberResolver } from "@/shared/utils/comboMemberResolver";
-import { LIVE_CATALOG_PROVIDERS } from "@/shared/utils/importProviderModels";
+import { LIVE_CATALOG_PROVIDERS, readListedCapabilities } from "@/shared/utils/importProviderModels";
 import { getThinkingLevels } from "open-sse/providers/thinkingLevels.js";
 
 // Qoder shares one live resolver across intl (qoder) and CN (qoder-cn); the
@@ -225,7 +226,7 @@ const parseOpenAIStyleModels = (data) => {
   return data?.data || data?.models || data?.results || [];
 };
 
-// Header sent by fetchCompatibleModelIds to detect cross-instance /models fetches
+// Header sent by fetchCompatibleModels to detect cross-instance /models fetches
 // and break recursive loops between 9router instances connected to each other.
 const INTERNAL_MODELS_FETCH_HEADER = "x-9r-internal-models-fetch";
 
@@ -272,7 +273,7 @@ function catalogLifecycleFor(providerId, modelId) {
   }
 }
 
-async function fetchCompatibleModelIds(connection) {
+async function fetchCompatibleModels(connection) {
   if (!connection?.apiKey) return [];
 
   const baseUrl = typeof connection?.providerSpecificData?.baseUrl === "string"
@@ -315,15 +316,8 @@ async function fetchCompatibleModelIds(connection) {
     if (!response.ok) return [];
 
     const data = await response.json();
-    const rawModels = parseOpenAIStyleModels(data);
-
-    return Array.from(
-      new Set(
-        rawModels
-          .map((model) => model?.id || model?.name || model?.model)
-          .filter((modelId) => typeof modelId === "string" && modelId.trim() !== "")
-      )
-    );
+    const rows = parseOpenAIStyleModels(data);
+    return Array.isArray(rows) ? rows : [];
   } catch {
     return [];
   }
@@ -373,7 +367,7 @@ export function modelsScopeFromRequest(request) {
 export async function buildModelsList(kindFilter, options = {}) {
   const includeCatalog = options.scope !== MODELS_SCOPE_VISIBLE;
   // When this header is present, the /v1/models request came from another
-  // 9router instance's fetchCompatibleModelIds — skip dynamic fetch to break
+  // 9router instance's fetchCompatibleModels — skip dynamic fetch to break
   // cross-instance recursive loops.
   const skipDynamicFetch = options.skipDynamicFetch === true;
   let connections = [];
@@ -444,30 +438,21 @@ export async function buildModelsList(kindFilter, options = {}) {
   }
   const resolveComboMember = makeComboMemberResolver(connections, modelAliases);
 
-  // Combos first (filtered by kind). Web combos expose `kind` so AI knows search vs fetch.
-  for (const combo of combos) {
-    if (!comboMatchesKinds(combo, kindFilter)) continue;
-    const entry = {
-      id: combo.name,
-      object: "model",
-      owned_by: "combo",
-    };
-    if (combo.kind === "webSearch" || combo.kind === "webFetch") {
-      entry.kind = combo.kind;
-    } else if ((combo.kind || LLM_KIND) === LLM_KIND) {
-      // Inherit from the members: without this a combo is an id with no limits,
-      // so clients guess its window from the name and guess high. The resolver
-      // maps custom connection prefixes and model aliases back to provider ids
-      // (upstream's static-seat comboSeatCapabilities covers only static aliases).
-      const caps = aggregateComboCapabilities(combo.models, comboMembersByName, { resolveMember: resolveComboMember });
-      if (caps) {
-        entry.capabilities = caps;
-        if (Number.isFinite(caps.contextWindow)) entry.context_length = caps.contextWindow;
-        if (Number.isFinite(caps.maxOutput)) entry.max_completion_tokens = caps.maxOutput;
-      }
-    }
-    models.push(entry);
+  const comboProviders = new Set(Object.values(comboMembersByName).flat()
+    .filter((member) => typeof member === "string" && member.trim())
+    .map((member) => resolveComboMember(member.trim())?.provider));
+  const providerMetadata = new Map();
+  let modelMeta = {};
+  try {
+    modelMeta = await getModelMeta();
+  } catch (error) {
+    console.log("Could not fetch measured model metadata:", error.message);
   }
+  const resolveComboCaps = (_member, { provider, model }, defaults) => {
+    const measured = providerMetadata.get(provider)?.(model);
+    const caps = { ...defaults, ...measured };
+    return { ...measured, thinkingLevels: getThinkingLevels(provider, model, caps) };
+  };
 
   if (connections.length === 0) {
     // DB unavailable -> return static models, filtered by per-model kind
@@ -691,12 +676,81 @@ export async function buildModelsList(kindFilter, options = {}) {
       }
       const hasSyncedModels = syncedModels.length > 0;
 
-      if (includeCatalog && isCompatibleProvider && rawModelIds.length === 0 && !skipDynamicFetch) {
-        rawModelIds = await fetchCompatibleModelIds(conn);
-        // A live /models answer from the account is the strongest evidence
-        // there is that it still lists these ids — the feed may not hide them.
-        addLiveEvidence(rawModelIds);
+      // Compatible nodes used by a combo can lack a sync catalog (e.g. a
+      // local server). Reuse direct discovery for metadata in visible scope.
+      const listedById = new Map();
+      if (isCompatibleProvider && !skipDynamicFetch && (
+        (includeCatalog && rawModelIds.length === 0)
+        || (!hasSyncedModels && comboProviders.has(providerId))
+      )) {
+        const listed = await fetchCompatibleModels(conn);
+        for (const row of listed) {
+          const id = row?.id || row?.name || row?.model;
+          if (typeof id === "string" && id.trim()) listedById.set(stripProviderPrefix(id.trim()), row);
+        }
+        if (includeCatalog && rawModelIds.length === 0) {
+          rawModelIds = [...listedById.keys()];
+          addLiveEvidence(rawModelIds);
+        }
       }
+
+      const syncedById = new Map();
+      for (const account of providerConnections) {
+        const rows = account.modelCatalog?.models;
+        if (!Array.isArray(rows)) continue;
+        for (const row of rows) {
+          if (typeof row?.id !== "string" || row.availability === "unavailable") continue;
+          const id = stripProviderPrefix(row.id);
+          const timestamp = Date.parse(account.modelCatalog.lastSuccessAt) || 0;
+          if (!syncedById.has(id) || timestamp > syncedById.get(id).timestamp) {
+            syncedById.set(id, { row, timestamp });
+          }
+        }
+      }
+
+      const customById = new Map(customModels
+        .filter((model) => model?.id && (!model.type || model.type === "llm" || model.type === "imageToText")
+          && [providerId, staticAlias, outputAlias].includes(model.providerAlias))
+        .map((model) => [model.id, model]));
+      const readMetadata = (modelId) => {
+        const custom = customById.get(modelId);
+        const upstreamId = custom?.upstreamModelId || modelId;
+        const facts = { ...custom?.caps };
+        const measurements = [];
+        // Apply upstream facts to custom variants, then take the latest
+        // persisted measurement for each field. A current listing wins.
+        for (const id of new Set([modelId, upstreamId])) {
+          for (const alias of new Set([outputAlias, staticAlias, getProviderAlias(providerId), providerId])) {
+            const meta = modelMeta[`${alias}|${id}`];
+            if (!meta) continue;
+            measurements.push({
+              timestamp: Date.parse(meta.checkedAt) || 0,
+              caps: { contextWindow: meta.contextWindow, reasoning: meta.reasoning },
+            });
+          }
+        }
+        const synced = syncedById.get(upstreamId) || syncedById.get(modelId);
+        if (synced) measurements.push({
+          timestamp: synced.timestamp,
+          caps: { ...synced.row.capabilities, contextWindow: synced.row.contextLength ?? synced.row.capabilities?.contextWindow },
+        });
+        for (const { caps } of measurements.sort((a, b) => a.timestamp - b.timestamp)) {
+          applyFacts(caps);
+        }
+        const live = listedById.get(upstreamId) || listedById.get(modelId);
+        if (live) applyFacts({
+          ...readListedCapabilities(live),
+          contextWindow: Number(live.context_length ?? live.contextLength ?? live.capabilities?.contextWindow),
+        });
+        return facts;
+
+        function applyFacts({ contextWindow, reasoning, ...caps }) {
+          Object.assign(facts, caps);
+          if (Number.isInteger(contextWindow) && contextWindow > 0) facts.contextWindow = contextWindow;
+          if (typeof reasoning === "boolean") facts.reasoning = reasoning;
+        }
+      };
+      providerMetadata.set(providerId, readMetadata);
 
       // Config-driven live catalog override (e.g. Kiro returns dynamic
       // -thinking/-agentic variants per account). On failure, fall back to
@@ -832,7 +886,10 @@ export async function buildModelsList(kindFilter, options = {}) {
         // dynamically-discovered LLM models still surface vision/reasoning/search/tools.
         const liveCaps = liveCapabilitiesById.get(modelId);
         const serviceCaps = capabilitiesFromServiceKind(customKind || liveKind);
-        const caps = liveCaps || serviceCaps || (kind === LLM_KIND ? getCapabilitiesForModel(providerId, modelId) : null);
+        const baseCaps = liveCaps || serviceCaps || (kind === LLM_KIND ? getCapabilitiesForModel(providerId, modelId) : null);
+        const caps = kind === LLM_KIND || allowAsLlm
+          ? { ...baseCaps, ...readMetadata(modelId) }
+          : baseCaps;
         if (caps) model.capabilities = caps;
         // Tier: synced account tier wins, then the provider's own live catalog
         // flag (Qoder publishes is_free/price_factor per account), then the
@@ -884,7 +941,10 @@ export async function buildModelsList(kindFilter, options = {}) {
           // Selectable reasoning levels (the set the dashboard picker shows) so clients
           // can build their effort selector from the gateway instead of keeping a
           // per-model table. Omitted when the model has no reasoning.
-          const thinkingLevels = getThinkingLevels(providerId, modelId);
+          const thinkingCaps = typeof caps?.reasoning === "boolean"
+            ? caps
+            : { ...getCapabilitiesForModel(providerId, modelId), ...caps };
+          const thinkingLevels = getThinkingLevels(providerId, modelId, thinkingCaps);
           if (Array.isArray(thinkingLevels) && thinkingLevels.length > 0) model.thinking_levels = thinkingLevels;
         }
         if (lifecycle) model.lifecycle = lifecycle;
@@ -912,9 +972,36 @@ export async function buildModelsList(kindFilter, options = {}) {
     }
   }
 
+  const comboEntries = [];
+  for (const combo of combos) {
+    if (!comboMatchesKinds(combo, kindFilter)) continue;
+    const entry = {
+      id: combo.name,
+      object: "model",
+      owned_by: "combo",
+    };
+    if (combo.kind === "webSearch" || combo.kind === "webFetch") {
+      entry.kind = combo.kind;
+    } else if ((combo.kind || LLM_KIND) === LLM_KIND) {
+      // Inherit from the members: without this a combo is an id with no limits,
+      // so clients guess its window from the name and guess high. The resolver
+      // maps custom connection prefixes and model aliases back to provider ids
+      // (upstream's static-seat comboSeatCapabilities covers only static aliases).
+      const caps = aggregateComboCapabilities(combo.models, comboMembersByName, { resolveMember: resolveComboMember, resolveCaps: resolveComboCaps });
+      if (caps) {
+        entry.capabilities = caps;
+        const levels = caps.thinkingLevels?.filter((level) => caps.thinkingCanDisable || level !== "none");
+        if (levels?.length) entry.thinking_levels = levels;
+        if (Number.isFinite(caps.contextWindow)) entry.context_length = caps.contextWindow;
+        if (Number.isFinite(caps.maxOutput)) entry.max_completion_tokens = caps.maxOutput;
+      }
+    }
+    comboEntries.push(entry);
+  }
+
   const dedupedModels = [];
   const seenModelIds = new Set();
-  for (const model of models) {
+  for (const model of [...comboEntries, ...models]) {
     if (!model?.id || seenModelIds.has(model.id)) continue;
     seenModelIds.add(model.id);
     dedupedModels.push(model);

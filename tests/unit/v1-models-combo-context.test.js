@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { setCatalogSource } from "../../open-sse/providers/capabilities.js";
 
 const db = vi.hoisted(() => ({
@@ -6,9 +6,11 @@ const db = vi.hoisted(() => ({
   getCombos: vi.fn(),
   getCustomModels: vi.fn(async () => []),
   getModelAliases: vi.fn(async () => ({})),
+  getModelMeta: vi.fn(async () => ({})),
 }));
 
 vi.mock("@/lib/localDb", () => db);
+vi.mock("@/lib/db/repos/modelMetaRepo.js", () => ({ getModelMeta: db.getModelMeta }));
 vi.mock("@/lib/disabledModelsDb", () => ({
   getDisabledModels: vi.fn(async () => ({})),
 }));
@@ -79,5 +81,78 @@ describe("/v1/models combo limits", () => {
       context_length: 200000,
       capabilities: { contextWindow: 200000 },
     });
+  });
+});
+
+describe("Workhorse metadata in visible discovery", () => {
+  const provider = "openai-compatible-chat-workhorse";
+  const model = "qwen38-gguf-mtp";
+  const levels = ["none", "low", "medium", "high", "max"];
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    db.getCustomModels.mockResolvedValue([]);
+    db.getModelMeta.mockResolvedValue({});
+  });
+
+  function setup(modelCatalog) {
+    db.getProviderConnections.mockResolvedValue([{
+      id: "workhorse",
+      provider,
+      apiKey: "test",
+      providerSpecificData: {
+        prefix: "workhorse",
+        baseUrl: "https://workhorse.example/v1",
+        enabledModels: [model],
+      },
+      modelCatalog,
+    }]);
+    db.getCombos.mockResolvedValue([
+      { name: "LOCAL27b", models: [`workhorse/${model}`] },
+      { name: "nested", models: ["LOCAL27b"] },
+    ]);
+    db.getCustomModels.mockResolvedValue([
+      { id: `${model}-vision`, providerAlias: "workhorse", upstreamModelId: model, caps: { contextWindow: 65536 } },
+    ]);
+  }
+
+  async function expectMetadata(context, thinkingLevels, options = {}) {
+    const list = await buildModelsList(["llm"], { scope: "visible", ...options });
+    for (const id of ["LOCAL27b", "nested", `workhorse/${model}`, `workhorse/${model}-vision`]) {
+      expect(list.find((entry) => entry.id === id)).toMatchObject({
+        context_length: context,
+        max_completion_tokens: 16384,
+        capabilities: { contextWindow: context, reasoning: true },
+        thinking_levels: thinkingLevels,
+      });
+    }
+    return list;
+  }
+
+  it("uses synced capabilities and updates the window after a newer Detect", async () => {
+    setup({
+      lastSuccessAt: "2026-11-24T00:00:00Z",
+      models: [{ id: model, contextLength: 163840, capabilities: { reasoning: true, thinkingLevels: levels } }],
+    });
+    db.getModelMeta.mockResolvedValue({
+      [`${provider}|${model}`]: { contextWindow: 65536, checkedAt: "2026-11-23T00:00:00Z" },
+    });
+    await expectMetadata(163840, levels);
+    db.getModelMeta.mockResolvedValue({
+      [`${provider}|${model}`]: { contextWindow: 147456, checkedAt: "2026-11-25T00:00:00Z" },
+    });
+    await expectMetadata(147456, levels);
+  });
+
+  it("reads a compatible node without a synced catalog without exposing extra IDs", async () => {
+    setup();
+    const listModels = vi.fn(async () => Response.json({ data: [
+      { id: model, context_length: 163840, reasoning: true, supported_reasoning_efforts: levels },
+      { id: "uncurated" },
+    ] }));
+    vi.stubGlobal("fetch", listModels);
+    const list = await expectMetadata(163840, levels);
+    expect(listModels).toHaveBeenCalledWith("https://workhorse.example/v1/models", expect.anything());
+    expect(list.some((entry) => entry.id === "workhorse/uncurated")).toBe(false);
   });
 });

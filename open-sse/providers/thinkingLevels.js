@@ -133,10 +133,10 @@ const OPENAI_MAX_EFFORT_MODEL = /(?:^|\/)gpt-(?:5\.6|6)(?:[.-]|$)/i;
 const isOpenAICompatibleNode = (provider) => String(provider || "").startsWith("openai-compatible-");
 
 // Returns valid thinking levels for a model, or null when the model has no reasoning.
-export function getThinkingLevels(provider, model) {
+export function getThinkingLevels(provider, model, capabilities) {
   const normalizedProvider = provider === "ag" ? "antigravity" : provider;
   if (normalizedProvider === "kiro" && resolveKiroEffortPath(model) === null) return null;
-  const caps = getCapabilitiesForModel(normalizedProvider, model);
+  const caps = capabilities ?? getCapabilitiesForModel(normalizedProvider, model);
   if (!caps.reasoning) return null;
   const baseId = String(model || "").replace(/\([^()]+\)\s*$/, "");
   const modelLevels = normalizedProvider === "codex"
@@ -146,7 +146,7 @@ export function getThinkingLevels(provider, model) {
     (!entry.provider || entry.provider === normalizedProvider)
     && (entry.match ? entry.match.test(String(model || "")) : matchPattern(entry.pattern, model))
   );
-  let levels = modelLevels || hit?.levels
+  let levels = caps.thinkingLevels || modelLevels || hit?.levels
     || (isOpenAICompatibleNode(normalizedProvider) && OPENAI_MAX_EFFORT_MODEL.test(baseId) ? CODEX_GPT_5_6_LEVELS : null)
     || FORMAT_LEVELS[caps.thinkingFormat] || L.base;
   if (caps.thinkingCanDisable === false) levels = levels.filter((l) => l !== "none");

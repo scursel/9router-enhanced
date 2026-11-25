@@ -297,3 +297,18 @@ export function connectionCanSyncCatalog({
   return typeof baseUrl === "string" && baseUrl.trim().length > 0;
 }
 
+
+// OpenAI-compatible listings can declare reasoning and limits outside capabilities.
+export function readListedCapabilities(row) {
+  const caps = row?.capabilities && typeof row.capabilities === "object" ? { ...row.capabilities } : {};
+  const levels = row?.supported_reasoning_efforts ?? row?.thinking_levels;
+  if (Array.isArray(levels)) {
+    const supported = [...new Set(levels.filter((level) => typeof level === "string" && level.trim()))];
+    if (supported.length) caps.thinkingLevels = supported;
+  }
+  if (typeof row?.reasoning === "boolean") caps.reasoning = row.reasoning;
+  else if (caps.thinkingLevels) caps.reasoning = true;
+  const maxOutput = row?.max_completion_tokens;
+  if (Number.isInteger(maxOutput) && maxOutput > 0) caps.maxOutput = maxOutput;
+  return Object.keys(caps).length ? caps : undefined;
+}

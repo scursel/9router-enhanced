@@ -1,4 +1,5 @@
 import { getProviderConnections, getProviderConnectionById, updateProviderConnection } from "@/models";
+import { readListedCapabilities } from "@/shared/utils/importProviderModels.js";
 import { assertPublicUrl } from "@/shared/utils/ssrfGuard.js";
 import { classifyTier } from "@/shared/utils/modelTier.js";
 import REGISTRY from "open-sse/providers/registry/index.js";
@@ -44,7 +45,7 @@ export function normalizedModels(payload, { providerId = null } = {}) {
       tierSource,
       pricing: prompt === null && completion === null ? null : { prompt, completion },
       contextLength: toNumber(row?.context_length ?? row?.contextLength) ?? undefined,
-      capabilities: row?.capabilities && typeof row.capabilities === "object" ? row.capabilities : undefined,
+      capabilities: readListedCapabilities(row),
       kind: row?.kind || inferKindFromId(id),
     };
   }).filter(Boolean);

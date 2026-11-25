@@ -202,6 +202,19 @@ describe("normalizedModels", () => {
     expect(models.every((m) => m.availability === undefined)).toBe(true);
   });
 
+  it("preserves top-level context and advertised reasoning effort levels", () => {
+    const [model] = normalizedModels({ data: [{
+      id: "qwen38-gguf-mtp",
+      context_length: 163840,
+      reasoning: true,
+      supported_reasoning_efforts: ["none", "low", "medium", "high", "max"],
+    }] });
+    expect(model).toMatchObject({
+      contextLength: 163840,
+      capabilities: { reasoning: true, thinkingLevels: ["none", "low", "medium", "high", "max"] },
+    });
+  });
+
   it("never announces image/embedding ids as chat: kind is preserved", () => {
     const models = normalizedModels(
       OPENAI_LIST(["flux-pro", "text-embedding-3-small", "chat-model"]),
