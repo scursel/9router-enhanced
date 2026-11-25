@@ -277,7 +277,7 @@ async function main() {
       `systemctl --user restart ${shq(opts.unit)}
 for i in $(seq 1 90); do
   v=$(curl -fsS --max-time 2 http://127.0.0.1:${opts.port}/api/version 2>/dev/null || true)
-  case "$v" in *'"currentVersion":"'${shq(appVersion)}'"'*) echo "live=ok after=$i"; exit 0;; esac
+  case "$v" in *'"currentVersion":"'${shq(appVersion)}'"'*) echo "live=ok"; echo "after=$i"; exit 0;; esac
   sleep 1
 done
 echo "live=timeout"; echo "last=$v"
