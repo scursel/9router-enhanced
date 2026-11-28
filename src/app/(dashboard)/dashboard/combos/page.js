@@ -13,7 +13,8 @@ import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { useComboStats } from "./components/useComboStats.js";
 import ComboStatsBadge from "./components/ComboStatsBadge.js";
 import { pickComboEntry, MEMBER_VERDICT, memberVerdictKey } from "./components/comboStats.js";
-import { aggregateComboCapabilities } from "open-sse/providers/capabilities.js";
+import { aggregateComboCapabilities, resolveComboOutputPolicy } from "open-sse/providers/capabilities.js";
+import { sparseComboCapsOverride } from "@/shared/hooks/useModelCaps.js";
 import { makeComboMemberResolver } from "@/shared/utils/comboMemberResolver";
 import { resolveProviderId, AI_PROVIDERS } from "@/shared/constants/providers";
 
@@ -82,6 +83,7 @@ export default function CombosPage() {
   // prefixes, model aliases) so the dashboard shows what clients receive.
   const [modelAliases, setModelAliases] = useState({});
   const [comboStrategies, setComboStrategies] = useState({});
+  const [globalComboStrategy, setGlobalComboStrategy] = useState("fallback");
   const [capacityAdapter, setCapacityAdapter] = useState(EMPTY_CAPACITY_ADAPTER);
   const { getCaps } = useModelCaps();
   const [confirmState, setConfirmState] = useState(null);
@@ -215,6 +217,7 @@ export default function CombosPage() {
         setModelAliases(aliasesData.aliases || {});
       }
       setComboStrategies(settingsData.comboStrategies || {});
+      setGlobalComboStrategy(settingsData.comboStrategy || "fallback");
       const rawAdapter = settingsData.capacityAdapter || {};
       const normalized = {};
       for (const cap of CAPACITY_ADAPTER_CAPS) {
@@ -588,6 +591,8 @@ export default function CombosPage() {
                   onEdit={() => setEditingCombo(combo)}
                   onDelete={() => handleDelete(combo.id)}
                   strategy={comboStrategies[combo.name] || {}}
+                  globalStrategy={globalComboStrategy}
+                  comboStrategies={comboStrategies}
                   onSetStrategy={(patch) => handleSetComboStrategy(combo.name, patch)}
                   selected={selectedIds.includes(combo.id)}
                   onToggleSelect={() => toggleSelect(combo.id)}
@@ -693,21 +698,31 @@ function MemberVerdictIcon({ entry, model }) {
   );
 }
 
-function ComboCard({ combo, getCaps, comboByName = {}, resolveMember, activeProviders = [], copied, onCopy, onEdit, onDelete, strategy = {}, onSetStrategy, comboStats = null, comboStatsError = false, selected = false, onToggleSelect }) {
+function ComboCard({ combo, getCaps, comboByName = {}, resolveMember, activeProviders = [], copied, onCopy, onEdit, onDelete, strategy = {}, globalStrategy = "fallback", comboStrategies = {}, onSetStrategy, comboStats = null, comboStatsError = false, selected = false, onToggleSelect }) {
   const [showJudgeSelect, setShowJudgeSelect] = useState(false);
   const [showRouterSelect, setShowRouterSelect] = useState(false);
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const statsEntry = pickComboEntry(comboStats, combo.name);
   const coverage = comboStats && comboStats.coverage ? comboStats.coverage : null;
-  const current = strategy.fallbackStrategy || "fallback";
+  const current = strategy.fallbackStrategy || globalStrategy || "fallback";
   const judge = strategy.judgeModel || "";
   const routerModel = strategy.routerModel || "";
   const isFusion = current === "fusion";
   const isSmart = current === "smart";
   // The synced catalog is server-only, so resolving here would fall back to the
   // generic patterns and under-report the limits. getCaps carries the server's
-  // answer for /api/models.
-  const comboCaps = aggregateComboCapabilities(combo.models, comboByName, { resolveMember, resolveCaps: getCaps });
+  // answer for /api/models; sparseComboCapsOverride drops estimated DEFAULT floors
+  // so dashboard aggregation matches /v1/models discovery.
+  const resolveCaps = (member, target, defaults) => sparseComboCapsOverride(getCaps?.(member));
+  const aggregateOpts = {
+    resolveMember,
+    resolveCaps,
+    rootComboName: combo.name,
+    outputPolicy: resolveComboOutputPolicy(combo.name, { comboStrategies, globalStrategy }),
+    comboStrategies,
+    globalStrategy,
+  };
+  const comboCaps = aggregateComboCapabilities(combo.models, comboByName, aggregateOpts);
 
   return (
     <Card padding="sm" className={`group ${selected ? "ring-1 ring-primary/40 bg-primary/[0.03]" : ""}`}>
@@ -743,7 +758,11 @@ function ComboCard({ combo, getCaps, comboByName = {}, resolveMember, activeProv
                     <span>{model}</span>
                     <CapacityBadges caps={
                       comboByName[model]
-                        ? aggregateComboCapabilities(comboByName[model], comboByName, { resolveMember, resolveCaps: getCaps })
+                        ? aggregateComboCapabilities(comboByName[model], comboByName, {
+                          ...aggregateOpts,
+                          rootComboName: model,
+                          outputPolicy: resolveComboOutputPolicy(model, { comboStrategies, globalStrategy }),
+                        })
                         : getCaps?.(model)
                     } />
                   </code>

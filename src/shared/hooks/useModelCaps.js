@@ -72,13 +72,33 @@ export function resolveCaps(byFull, byId, rawKey) {
   const alias = key.includes("/") ? key.slice(0, key.indexOf("/")) : null;
   const provider = alias ? (ALIAS_TO_ID[alias] || alias) : null;
   const c = getCapabilitiesForModel(provider, bare);
+  // Mark estimated so combo aggregation can ignore DEFAULT floors when the
+  // server did not publish an explicit catalog/measured source.
   return {
     vision: c.vision,
     search: c.search,
     reasoning: c.reasoning,
     contextWindow: c.contextWindow,
     maxOutput: c.maxOutput,
+    contextSource: "estimated",
+    maxOutputSource: "estimated",
   };
+}
+
+/** Sparse override for combo aggregation: only explicit (non-estimated) limits. */
+export function sparseComboCapsOverride(caps) {
+  if (!caps || typeof caps !== "object") return null;
+  const out = {};
+  for (const key of ["vision", "pdf", "audioInput", "videoInput", "imageOutput", "audioOutput", "search", "tools", "reasoning", "thinkingLevels", "thinkingFormat"]) {
+    if (caps[key] != null) out[key] = caps[key];
+  }
+  const explicitContext = caps.contextSource && caps.contextSource !== "estimated"
+    && Number.isFinite(caps.contextWindow) && caps.contextWindow > 0;
+  const explicitOutput = caps.maxOutputSource && caps.maxOutputSource !== "estimated"
+    && Number.isFinite(caps.maxOutput) && caps.maxOutput > 0;
+  if (explicitContext) out.contextWindow = caps.contextWindow;
+  if (explicitOutput) out.maxOutput = caps.maxOutput;
+  return Object.keys(out).length ? out : null;
 }
 
 export function useModelCaps() {

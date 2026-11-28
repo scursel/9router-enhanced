@@ -7,6 +7,7 @@ const db = vi.hoisted(() => ({
   getCustomModels: vi.fn(async () => []),
   getModelAliases: vi.fn(async () => ({})),
   getModelMeta: vi.fn(async () => ({})),
+  getSettings: vi.fn(async () => ({})),
 }));
 
 vi.mock("@/lib/localDb", () => db);
@@ -80,6 +81,31 @@ describe("/v1/models combo limits", () => {
     expect(combo).toMatchObject({
       context_length: 200000,
       capabilities: { contextWindow: 200000 },
+    });
+  });
+
+  it("ordered Claude+Workhorse advertises primary output and MIN context", async () => {
+    db.getProviderConnections.mockResolvedValue([
+      { id: "cl-1", provider: "claude", isActive: true, providerSpecificData: {}, modelCatalog: null },
+      {
+        id: "wh-1",
+        provider: "openai-compatible-chat-workhorse",
+        isActive: true,
+        providerSpecificData: { prefix: "workhorse", enabledModels: ["qwen38-gguf-mtp"] },
+        modelCatalog: null,
+      },
+    ]);
+    db.getCombos.mockResolvedValue([{
+      name: "claude-workhorse",
+      models: ["claude/claude-sonnet-5-5", "workhorse/qwen38-gguf-mtp"],
+    }]);
+    db.getSettings.mockResolvedValue({});
+    const models = await buildModelsList(["llm"]);
+    const combo = models.find((model) => model.id === "claude-workhorse");
+    expect(combo).toMatchObject({
+      max_completion_tokens: 128000,
+      context_length: 65536,
+      capabilities: { maxOutput: 128000, contextWindow: 65536 },
     });
   });
 });

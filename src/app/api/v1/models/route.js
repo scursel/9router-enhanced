@@ -7,7 +7,7 @@ import {
   isAnthropicCompatibleProvider,
   isOpenAICompatibleProvider,
 } from "@/shared/constants/providers";
-import { getProviderConnections, getCombos, getCustomModels, getModelAliases } from "@/lib/localDb";
+import { getProviderConnections, getCombos, getCustomModels, getModelAliases, getSettings } from "@/lib/localDb";
 import { getModelMeta } from "@/lib/db/repos/modelMetaRepo.js";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
 import { classifyTier } from "@/shared/utils/modelTier.js";
@@ -23,7 +23,7 @@ import { resolveZedModels } from "open-sse/shared/zedAuth.js";
 import { resolveCommandCodeModels } from "open-sse/services/commandcodeModels.js";
 import { updateProviderCredentials } from "@/sse/services/tokenRefresh";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
-import { aggregateComboCapabilities, capabilitiesFromServiceKind, getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
+import { aggregateComboCapabilities, capabilitiesFromServiceKind, resolveComboOutputPolicy, getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
 import { getCatalogCost, getCatalogLifecycle } from "open-sse/providers/catalogOverride.js";
 import { makeComboMemberResolver } from "@/shared/utils/comboMemberResolver";
 import { LIVE_CATALOG_PROVIDERS, readListedCapabilities } from "@/shared/utils/importProviderModels";
@@ -744,9 +744,14 @@ export async function buildModelsList(kindFilter, options = {}) {
         });
         return facts;
 
-        function applyFacts({ contextWindow, reasoning, ...caps }) {
-          Object.assign(facts, caps);
-          if (Number.isInteger(contextWindow) && contextWindow > 0) facts.contextWindow = contextWindow;
+        function applyFacts({ contextWindow, maxOutput, reasoning, ...caps }) {
+          const safeCaps = { ...caps };
+          if ("maxOutput" in safeCaps && !(Number.isFinite(safeCaps.maxOutput) && safeCaps.maxOutput > 0)) {
+            delete safeCaps.maxOutput;
+          }
+          Object.assign(facts, safeCaps);
+          if (Number.isFinite(contextWindow) && contextWindow > 0) facts.contextWindow = contextWindow;
+          if (Number.isFinite(maxOutput) && maxOutput > 0) facts.maxOutput = maxOutput;
           if (typeof reasoning === "boolean") facts.reasoning = reasoning;
         }
       };
@@ -972,6 +977,16 @@ export async function buildModelsList(kindFilter, options = {}) {
     }
   }
 
+  let comboStrategies = {};
+  let globalComboStrategy = "fallback";
+  try {
+    const settings = await getSettings();
+    comboStrategies = settings?.comboStrategies || {};
+    globalComboStrategy = settings?.comboStrategy || "fallback";
+  } catch {
+    // Settings optional for discovery; default ordered-fallback → primary output.
+  }
+
   const comboEntries = [];
   for (const combo of combos) {
     if (!comboMatchesKinds(combo, kindFilter)) continue;
@@ -987,7 +1002,20 @@ export async function buildModelsList(kindFilter, options = {}) {
       // so clients guess its window from the name and guess high. The resolver
       // maps custom connection prefixes and model aliases back to provider ids
       // (upstream's static-seat comboSeatCapabilities covers only static aliases).
-      const caps = aggregateComboCapabilities(combo.models, comboMembersByName, { resolveMember: resolveComboMember, resolveCaps: resolveComboCaps });
+      // context_length (MIN) and max_completion_tokens (primary for ordered
+      // fallback; MIN for RR/smart/fusion) are independent routing estimates.
+      // Nested children use their own effective strategy via comboStrategies.
+      const caps = aggregateComboCapabilities(combo.models, comboMembersByName, {
+        resolveMember: resolveComboMember,
+        resolveCaps: resolveComboCaps,
+        rootComboName: combo.name,
+        outputPolicy: resolveComboOutputPolicy(combo.name, {
+          comboStrategies,
+          globalStrategy: globalComboStrategy,
+        }),
+        comboStrategies,
+        globalStrategy: globalComboStrategy,
+      });
       if (caps) {
         entry.capabilities = caps;
         const levels = caps.thinkingLevels?.filter((level) => caps.thinkingCanDisable || level !== "none");

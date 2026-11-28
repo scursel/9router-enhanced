@@ -820,6 +820,19 @@ function splitMember(member) {
   return slash === -1 ? { provider: null, model: member } : { provider: member.slice(0, slash), model: member.slice(slash + 1) };
 }
 
+/** Map a combo fallback strategy to the discovery output policy. */
+export function comboOutputPolicyFromStrategy(fallbackStrategy) {
+  const strategy = fallbackStrategy || "fallback";
+  if (strategy === "round-robin" || strategy === "smart" || strategy === "fusion") return "min";
+  return "primary";
+}
+
+/** Effective output policy for a named combo (per-combo strategy → global → fallback). */
+export function resolveComboOutputPolicy(comboName, { comboStrategies = {}, globalStrategy = "fallback" } = {}) {
+  const fallbackStrategy = comboStrategies?.[comboName]?.fallbackStrategy || globalStrategy || "fallback";
+  return comboOutputPolicyFromStrategy(fallbackStrategy);
+}
+
 /**
  * Capabilities a combo can advertise, from its members. Single source of truth
  * for the dashboard and /v1/models; the rules follow how routing behaves:
@@ -831,33 +844,115 @@ function splitMember(member) {
  *     members that cannot reason, so a client may always ask for them.
  *     thinkingFormat / thinkingRange / thinkingEffortSupported come from the
  *     first reasoning member; thinkingCanDisable only if every reasoning member can.
- *   contextWindow / maxOutput — MINIMUM over members with known limits: the
- *     combo may land on any member, so it can only promise what every one
- *     delivers. Uncatalogued members (DEFAULT floor) are left out unless no
- *     member has data.
+ *   contextWindow — MINIMUM over members with known context: a fallback must
+ *     still fit the smallest window (independent of maxOutput).
+ *   maxOutput — depends on options.outputPolicy:
+ *     "min" (default): MINIMUM over members with known output — conservative for
+ *       round-robin / smart / fusion, where the live start seat is not the first.
+ *     "primary": first configured seat's known output (ordered fallback / sticky
+ *       primary). Nested seats expose first-leaf primaryOutput + minOutput;
+ *       a nested seat whose first leaf is unknown does not promote its own
+ *       walk-fallback as the parent's primary.
+ *   Nested combos use resolveOutputPolicy(name) (or comboStrategies) so a
+ *   round-robin child keeps MIN even when the parent is ordered fallback.
+ *   Published context_length and max_completion_tokens are independent routing
+ *   estimates — clients must not treat (context − maxOutput) as a safe prompt budget.
+ *   Uncatalogued members (DEFAULT floor only) are left out of known pools unless
+ *   no member has data.
  *
  * @param {string[]} comboModels   member strings ("prefix/model", nested combo name, alias)
  * @param {Object|null} [comboLookup] combo name → members array, for nested combos
  * @param {Object} [options]
  * @param {(member: string) => ({provider: string|null, model: string}|null)} [options.resolveMember]
- *   maps a member string to the provider id + model to look up (connection
- *   prefixes, model aliases). Default: split on the first "/". null = skip.
  * @param {(member: string, target: object, defaults: object) => (object|null)} [options.resolveCaps]
- *   optional member → caps override (upstream v0.5.91). The synced model catalog is
- *   server-only, so the dashboard passes the server's answer (/api/models via
- *   useModelCaps); it is merged over the local tables and marks the limits as known.
- *   A function as the third argument is accepted as resolveCaps (upstream's signature).
+ * @param {"primary"|"min"} [options.outputPolicy="min"]
+ * @param {string} [options.rootComboName] seed for the cycle guard (matches chat comboPath)
+ * @param {(comboName: string) => ("primary"|"min"|null|undefined)} [options.resolveOutputPolicy]
+ * @param {Object} [options.comboStrategies] per-combo strategy map (dashboard/settings shape)
+ * @param {string} [options.globalStrategy="fallback"]
  * @returns {object|null} full capabilities object, or null when no member resolves
  */
 export function aggregateComboCapabilities(comboModels, comboLookup = null, options = {}) {
   const opts = typeof options === "function" ? { resolveCaps: options } : (options || {});
-  return aggregate(comboModels, comboLookup, opts.resolveMember || splitMember, 0, new Set(), opts.resolveCaps || null);
+  const outputPolicy = opts.outputPolicy === "primary" ? "primary" : "min";
+  const visited = new Set();
+  if (typeof opts.rootComboName === "string" && opts.rootComboName) visited.add(opts.rootComboName);
+  const resolveOutputPolicy = typeof opts.resolveOutputPolicy === "function"
+    ? opts.resolveOutputPolicy
+    : (name) => resolveComboOutputPolicy(name, {
+      comboStrategies: opts.comboStrategies,
+      globalStrategy: opts.globalStrategy,
+    });
+  return aggregate(
+    comboModels,
+    comboLookup,
+    opts.resolveMember || splitMember,
+    0,
+    visited,
+    opts.resolveCaps || null,
+    outputPolicy,
+    resolveOutputPolicy,
+  );
 }
 
-function aggregate(comboModels, comboLookup, resolveMember, depth, visited, resolveCaps = null) {
+function positiveLimit(value) {
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function attachLimitMeta(caps, { contextLimitsKnown, outputLimitsKnown, primaryOutput, minOutput }) {
+  Object.defineProperty(caps, "limitsKnown", { value: contextLimitsKnown || outputLimitsKnown, enumerable: false });
+  Object.defineProperty(caps, "contextLimitsKnown", { value: !!contextLimitsKnown, enumerable: false });
+  Object.defineProperty(caps, "outputLimitsKnown", { value: !!outputLimitsKnown, enumerable: false });
+  if (primaryOutput != null) Object.defineProperty(caps, "primaryOutput", { value: primaryOutput, enumerable: false });
+  if (minOutput != null) Object.defineProperty(caps, "minOutput", { value: minOutput, enumerable: false });
+  return caps;
+}
+
+// First-leaf known output only — not the walk-fallback used for the child's own advertisement.
+function firstLeafPrimaryOutput(members) {
+  for (const member of members) {
+    if (member.nested) {
+      return positiveLimit(member.primaryOutput);
+    }
+    if (member.outputLimitsKnown) return positiveLimit(member.caps.maxOutput);
+    return null;
+  }
+  return null;
+}
+
+function pickPrimaryMaxOutput(members) {
+  let skippedUnknown = false;
+  for (const member of members) {
+    if (member.nested) {
+      // After an unknown leaf, a nested seat contributes its MIN (Codex:
+      // [unknown, child(Claude+WH)] → 16k), not the child's advertised primary.
+      if (skippedUnknown) {
+        const nestedMin = positiveLimit(member.minOutput);
+        if (nestedMin != null) return nestedMin;
+        continue;
+      }
+      // First seat nested: first-leaf-only primaryOutput. When known, use the
+      // child's advertised maxOutput (RR child stays MIN under ordered parent).
+      // When unknown, fall through without promoting walk-fallback.
+      if (positiveLimit(member.primaryOutput) != null) {
+        return positiveLimit(member.caps.maxOutput) ?? positiveLimit(member.primaryOutput);
+      }
+      skippedUnknown = true;
+      continue;
+    }
+    if (member.outputLimitsKnown) {
+      const value = positiveLimit(member.caps.maxOutput);
+      if (value != null) return value;
+    }
+    skippedUnknown = true;
+  }
+  return null;
+}
+
+function aggregate(comboModels, comboLookup, resolveMember, depth, visited, resolveCaps = null, outputPolicy = "min", resolveOutputPolicy = null) {
   if (!Array.isArray(comboModels) || comboModels.length === 0 || depth >= MAX_COMBO_NESTING_DEPTH) return null;
 
-  const members = []; // { caps, limitsKnown }
+  const members = []; // leaf or nested seat records
   for (const raw of comboModels) {
     if (typeof raw !== "string" || !raw.trim()) continue;
     const member = raw.trim();
@@ -866,18 +961,55 @@ function aggregate(comboModels, comboLookup, resolveMember, depth, visited, reso
       // twice by different paths still counts — only a cycle is cut.
       if (visited.has(member)) continue;
       visited.add(member);
-      const nested = aggregate(comboLookup[member], comboLookup, resolveMember, depth + 1, visited, resolveCaps);
+      const childPolicyRaw = resolveOutputPolicy?.(member);
+      const childPolicy = childPolicyRaw === "primary" || childPolicyRaw === "min" ? childPolicyRaw : outputPolicy;
+      const nested = aggregate(comboLookup[member], comboLookup, resolveMember, depth + 1, visited, resolveCaps, childPolicy, resolveOutputPolicy);
       visited.delete(member);
-      if (nested) members.push({ caps: nested, limitsKnown: nested.limitsKnown });
+      if (nested) {
+        members.push({
+          nested: true,
+          caps: nested,
+          contextLimitsKnown: !!nested.contextLimitsKnown,
+          outputLimitsKnown: !!nested.outputLimitsKnown,
+          // first-leaf only — parents must not see the child's walk-fallback as primary
+          primaryOutput: nested.primaryOutput,
+          minOutput: nested.minOutput,
+          limitsKnown: !!nested.limitsKnown,
+        });
+      }
       continue;
     }
     const target = resolveMember(member);
     if (!target?.model) continue;
     const found = lookupCapabilities(target.provider, target.model);
     const override = resolveCaps?.(member, target, found.caps);
-    members.push(override
-      ? { caps: { ...found.caps, ...override }, limitsKnown: found.limitsKnown || Number.isFinite(override.contextWindow) }
-      : found);
+    if (override && typeof override === "object") {
+      const overrideContext = positiveLimit(override.contextWindow);
+      const overrideOutput = positiveLimit(override.maxOutput);
+      // Spread non-limit fields, then apply only validated limits so 0/NaN/Infinity
+      // cannot wipe a lower-priority known value or the DEFAULT floor.
+      const { contextWindow: _cw, maxOutput: _mo, ...overrideRest } = override;
+      const caps = { ...found.caps, ...overrideRest };
+      caps.contextWindow = overrideContext != null ? overrideContext : found.caps.contextWindow;
+      caps.maxOutput = overrideOutput != null ? overrideOutput : found.caps.maxOutput;
+      const contextLimitsKnown = found.contextLimitsKnown || overrideContext != null;
+      const outputLimitsKnown = found.outputLimitsKnown || overrideOutput != null;
+      members.push({
+        nested: false,
+        caps,
+        contextLimitsKnown,
+        outputLimitsKnown,
+        limitsKnown: contextLimitsKnown || outputLimitsKnown,
+      });
+    } else {
+      members.push({
+        nested: false,
+        caps: found.caps,
+        contextLimitsKnown: !!found.contextLimitsKnown,
+        outputLimitsKnown: !!found.outputLimitsKnown,
+        limitsKnown: !!found.limitsKnown,
+      });
+    }
   }
   if (members.length === 0) return null;
 
@@ -889,22 +1021,44 @@ function aggregate(comboModels, comboLookup, resolveMember, depth, visited, reso
   const reasoners = all.filter((c) => c.reasoning);
   merged.reasoning = reasoners.length > 0;
   if (merged.reasoning) {
-    const primary = reasoners[0];
-    Object.defineProperty(merged, "thinkingLevels", { value: primary.thinkingLevels });
-    merged.thinkingFormat = primary.thinkingFormat;
-    merged.thinkingRange = primary.thinkingRange;
-    merged.thinkingEffortSupported = primary.thinkingEffortSupported;
+    const primaryReasoner = reasoners[0];
+    Object.defineProperty(merged, "thinkingLevels", { value: primaryReasoner.thinkingLevels });
+    merged.thinkingFormat = primaryReasoner.thinkingFormat;
+    merged.thinkingRange = primaryReasoner.thinkingRange;
+    merged.thinkingEffortSupported = primaryReasoner.thinkingEffortSupported;
     merged.thinkingCanDisable = reasoners.every((c) => c.thinkingCanDisable !== false);
   }
 
-  const known = members.filter((m) => m.limitsKnown);
-  const limitSource = (known.length > 0 ? known : members).map((m) => m.caps);
-  merged.contextWindow = Math.min(...limitSource.map((c) => c.contextWindow));
-  merged.maxOutput = Math.min(...limitSource.map((c) => c.maxOutput));
+  const contextKnown = members.filter((m) => m.contextLimitsKnown);
+  const contextSource = (contextKnown.length > 0 ? contextKnown : members).map((m) => m.caps);
+  const contextValues = contextSource.map((c) => positiveLimit(c.contextWindow)).filter((v) => v != null);
+  merged.contextWindow = contextValues.length > 0
+    ? Math.min(...contextValues)
+    : DEFAULT_CAPABILITIES.contextWindow;
 
-  // Carried for nested combos; not part of the public shape.
-  Object.defineProperty(merged, "limitsKnown", { value: known.length > 0, enumerable: false });
-  return merged;
+  const minOutputs = members.map((m) => {
+    if (m.nested) return positiveLimit(m.minOutput);
+    return m.outputLimitsKnown ? positiveLimit(m.caps.maxOutput) : null;
+  }).filter((v) => v != null);
+  const minOutput = minOutputs.length > 0 ? Math.min(...minOutputs) : null;
+  // Meta primaryOutput = first leaf only (for parents). Advertised primary walk may differ.
+  const leafPrimary = firstLeafPrimaryOutput(members);
+  const walkedPrimary = pickPrimaryMaxOutput(members) ?? minOutput;
+
+  if (outputPolicy === "primary" && walkedPrimary != null) {
+    merged.maxOutput = walkedPrimary;
+  } else if (minOutput != null) {
+    merged.maxOutput = minOutput;
+  } else {
+    merged.maxOutput = DEFAULT_CAPABILITIES.maxOutput;
+  }
+
+  return attachLimitMeta(merged, {
+    contextLimitsKnown: contextKnown.length > 0,
+    outputLimitsKnown: minOutput != null || leafPrimary != null,
+    primaryOutput: leafPrimary,
+    minOutput,
+  });
 }
 
 /**
@@ -945,9 +1099,12 @@ function getCatalogSource() {
 // Apply the synced catalog + name heuristic on top of a table-resolved result.
 // Strictly additive: a capability already true stays true, and a false one only
 // flips when an outside source positively declares support.
+// Context and output provenance are tracked separately so a measured context
+// alone cannot promote DEFAULT maxOutput into combo aggregation.
 function refine(base, provider, model) {
   const result = { ...DEFAULT_CAPABILITIES, ...base };
-  let limitsKnown = Number.isFinite(base?.contextWindow);
+  let contextLimitsKnown = positiveLimit(base?.contextWindow) != null;
+  let outputLimitsKnown = positiveLimit(base?.maxOutput) != null;
 
   const source = getCatalogSource();
   if (source) {
@@ -960,14 +1117,17 @@ function refine(base, provider, model) {
 
     const limits = source.getLimits(provider, model);
     if (limits) {
-      if (limits.contextWindow > 0) { result.contextWindow = limits.contextWindow; limitsKnown = true; }
-      if (limits.maxOutput > 0) result.maxOutput = limits.maxOutput;
+      const catalogContext = positiveLimit(limits.contextWindow);
+      const catalogOutput = positiveLimit(limits.maxOutput);
+      if (catalogContext != null) { result.contextWindow = catalogContext; contextLimitsKnown = true; }
+      if (catalogOutput != null) { result.maxOutput = catalogOutput; outputLimitsKnown = true; }
     }
   }
 
   if (!result.vision && looksLikeVisionModel(model)) result.vision = true;
 
-  return { caps: result, limitsKnown };
+  const limitsKnown = contextLimitsKnown || outputLimitsKnown;
+  return { caps: result, limitsKnown, contextLimitsKnown, outputLimitsKnown };
 }
 
 // Mirrors Command Code CLI `isKnownTextOnlyModel` (no image input). New models
@@ -1011,17 +1171,37 @@ export function getCapabilitiesForModel(provider, model) {
   return lookupCapabilities(provider, model).caps;
 }
 
-// Whether contextWindow/maxOutput come from real data (a table entry, a
-// pattern that declares them, or the synced catalog) rather than the
-// DEFAULT_CAPABILITIES floor. Combos use it so an uncatalogued member does not
-// drag the advertised window down to the 200k guess.
+// Whether context and/or output come from real data (table, pattern, catalog)
+// rather than the DEFAULT floor. Used by the runtime clamp so an uncatalogued
+// model is not cut to the 64k guess. Dashboard context labels should use
+// hasKnownContextLimits instead — output-only knowledge must not mark context
+// as "catalog".
 export function hasKnownLimits(provider, model) {
   return lookupCapabilities(provider, model).limitsKnown;
 }
 
+export function hasKnownContextLimits(provider, model) {
+  return !!lookupCapabilities(provider, model).contextLimitsKnown;
+}
+
+export function hasKnownOutputLimits(provider, model) {
+  return !!lookupCapabilities(provider, model).outputLimitsKnown;
+}
+
 function lookupCapabilities(provider, model) {
-  const exact = (entry) => ({ caps: { ...DEFAULT_CAPABILITIES, ...entry }, limitsKnown: Number.isFinite(entry.contextWindow) });
-  if (!model) return { caps: { ...DEFAULT_CAPABILITIES }, limitsKnown: false };
+  const exact = (entry) => {
+    const contextLimitsKnown = positiveLimit(entry?.contextWindow) != null;
+    const outputLimitsKnown = positiveLimit(entry?.maxOutput) != null;
+    return {
+      caps: { ...DEFAULT_CAPABILITIES, ...entry },
+      limitsKnown: contextLimitsKnown || outputLimitsKnown,
+      contextLimitsKnown,
+      outputLimitsKnown,
+    };
+  };
+  if (!model) {
+    return { caps: { ...DEFAULT_CAPABILITIES }, limitsKnown: false, contextLimitsKnown: false, outputLimitsKnown: false };
+  }
 
   // Canonical exact lookup strips vendor prefix: "anthropic/claude-opus-4.7" -> "claude-opus-4.7".
   const baseModel = model.includes("/") ? model.split("/").pop() : model;

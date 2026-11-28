@@ -109,14 +109,32 @@ describe("aggregateComboCapabilities — context/output limits", () => {
     expect(caps.contextWindow).toBe(262144);
   });
 
-  it("maxOutput is the minimum across all models", () => {
-    // mimo-v2.5: 131072; kimi-k2.5 (*kimi*k2* pattern): 262144. Was the MAX,
-    // which promised output the fallback member cannot produce.
+  it("maxOutput defaults to the minimum across known members (conservative / dynamic strategies)", () => {
+    // mimo-v2.5: 131072; kimi-k2.5 (*kimi*k2* pattern): 262144.
     const caps = aggregateComboCapabilities([
       "opencode-go/mimo-v2.5",
       "opencode-go/kimi-k2.5",
     ]);
     expect(caps.maxOutput).toBe(131072);
+  });
+
+  it("outputPolicy primary uses the first seat; reversed order proves it is not MAX", () => {
+    const resolveMember = (m) => {
+      const i = m.indexOf("/");
+      return { provider: m.slice(0, i), model: m.slice(i + 1) };
+    };
+    const forward = aggregateComboCapabilities(
+      ["opencode-go/mimo-v2.5", "opencode-go/kimi-k2.5"],
+      null,
+      { resolveMember, outputPolicy: "primary" },
+    );
+    const reversed = aggregateComboCapabilities(
+      ["opencode-go/kimi-k2.5", "opencode-go/mimo-v2.5"],
+      null,
+      { resolveMember, outputPolicy: "primary" },
+    );
+    expect(forward.maxOutput).toBe(131072);
+    expect(reversed.maxOutput).toBe(262144);
   });
 
   it("an uncatalogued member does not drag limits down to the 200k default", () => {

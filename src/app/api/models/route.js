@@ -4,7 +4,7 @@ import { getModelMeta } from "@/lib/db/index.js";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
 import { AI_MODELS } from "@/shared/constants/config";
 import { getProviderAlias, ALIAS_TO_ID } from "@/shared/constants/providers";
-import { getCapabilitiesForModel, hasKnownLimits } from "open-sse/providers/capabilities.js";
+import { getCapabilitiesForModel, hasKnownContextLimits, hasKnownOutputLimits } from "open-sse/providers/capabilities.js";
 import { getThinkingLevels } from "open-sse/providers/thinkingLevels.js";
 
 // Facts measured at the provider (import picker / Detect button) beat the
@@ -12,11 +12,17 @@ import { getThinkingLevels } from "open-sse/providers/thinkingLevels.js";
 // "provider" | "tested" (measured), "catalog" (known table), "estimated" (pattern guess).
 function withMeasuredFacts(caps, meta, provider, model) {
   const out = { ...caps };
-  if (meta?.contextWindow) {
+  if (Number.isFinite(meta?.contextWindow) && meta.contextWindow > 0) {
     out.contextWindow = meta.contextWindow;
     out.contextSource = meta.contextSource || "provider";
   } else {
-    out.contextSource = hasKnownLimits(provider, model) ? "catalog" : "estimated";
+    out.contextSource = hasKnownContextLimits(provider, model) ? "catalog" : "estimated";
+  }
+  if (Number.isFinite(meta?.maxOutput) && meta.maxOutput > 0) {
+    out.maxOutput = meta.maxOutput;
+    out.maxOutputSource = meta.maxOutputSource || "provider";
+  } else {
+    out.maxOutputSource = hasKnownOutputLimits(provider, model) ? "catalog" : "estimated";
   }
   if (typeof meta?.reasoning === "boolean") {
     out.reasoning = meta.reasoning;

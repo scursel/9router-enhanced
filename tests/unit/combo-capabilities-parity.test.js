@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   getProviderNodes: vi.fn(),
   getProviderConnectionById: vi.fn(),
   getDisabledModels: vi.fn(),
+  getSettings: vi.fn(async () => ({})),
+  getModelMeta: vi.fn(async () => ({})),
 }));
 
 vi.mock("@/lib/localDb", () => ({
@@ -27,7 +29,9 @@ vi.mock("@/lib/localDb", () => ({
   getComboByName: mocks.getComboByName,
   getProviderNodes: mocks.getProviderNodes,
   getProviderConnectionById: mocks.getProviderConnectionById,
+  getSettings: mocks.getSettings,
 }));
+vi.mock("@/lib/db/repos/modelMetaRepo.js", () => ({ getModelMeta: mocks.getModelMeta }));
 
 vi.mock("@/lib/disabledModelsDb", () => ({
   getDisabledModels: mocks.getDisabledModels,
@@ -50,7 +54,7 @@ vi.mock("@/sse/services/tokenRefresh", () => ({ updateProviderCredentials: vi.fn
 vi.mock("@/lib/network/connectionProxy", () => ({ resolveConnectionProxyConfig: vi.fn(async () => ({})) }));
 
 import { buildModelsList } from "../../src/app/api/v1/models/route.js";
-import { aggregateComboCapabilities } from "../../open-sse/providers/capabilities.js";
+import { aggregateComboCapabilities, resolveComboOutputPolicy } from "../../open-sse/providers/capabilities.js";
 import { makeComboMemberResolver } from "../../src/shared/utils/comboMemberResolver.js";
 
 beforeEach(() => {
@@ -95,6 +99,8 @@ describe("/v1/models combo capabilities match the dashboard", () => {
       const entry = await entryFor("PARITY", models, [inner]);
       const dashboard = aggregateComboCapabilities(models, { PARITY: models, inner: inner.models }, {
         resolveMember: makeComboMemberResolver(CONNECTIONS, ALIASES),
+        outputPolicy: resolveComboOutputPolicy("PARITY", {}),
+        rootComboName: "PARITY",
       });
       expect(entry.capabilities).toEqual({ ...dashboard });
       expect(entry.context_length).toBe(dashboard.contextWindow);
@@ -102,10 +108,11 @@ describe("/v1/models combo capabilities match the dashboard", () => {
     });
   }
 
-  it("a reasoning primary with a non-reasoning fallback is advertised as reasoning, limits at the minimum", async () => {
+  it("a reasoning primary with a non-reasoning fallback advertises primary output and MIN context", async () => {
     const entry = await entryFor("MIX", ["work/claude-sonnet-5", "quick"]);
     expect(entry.capabilities.reasoning).toBe(true);
     expect(entry.context_length).toBe(128000);
-    expect(entry.max_completion_tokens).toBe(16384);
+    // Ordered fallback: Claude first seat (128k out), gpt-4o-mini fallback no longer tanks discovery.
+    expect(entry.max_completion_tokens).toBe(128000);
   });
 });
